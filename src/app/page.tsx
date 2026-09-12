@@ -9,8 +9,11 @@ import MailDialog from './mail-dialog';
 import DeveloperPanel from './developer-panel';
 import { DEFAULT_GENERATION, GenerationSettings, restoreWorld, WORLD_SAVE_KEY, WorldObject } from '@/game/world';
 import type { BaseView } from '@/game/scene';
+import { DEPLOYED_AXIES_SAVE_KEY, restoreDeployedAxieIds } from '@/game/town-deployment';
 import CityUnitPanel from './city-unit-panel';
 import { CAPITAL_CITY_ID, CITIES_SAVE_KEY, CityState, createCapitalCity, restoreCities } from '@/game/cities';
+import { createEmptyFormations, Formation, OFFENSE_FORMATIONS_SAVE_KEY, restoreOffenseFormations } from '@/game/offense-formations';
+import { createOffensiveMarchOrder, createRoute, createScoutOrder, isValidFormation, restoreRouteOrders, RouteOrder, WorldTarget } from '@/game/routes';
 
 type InventoryTab = 'resources' | 'equipment' | 'other';
 
@@ -41,6 +44,11 @@ export default function Home() {
   const [ready, setReady] = useState(false);
   const [worldView, setWorldView] = useState(false);
   const [message, setMessage] = useState('A new chapter for Lunacia starts here.');
+  const [target, setTarget] = useState<WorldTarget | null>(null);
+  const [routeAction, setRouteAction] = useState<'choose' | 'formation' | null>(null);
+  const [formationIndex, setFormationIndex] = useState<number | null>(null);
+  const [formations, setFormations] = useState<Formation[]>(createEmptyFormations);
+  const [orders, setOrders] = useState<RouteOrder[]>([]);
   useEffect(() => {
     try { setSelectedCity(restoreCities(localStorage.getItem(CITIES_SAVE_KEY)).find(city => city.id === CAPITAL_CITY_ID) ?? createCapitalCity()); } catch { /* Keep the in-memory capital when storage is unavailable. */ }
   }, []);
@@ -51,7 +59,7 @@ export default function Home() {
     let disposed = false;
     import('@/game/scene').then(({ createBase }) => {
       if (disposed || !canvas.current) return;
-      view.current = createBase(canvas.current, { change: setBuildings, preview: setCell, viewMode: mode => { setWorldView(mode === 'world'); if (mode === 'world') { setCatalog(false); setSelected(null); setMilitary(false); setTraining(false); setHeroes(false); setInventory(false); setPlacing(false); setMoving(null); setCell(null); } }, select: building => { setSelected(building); if (building) { setDeveloper(false); setMilitary(false); setTraining(false); setHeroes(false); setInventory(false); } }, message: setMessage, troops: setTroops });
+      view.current = createBase(canvas.current, { change: setBuildings, preview: setCell, target: next => { setTarget(next); setRouteAction(next ? 'choose' : null); setFormationIndex(null); if (next) { setSelected(null); setDeveloper(false); setMilitary(false); setTraining(false); setHeroes(false); setInventory(false); setCatalog(false); } }, viewMode: mode => { setWorldView(mode === 'world'); if (mode !== 'world') { setTarget(null); setRouteAction(null); } }, select: building => { setSelected(building); if (building) { setDeveloper(false); setMilitary(false); setTraining(false); setHeroes(false); setInventory(false); } }, message: setMessage, troops: setTroops });
       let initialObjects: WorldObject[];
       let savedObjects: WorldObject[] | null = null;
       try { savedObjects = restoreWorld(localStorage.getItem(WORLD_SAVE_KEY)); } catch { savedObjects = null; }
@@ -62,6 +70,7 @@ export default function Home() {
         initialObjects = view.current.regenerateWorld(DEFAULT_GENERATION);
       }
       setWorldObjects(initialObjects);
+      try { setOrders(restoreRouteOrders(localStorage.getItem('axie-conquest-routes-v1'))); setFormations(restoreOffenseFormations(localStorage.getItem(OFFENSE_FORMATIONS_SAVE_KEY), selectedCity.deployedAxieIds, troops)); } catch { /* Keep empty in-memory state when storage is unavailable. */ }
       const requested = Object.values(DEFAULT_GENERATION.counts).reduce((sum, count) => sum + count, 0);
       setGenerationStatus(savedObjects !== null ? `${initialObjects.length} saved objects restored.` : `${initialObjects.length} / ${requested} generated.`);
       setReady(true);
@@ -137,6 +146,13 @@ export default function Home() {
     setHeroes(false); setMilitary(false); setTraining(false); setInventory(false); setMail(false);
     setDeveloper(current => !current);
   }
+  function chooseMarch() {
+    try {
+      setFormations(restoreOffenseFormations(localStorage.getItem(OFFENSE_FORMATIONS_SAVE_KEY), restoreDeployedAxieIds(localStorage.getItem(DEPLOYED_AXIES_SAVE_KEY)), troops));
+    } catch { /* Keep current formations when storage is unavailable. */ }
+    setFormationIndex(null);
+    setRouteAction('formation');
+  }
   function regenerate() {
     if (!view.current) return;
     const objects = view.current.regenerateWorld(generation);
@@ -145,6 +161,7 @@ export default function Home() {
     setGenerationStatus(`${objects.length} / ${requested} generated.${objects.length < requested ? ' Not enough space for all objects. Reduce counts or minimum distance.' : ''} Session only.`);
     view.current.setWorldView(true);
   }
+  function saveOrder(order: RouteOrder) { const next = [...orders, order]; setOrders(next); try { localStorage.setItem('axie-conquest-routes-v1', JSON.stringify(next)); } catch { /* Session fallback. */ } if (order.kind === 'march') view.current?.setRoute(order.route); setMessage(order.kind === 'scout' ? 'Scout dispatched.' : 'Offensive march dispatched.'); setTarget(null); setRouteAction(null); }
   return <main className={`game ${worldView ? 'world-mode' : ''}`}>
     <button className="world-toggle" onClick={toggleWorldView}>{worldView ? 'Base' : 'World'}</button>
     <canvas ref={canvas} aria-label="Lunacia settlement. Drag to pan, scroll or pinch to zoom. Choose a building, then tap the land to position it." />
@@ -161,6 +178,8 @@ export default function Home() {
       const dimensions = getBuildingDimensions(kind);
       return <button key={kind} className="building-card" onClick={() => begin(kind)} disabled={!ready}><span className="building-art" aria-hidden="true">{definition.icon}</span><span><strong>{definition.name}</strong><small>{definition.category} &middot; {dimensions.width} &times; {dimensions.depth}</small></span><span className="add" aria-hidden="true">+</span></button>;
     })}</div><div className="catalog-footer">Prototype construction is free <span>40 × 20 base grid</span></div></section>}
+    {target && routeAction === 'choose' && <section className="selection world-action panel" aria-label="World actions"><button className="close" aria-label="Close world actions" onClick={() => { setTarget(null); setRouteAction(null); }}>&times;</button><span className="eyebrow">WORLD TARGET</span><h2>{target.label || 'Uncharted land'}</h2><p>Coordinate {target.x.toFixed(1)}, {target.z.toFixed(1)} · Route {createRoute(target).distance} tiles</p><button className="secondary" onClick={() => saveOrder(createScoutOrder(target))}>Scout</button><button className="primary" onClick={chooseMarch}>March</button></section>}
+    {target && routeAction === 'formation' && <section className="selection world-action panel" aria-label="World actions"><button className="close" aria-label="Close world actions" onClick={() => { setTarget(null); setRouteAction(null); }}>&times;</button><span className="eyebrow">OFFENSIVE MARCH</span><h2>Choose formation</h2><p>At least one Axie must be assigned.</p>{formations.map((formation, index) => <button key={index} className="building-card" aria-pressed={formationIndex === index} disabled={!isValidFormation(formation)} onClick={() => setFormationIndex(index)}><strong>Formation {index + 1}{formationIndex === index ? ' · Selected' : ''}</strong><small>{isValidFormation(formation) ? 'Axie assigned · Ready' : 'Unavailable · Assign an Axie first'}</small></button>)}{!formations.some(isValidFormation) && <button className="secondary" onClick={() => { setTarget(null); setRouteAction(null); setMilitary(true); view.current?.home(); }}>Configure formations in Military</button>}<button className="primary" disabled={formationIndex === null || !isValidFormation(formations[formationIndex ?? -1])} onClick={() => { if (target && formationIndex !== null) saveOrder(createOffensiveMarchOrder(target, formationIndex)); }}>Send march</button></section>}
     {military && !placing && !selected && <MilitaryPanel troops={troops} onClose={() => setMilitary(false)} />}
     {cityUnit && !placing && !selected && <CityUnitPanel city={{ ...selectedCity, troops }} onClose={() => setCityUnit(false)} />}
     <button className="city-toggle build-toggle" onClick={() => { setHeroes(false); setMilitary(false); setTraining(false); setInventory(false); setSelected(null); setCatalog(false); setCityUnit(current => !current); }} aria-expanded={cityUnit}><span>City</span></button>

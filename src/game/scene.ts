@@ -3,9 +3,10 @@ import { ArcRotateCamera, Color3, Color4, DirectionalLight, Engine, HemisphericL
 import { BUILDING_DEFINITIONS, BuildableKind, BuildingKind, Building, Cell, FOOTPRINT, GRID_DEPTH, GRID_WIDTH, MAIN_HALL, canPlace, getBuildingDimensions, getBuildingFootprint, restoreBuildings, canMoveBuilding, moveBuilding, removeBuilding, rotateBuilding, Troops, TroopKind } from './base';
 import { createMilitaryService, getTrainingMessage } from './military-service';
 import { CAPITAL_CITY_ID } from './cities';
+import { Coordinate, WorldTarget } from './routes';
 
-type Events = { troops: (troops: Troops) => void; change: (b: Building[]) => void; preview: (c: Cell | null) => void; select: (b: Building | null) => void; message: (s: string) => void; viewMode: (mode: 'base' | 'world') => void };
-export type BaseView = { regenerateWorld: (settings: GenerationSettings) => WorldObject[]; loadWorld: (objects: WorldObject[]) => void; removeWorld: () => void; train: (kind: TroopKind) => boolean; rotate: (id: string) => boolean; move: (id: string) => boolean; remove: (id: string) => boolean; begin: (kind: BuildableKind) => void; cancel: () => void; confirm: () => boolean; setGridVisible: (visible: boolean) => void; setWorldView: (enabled: boolean) => void; zoom: (factor: number) => void; home: () => void; dispose: () => void };
+type Events = { troops: (troops: Troops) => void; change: (b: Building[]) => void; preview: (c: Cell | null) => void; select: (b: Building | null) => void; target: (target: WorldTarget | null) => void; message: (s: string) => void; viewMode: (mode: 'base' | 'world') => void };
+export type BaseView = { regenerateWorld: (settings: GenerationSettings) => WorldObject[]; loadWorld: (objects: WorldObject[]) => void; removeWorld: () => void; train: (kind: TroopKind) => boolean; rotate: (id: string) => boolean; move: (id: string) => boolean; remove: (id: string) => boolean; begin: (kind: BuildableKind) => void; cancel: () => void; confirm: () => boolean; setGridVisible: (visible: boolean) => void; setWorldView: (enabled: boolean) => void; setRoute: (route: { origin: Coordinate; destination: Coordinate } | null) => void; zoom: (factor: number) => void; home: () => void; dispose: () => void };
 const SAVE_KEY = 'axie-conquest-base-v2';
 const HALF_WIDTH = GRID_WIDTH / 2;
 const HALF_DEPTH = GRID_DEPTH / 2;
@@ -63,6 +64,18 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
   // A wider invisible picking surface lets previews cross the boundary and turn red.
   const picker = MeshBuilder.CreateGround('placement plane', { width: WORLD_WIDTH, height: WORLD_DEPTH }, scene);
   picker.visibility = 0; picker.isPickable = true;
+  const routeRoot = new TransformNode('march route', scene);
+  let routeLine: ReturnType<typeof MeshBuilder.CreateLines> | null = null;
+  const routeMarker = MeshBuilder.CreateCylinder('route destination', { diameter: 1.6, height: 0.12, tessellation: 24 }, scene);
+  routeMarker.position.y = 0.12; routeMarker.isPickable = false; routeMarker.setEnabled(false);
+  const routeMaterial = material('route glow', '#f5d36b');
+  function setRoute(route: { origin: Coordinate; destination: Coordinate } | null) {
+    routeLine?.dispose(); routeLine = null; routeMarker.setEnabled(!!route);
+    if (!route) return;
+    routeMarker.position.x = route.destination.x; routeMarker.position.z = route.destination.z;
+    routeLine = MeshBuilder.CreateLines('march route line', { points: [new Vector3(route.origin.x, 0.16, route.origin.z), new Vector3(route.destination.x, 0.16, route.destination.z)] }, scene);
+    routeLine.color = Color3.FromHexString('#f5d36b'); routeLine.alpha = 0.9; routeLine.parent = routeRoot;
+  }
   // Default fortifications sit outside the settlement grid and never consume build cells.
   const perimeter = new TransformNode('base perimeter', scene);
   const perimeterX = HALF_WIDTH + 1.2;
@@ -309,7 +322,7 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
       box('loot crate', 0.6, 0.6, 0.6, 1.5, 0.4, -1.5, gold, root);
     }
     const description = `${WORLD_DEFINITIONS[object.kind].name} ? Structure only${object.loot.apple ? ' ? Loot: 1 apple (unavailable)' : ' ? Gathering and combat unavailable'}`;
-    root.getChildMeshes().forEach(mesh => { mesh.isPickable = true; mesh.metadata = { mapObject: description }; });
+    root.getChildMeshes().forEach(mesh => { mesh.isPickable = true; mesh.metadata = { mapObject: description, worldTarget: { x: object.x, z: object.z, id: object.id, label: WORLD_DEFINITIONS[object.kind].name } }; });
   }
   let buildings: Building[];
   try {
@@ -416,13 +429,18 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
         home();
         return;
       }
+      if (overviewActive && point) {
+        const target = hit?.pickedMesh?.metadata?.worldTarget ?? { x: point.x, z: point.z };
+        events.target(target);
+        return;
+      }
       const building = buildings.find(b => b.id === hit?.pickedMesh?.metadata?.buildingId);
       events.select(building || null);
       if (!building && hit?.pickedMesh?.metadata?.mapObject) events.message(hit.pickedMesh.metadata.mapObject);
     }
   }
   function wheel(e: WheelEvent) { e.preventDefault(); zoom(Math.exp(e.deltaY * 0.001)); }
-  function cancel() { movingId = null; placing = false; candidate = null; gridRoot.setEnabled(false); previewRoot.setEnabled(false); events.preview(null); }
+  function cancel() { movingId = null; placing = false; candidate = null; gridRoot.setEnabled(false); previewRoot.setEnabled(false); setRoute(null); events.preview(null); events.target(null); }
   canvas.addEventListener('pointerdown', down); canvas.addEventListener('pointermove', move);
   canvas.addEventListener('pointerup', up); canvas.addEventListener('pointercancel', up);
   canvas.addEventListener('wheel', wheel, { passive: false });
@@ -455,6 +473,7 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
       else home();
       updateOverview();
     },
+    setRoute,
     begin(kind) { cancel(); buildingKind = kind; placing = true; gridRoot.setEnabled(true); refreshGrid(); const hall = buildings.find(b => b.kind === 'hall')!; preview({ x: hall.x + FOOTPRINT, z: hall.z }); },
     cancel,
     move(id) {
