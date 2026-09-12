@@ -34,9 +34,30 @@
 
 - [x] Add Train HUD with building-gated infantry and archers, instant prototype training batches, and validated local troop saves.
 
+- [x] Replace Train HUD with a military command panel unlocked by a military facility, including Axie scout assignment, wall/watchtower defense status, and offense training.
+
 - [x] Add Axies HUD, all nine class starter heroes, compact roster portraits, and selectable hero details.
 
+- [x] Add an empty Inventory HUD panel with Resources, Equipment, and Other tabs to the settlement hub.
+
+- [x] Add Lunacian Road infrastructure and Healing Lodge hospital structures with distinct catalog entries, models, and validated persistence.
+- [x] Make Lunacian Road a one-cell-wide, four-cell pathway segment while retaining 4 × 4 footprints for buildings.
+
 ## Verification results
+
+- [x] Add Oil Barrel to the build catalog with a 4 × 4 footprint, barrel model, and validated local placement saves.
+
+- [x] Add Axies Active/Own/Borrow tabs, with All Active roster and Deployed in Town subtab; ownership sync, borrowing, and town deployment remain placeholders.
+
+- [x] Add hub Mail with Battle Logs and Scout Reports placeholder tabs and empty states.
+
+- [x] Add a disabled Train Axie placeholder describing self-leveling and requiring a Happy, unassigned Axie.
+
+- [x] Add a placeable 4 × 4 Training Ground structure and restore the hub Train dialog, with Soldiers gated by Barracks and Archers gated by Archery Range.
+
+- [x] Return to the march template after slot assignment; choose leaders only from placed Axies and clear leadership when their slot is replaced.
+
+- [x] Connect the 4/5/4/5 march formation with equal-sized hexes, staggered rows, overlapping sloped edges, and Front/Back labels outside the grid.
 
 - Build menu visibility now controls the construction grid, including initial load and returning from placement.
 

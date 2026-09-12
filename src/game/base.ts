@@ -2,6 +2,8 @@ export const GRID_WIDTH = 40;
 export const GRID_DEPTH = 20;
 export const FOOTPRINT = 4;
 export const BUILDING_DEFINITIONS = {
+  oil: { name: 'Oil Barrel', category: 'Storage', icon: '\u{1F6E2}', description: 'A sturdy oil barrel on a timber platform, storing supplies for the growing settlement.' },
+  training: { name: 'Training Ground', category: 'Military', icon: '\u2694', description: 'An open practice yard where Axies drill and prepare to defend Lunacia. A settlement structure; troop training unlocks at the Barracks and Archery Range.' },
   hall: { name: 'Main Hall', category: 'City center', icon: '\u2302', description: 'The heart of your settlement. Your Axies gather here to plan a brighter Lunacia.' },
   farm: { name: 'Everleaf Farm', category: 'Resource', icon: '\u{1F33E}', description: 'A little patch of abundance, tended by the Axies of Everleaf.' },
   lumber: { name: 'Lumber Mill', category: 'Resource', icon: '\u{1FAB5}', description: 'Axie woodworkers prepare timber to help Everleaf grow.' },
@@ -11,20 +13,28 @@ export const BUILDING_DEFINITIONS = {
   tavern: { name: 'Tavern', category: 'Community', icon: '\u{1F37A}', description: 'A warm hearth where Axies share stories and forge friendships.' },
   scout: { name: 'Scout Lodge', category: 'Exploration', icon: '\u{1F9ED}', description: 'A lookout for explorers preparing to chart the paths of Lunacia.' },
   archery: { name: 'Archery Range', category: 'Military', icon: '\u{1F3F9}', description: 'A practice yard for the sharp-eyed defenders of the settlement.' },
+  road: { name: 'Lunacian Road', category: 'Infrastructure', icon: '\u{1F6E3}', description: 'A sturdy stone way that connects Axies, homes, and gathering places.' },
+  hospital: { name: 'Healing Lodge', category: 'Community', icon: '\u2695', description: 'A gentle refuge where healer Axies tend to wounded friends and restore their strength.' },
 } as const;
 export type BuildingKind = keyof typeof BUILDING_DEFINITIONS;
 export type BuildableKind = Exclude<BuildingKind, 'hall'>;
-export const BUILDABLE_KINDS: BuildableKind[] = ['farm', 'lumber', 'stone', 'quarry', 'barracks', 'tavern', 'scout', 'archery'];
+export const BUILDABLE_KINDS: BuildableKind[] = ['farm', 'lumber', 'stone', 'quarry', 'barracks', 'tavern', 'scout', 'archery', 'road', 'hospital', 'training', 'oil'];
+export function getBuildingFootprint(kind: BuildingKind): number {
+  return kind === 'road' ? 1 : FOOTPRINT;
+}
+export function getBuildingDimensions(kind: BuildingKind, rotation: 0 | 1 | 2 | 3 = 0): { width: number; depth: number } {
+  return kind === 'road' && rotation % 2 === 0 ? { width: 4, depth: 1 } : kind === 'road' ? { width: 1, depth: 4 } : { width: FOOTPRINT, depth: FOOTPRINT };
+}
 export function isBuildableKind(value: unknown): value is BuildableKind {
   return typeof value === 'string' && BUILDABLE_KINDS.includes(value as BuildableKind);
 }
 export type Building = { id: string; kind: BuildingKind; x: number; z: number; rotation?: 0 | 1 | 2 | 3 };
 export type Cell = { x: number; z: number };
 export const MAIN_HALL: Building = { id: 'main-hall', kind: 'hall', x: (GRID_WIDTH - FOOTPRINT) / 2, z: (GRID_DEPTH - FOOTPRINT) / 2 };
-export function canPlace(cell: Cell, buildings: Building[]): boolean {
+export function canPlace(cell: Cell, buildings: Building[], width = FOOTPRINT, depth = width): boolean {
   return Number.isInteger(cell.x) && Number.isInteger(cell.z) && cell.x >= 0 && cell.z >= 0 &&
-    cell.x + FOOTPRINT <= GRID_WIDTH && cell.z + FOOTPRINT <= GRID_DEPTH &&
-    !buildings.some(b => cell.x < b.x + FOOTPRINT && cell.x + FOOTPRINT > b.x && cell.z < b.z + FOOTPRINT && cell.z + FOOTPRINT > b.z);
+    cell.x + width <= GRID_WIDTH && cell.z + depth <= GRID_DEPTH &&
+    !buildings.some(b => { const size = getBuildingDimensions(b.kind, b.rotation); return cell.x < b.x + size.width && cell.x + width > b.x && cell.z < b.z + size.depth && cell.z + depth > b.z; });
 }
 export function restoreBuildings(value: string | null, transposeLegacy = false): Building[] {
   const result: Building[] = [{ ...MAIN_HALL }];
@@ -40,7 +50,7 @@ export function restoreBuildings(value: string | null, transposeLegacy = false):
     }
     for (const saved of entries) {
       const entry = saved && transposeLegacy ? { ...saved, x: saved.z, z: saved.x } : saved;
-      if (entry && isBuildableKind(entry.kind) && typeof entry.id === 'string' && !result.some(b => b.id === entry.id) && canPlace(entry, result)) {
+      if (entry && isBuildableKind(entry.kind) && typeof entry.id === 'string' && !result.some(b => b.id === entry.id) && canPlace(entry, result, getBuildingDimensions(entry.kind, rotation(entry).rotation).width, getBuildingDimensions(entry.kind, rotation(entry).rotation).depth)) {
         result.push({ id: entry.id, kind: entry.kind, x: entry.x, z: entry.z, ...rotation(entry) });
       }
     }
@@ -50,7 +60,8 @@ export function restoreBuildings(value: string | null, transposeLegacy = false):
 
 export function canMoveBuilding(id: string, cell: Cell, buildings: Building[]): boolean {
   const building = buildings.find(b => b.id === id);
-  return !!building && canPlace(cell, buildings.filter(b => b.id !== id));
+  const size = building && getBuildingDimensions(building.kind, building.rotation);
+  return !!building && !!size && canPlace(cell, buildings.filter(b => b.id !== id), size.width, size.depth);
 }
 export function moveBuilding(id: string, cell: Cell, buildings: Building[]): Building[] | null {
   if (!canMoveBuilding(id, cell, buildings)) return null;

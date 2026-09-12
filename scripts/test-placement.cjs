@@ -6,7 +6,7 @@ const source = ts.transpileModule(fs.readFileSync('src/game/base.ts', 'utf8'), {
 }).outputText;
 const compiled = { exports: {} };
 new Function('exports', 'require', 'module', source)(compiled.exports, require, compiled);
-const { canPlace, restoreBuildings, MAIN_HALL } = compiled.exports;
+const { canPlace, getBuildingDimensions, getBuildingFootprint, restoreBuildings, MAIN_HALL } = compiled.exports;
 
 assert.equal(canPlace({ x: 0, z: 0 }, []), true);
 assert.equal(canPlace({ x: 36, z: 16 }, []), true);
@@ -16,6 +16,11 @@ for (const cell of [{ x: -1, z: 0 }, { x: 37, z: 16 }, { x: 0, z: 17 }, { x: 0.5
 assert.equal(canPlace({ x: 18, z: 8 }, [MAIN_HALL]), false);
 assert.equal(canPlace({ x: 21, z: 11 }, [MAIN_HALL]), false, 'Reject even one overlapping cell');
 assert.equal(canPlace({ x: 22, z: 8 }, [MAIN_HALL]), true, 'Allow adjacent footprints');
+assert.equal(getBuildingFootprint('road'), 1, 'Road occupies one cell');
+assert.deepEqual(getBuildingDimensions('road'), { width: 4, depth: 1 }, 'Road builds as a four-cell horizontal segment');
+assert.deepEqual(getBuildingDimensions('road', 1), { width: 1, depth: 4 }, 'Road rotates to a four-cell vertical segment');
+assert.equal(canPlace({ x: 18, z: 8 }, [MAIN_HALL], getBuildingFootprint('road')), false, 'Road cannot overlap Main Hall');
+assert.equal(canPlace({ x: 0, z: 0 }, [{ id: 'road', kind: 'road', x: 1, z: 0 }], getBuildingFootprint('road')), true, 'Road can use adjacent single cell');
 const fullBase = [];
 for (let z = 0; z < 20; z += 4) for (let x = 0; x < 40; x += 4) {
   assert.equal(canPlace({ x, z }, fullBase), true);
@@ -36,14 +41,15 @@ const legacy = [{ id: 'legacy-farm', kind: 'farm', x: 12, z: 18 }, { id: 'far-ed
 assert.deepEqual(restoreBuildings(JSON.stringify(legacy), true), [MAIN_HALL, ...legacy.map(b => ({ ...b, x: b.z, z: b.x }))], 'Migrate legacy farms by swapping coordinates');
 assert.deepEqual(restoreBuildings(JSON.stringify(restoreBuildings(JSON.stringify(legacy), true))), restoreBuildings(JSON.stringify(legacy), true));
 const { BUILDABLE_KINDS } = compiled.exports;
-const mixedSettlement = BUILDABLE_KINDS.map((kind, i) => ({ id: `building-${kind}`, kind, x: i * 4, z: 0 }));
+const mixedSettlement = BUILDABLE_KINDS.map((kind, i) => ({ id: `building-${kind}`, kind, x: (i % 10) * 4, z: Math.floor(i / 10) * 4 }));
 assert.deepEqual(restoreBuildings(JSON.stringify(mixedSettlement)), [MAIN_HALL, ...mixedSettlement], 'Restore every supported building kind without changing its identity');
-for (const kind of ['lumber', 'quarry', 'barracks', 'tavern', 'scout', 'archery']) {
+for (const kind of ['lumber', 'quarry', 'barracks', 'tavern', 'scout', 'archery', 'road', 'hospital', 'training', 'oil']) {
   assert.ok(BUILDABLE_KINDS.includes(kind), `Build menu supports ${kind}`);
+  const footprint = getBuildingFootprint(kind);
   assert.deepEqual(restoreBuildings(JSON.stringify([
     { id: 'valid', kind, x: 0, z: 0 },
-    { id: 'overlap', kind, x: 1, z: 1 },
-    { id: 'outside', kind, x: 38, z: 0 },
+    { id: 'overlap', kind, x: footprint === 1 ? 0 : 1, z: footprint === 1 ? 0 : 1 },
+    { id: 'outside', kind, x: footprint === 1 ? 40 : 38, z: 0 },
   ])), [MAIN_HALL, { id: 'valid', kind, x: 0, z: 0 }], `Validate saved ${kind} placements`);
 }
 assert.deepEqual(restoreBuildings(JSON.stringify([{ id: 'unknown', kind: 'castle', x: 0, z: 0 }])), [MAIN_HALL], 'Reject unsupported building kinds');

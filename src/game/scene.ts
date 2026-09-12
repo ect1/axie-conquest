@@ -1,8 +1,8 @@
 import { ArcRotateCamera, Color3, Color4, DirectionalLight, Engine, HemisphericLight, MeshBuilder, Scene, StandardMaterial, TransformNode, Vector3 } from '@babylonjs/core';
-import { BUILDING_DEFINITIONS, BuildableKind, BuildingKind, Building, Cell, FOOTPRINT, GRID_DEPTH, GRID_WIDTH, MAIN_HALL, canPlace, restoreBuildings, canMoveBuilding, moveBuilding, removeBuilding, rotateBuilding, Troops, TroopKind, TROOP_DEFINITIONS, TRAINING_BATCH, restoreTroops, trainTroops } from './base';
+import { BUILDING_DEFINITIONS, BuildableKind, BuildingKind, Building, Cell, FOOTPRINT, GRID_DEPTH, GRID_WIDTH, MAIN_HALL, canPlace, getBuildingDimensions, getBuildingFootprint, restoreBuildings, canMoveBuilding, moveBuilding, removeBuilding, rotateBuilding, Troops, TroopKind, TROOP_DEFINITIONS, TRAINING_BATCH, restoreTroops, trainTroops } from './base';
 
-type Events = { troops: (troops: Troops) => void; change: (b: Building[]) => void; preview: (c: Cell | null) => void; select: (b: Building | null) => void; message: (s: string) => void };
-export type BaseView = { train: (kind: TroopKind) => boolean; rotate: (id: string) => boolean; move: (id: string) => boolean; remove: (id: string) => boolean; begin: (kind: BuildableKind) => void; cancel: () => void; confirm: () => boolean; setGridVisible: (visible: boolean) => void; zoom: (factor: number) => void; home: () => void; dispose: () => void };
+type Events = { troops: (troops: Troops) => void; change: (b: Building[]) => void; preview: (c: Cell | null) => void; select: (b: Building | null) => void; message: (s: string) => void; viewMode: (mode: 'base' | 'world') => void };
+export type BaseView = { train: (kind: TroopKind) => boolean; rotate: (id: string) => boolean; move: (id: string) => boolean; remove: (id: string) => boolean; begin: (kind: BuildableKind) => void; cancel: () => void; confirm: () => boolean; setGridVisible: (visible: boolean) => void; setWorldView: (enabled: boolean) => void; zoom: (factor: number) => void; home: () => void; dispose: () => void };
 const TROOP_SAVE_KEY = 'axie-conquest-troops-v1';
 const SAVE_KEY = 'axie-conquest-base-v2';
 const HALF_WIDTH = GRID_WIDTH / 2;
@@ -36,10 +36,9 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
   const soil = material('soil', '#916344');
   const crop = material('crops', '#b3c354');
   const rockMat = material('quarried stone', '#8e9b9d');
-  const pathMat = material('exploration path', '#c7ae78');
-  const ruinMat = material('ancient ruin', '#9b866e');
-  const crystalMat = material('moon crystals', '#73c8c4');
-  const accents = { lumber: material('lumber canopy', '#997244'), stone: material('slate roof', '#647c91'), quarry: rockMat, barracks: material('barracks red', '#b35f51'), tavern: material('tavern amber', '#c18a45'), scout: material('scout blue', '#588caa'), archery: material('archery green', '#567c48') };
+  const medical = material('healing cross', '#d95c60');
+  const oilPaint = material('oil barrel blue', '#537887');
+  const accents = { lumber: material('lumber canopy', '#997244'), stone: material('slate roof', '#647c91'), quarry: rockMat, barracks: material('barracks red', '#b35f51'), tavern: material('tavern amber', '#c18a45'), scout: material('scout blue', '#588caa'), archery: material('archery green', '#567c48'), road: material('road paving', '#8e9993'), hospital: material('hospital blue', '#75a9b5') };
   const validMat = material('valid footprint', '#42f099', 0.7);
   const invalidMat = material('invalid footprint', '#ff5056', 0.8);
   validMat.emissiveColor = Color3.FromHexString('#1e7946');
@@ -57,31 +56,6 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
   // Keep the buildable island distinct so placement remains constrained to the base.
   const world = MeshBuilder.CreateGround('Lunacia exploration field', { width: 200, height: 200 }, scene);
   world.position.y = -0.08; world.material = grass; world.isPickable = false;
-  function worldMarker(name: string, x: number, z: number, kind: 'ruin' | 'crystal' | 'grove', message: string) {
-    const root = new TransformNode(name, scene); root.position.set(x, 0, z);
-    root.metadata = { mapObject: message };
-    if (kind === 'ruin') {
-      box('ruin slab', 4.6, 0.45, 2.8, 0, 0.24, 0, ruinMat, root);
-      for (const offset of [-1.7, 1.7]) box('ruin pillar', 0.6, 2.7, 0.6, offset, 1.35, 0, ruinMat, root);
-      box('ruin lintel', 4, 0.55, 0.6, 0, 2.7, 0, ruinMat, root);
-    } else if (kind === 'crystal') {
-      for (const offset of [-0.9, 0, 0.9]) {
-        const shard = MeshBuilder.CreateCylinder('moon crystal', { diameterTop: 0.12, diameterBottom: 0.75, height: 2.2, tessellation: 6 }, scene);
-        shard.parent = root; shard.position.set(offset, 1.1, Math.abs(offset) * 0.5); shard.material = crystalMat; shard.rotation.z = offset * 0.14;
-      }
-    } else {
-      for (const offset of [-1.5, 0, 1.5]) {
-        const tree = MeshBuilder.CreateCylinder('exploration grove', { diameterTop: 0, diameterBottom: 1.7, height: 3.8, tessellation: 7 }, scene);
-        tree.parent = root; tree.position.set(offset, 1.9, Math.abs(offset) * 0.35); tree.material = roof;
-      }
-    }
-    root.getChildMeshes().forEach(mesh => { mesh.isPickable = true; mesh.metadata = { mapObject: message }; });
-  }
-  worldMarker('sunken temple', -28, -20, 'ruin', 'The Sunken Temple waits beyond the western road. Scout it with an Axie hero.');
-  worldMarker('moon crystal field', 29, 17, 'crystal', 'Moon crystals shimmer here. A gathering party could claim this resource node.');
-  worldMarker('whispering grove', 24, -22, 'grove', 'The Whispering Grove is alive with rustling leaves and hidden paths.');
-  box('west road', 2.2, 0.08, 42, -15, 0.02, -22, pathMat);
-  box('north road', 42, 0.08, 2.2, 19, 0.02, -15, pathMat);
   const land = MeshBuilder.CreateGround('buildable land', { width: GRID_WIDTH, height: GRID_DEPTH }, scene);
   land.material = grass;
   // A wider invisible picking surface lets previews cross the boundary and turn red.
@@ -124,12 +98,41 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
     box('jade pennant', 0.65, 0.35, 0.06, x + 0.3, 3.65, z, roof, perimeter);
   }
   const buildingRoots = new Map<string, TransformNode>();
+  // At world scale the detailed 4x4 building footprints become visual noise.
+  // Use one compact settlement silhouette instead, then restore the detailed
+  // base as soon as the player zooms back in.
+  const overviewRoot = new TransformNode('settlement world marker', scene);
+  const overviewIsland = box('settlement overview island', 24, 0.45, 13, 0, 0.12, 0, earth, overviewRoot);
+  overviewIsland.isPickable = true;
+  overviewIsland.metadata = { mapObject: 'Everleaf Haven' };
+  box('settlement overview keep', 11, 2.8, 7, 0, 1.55, 0, wall, overviewRoot);
+  box('settlement overview roof', 12.5, 0.55, 8.3, 0, 3.15, 0, roof, overviewRoot);
+  const overviewCap = MeshBuilder.CreateCylinder('settlement overview roof cap', { diameterBottom: 9, diameterTop: 2.6, height: 2.6, tessellation: 4 }, scene);
+  overviewCap.parent = overviewRoot; overviewCap.position.y = 4.65; overviewCap.rotation.y = Math.PI / 4; overviewCap.material = roof;
+  box('settlement overview gate', 3.2, 1.8, 0.25, 0, 1.15, -3.65, dark, overviewRoot);
+  box('settlement overview banner', 0.35, 3.8, 0.35, 0, 4.8, 0, gold, overviewRoot);
+  overviewRoot.setEnabled(false);
+  const WORLD_OVERVIEW_RADIUS = 58;
+  let overviewActive = false;
+  function updateOverview() {
+    const overview = camera.radius >= WORLD_OVERVIEW_RADIUS || Math.hypot(camera.target.x, camera.target.z) > 24;
+    overviewRoot.setEnabled(overview);
+    perimeter.setEnabled(!overview);
+    buildingRoots.forEach(root => root.setEnabled(!overview));
+    gridRoot?.setEnabled(!overview && (placing));
+    previewRoot?.setEnabled(!overview && placing && candidate !== null);
+    if (overview !== overviewActive) {
+      overviewActive = overview;
+      events.viewMode(overview ? 'world' : 'base');
+    }
+  }
   function makeBuilding(b: Building) {
     const root = new TransformNode(b.id, scene);
     buildingRoots.set(b.id, root);
     root.rotation.y = (b.rotation ?? 0) * Math.PI / 2;
-    root.position.set(b.x - HALF_WIDTH + FOOTPRINT / 2, 0, b.z - HALF_DEPTH + FOOTPRINT / 2);
-    box('foundation', 3.85, 0.18, 3.85, 0, 0.1, 0, stone, root);
+    const size = getBuildingDimensions(b.kind, b.rotation);
+    root.position.set(b.x - HALF_WIDTH + size.width / 2, 0, b.z - HALF_DEPTH + size.depth / 2);
+    box('foundation', size.width * 0.96, 0.18, size.depth * 0.96, 0, 0.1, 0, stone, root);
     if (b.kind === 'hall') {
       box('hall walls', 2.8, 1.7, 2.6, 0, 1, 0, wall, root);
       box('hall lower roof', 3.5, 0.3, 3.3, 0, 1.93, 0, roof, root);
@@ -154,8 +157,43 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
         box('fence rail', 0.07, 0.08, 3.5, x, 0.66, 0, wall, root);
       }
       box('supply crate', 0.6, 0.5, 0.5, 1.1, 0.5, 1.35, wood, root);
+    } else if (b.kind === 'oil') {
+      for (const x of [-1.2, -0.6, 0, 0.6, 1.2]) box('oil platform plank', 0.55, 0.2, 3, x, 0.3, 0, wood, root);
+      const barrel = MeshBuilder.CreateCylinder('oil barrel', { diameter: 1.9, height: 2.1, tessellation: 24 }, scene);
+      barrel.parent = root; barrel.position.y = 1.45; barrel.material = oilPaint;
+      for (const y of [0.48, 1, 1.9, 2.44]) {
+        const band = MeshBuilder.CreateCylinder('barrel metal band', { diameter: 1.96, height: 0.09, tessellation: 24 }, scene);
+        band.parent = root; band.position.y = y; band.material = rockMat;
+      }
+      const cap = MeshBuilder.CreateCylinder('oil barrel cap', { diameter: 0.22, height: 0.09, tessellation: 12 }, scene);
+      cap.parent = root; cap.position.set(0.5, 2.54, 0); cap.material = dark;
+      box('oil barrel label', 0.6, 0.6, 0.05, 0, 1.45, -0.96, gold, root);
+    } else if (b.kind === 'training') {
+      box('drill yard', 3.5, 0.1, 3.5, 0, 0.23, 0, soil, root);
+      for (const x of [-1.1, 0, 1.1]) {
+        box('practice dummy post', 0.15, 1.4, 0.15, x, 0.98, 0.7, wood, root);
+        box('practice dummy body', 0.45, 0.65, 0.35, x, 1.15, 0.7, wall, root);
+        box('practice dummy arms', 0.85, 0.12, 0.12, x, 1.35, 0.7, wood, root);
+        box('drill lane', 0.05, 0.02, 1.5, x, 0.3, -0.65, stone, root);
+      }
+      for (const x of [-1.65, 1.65]) {
+        box('yard standard pole', 0.08, 2, 0.08, x, 1.2, 1.5, wood, root);
+        box('yard standard', 0.45, 0.55, 0.05, x, 1.85, 1.5, gold, root);
+      }
+    } else if (b.kind === 'road') {
+      box('road bed', 3.7, 0.12, 0.9, 0, 0.22, 0, accents.road, root);
+      for (const x of [-1.3, 0, 1.3]) box('road center stone', 0.72, 0.08, 0.5, x, 0.34, 0, stone, root);
+    } else if (b.kind === 'hospital') {
+      box('healing lodge walls', 2.9, 1.7, 2.45, 0, 1.05, 0.15, wall, root);
+      box('healing lodge roof', 3.35, 0.3, 2.85, 0, 2.05, 0.15, accents.hospital, root);
+      box('healing lodge ridge', 2.5, 0.28, 0.5, 0, 2.35, 0.15, roof, root);
+      box('lodge door', 0.65, 1.05, 0.08, 0, 0.75, -1.1, dark, root);
+      for (const x of [-0.85, 0.85]) box('lodge window', 0.45, 0.45, 0.08, x, 1.25, -1.1, gold, root);
+      box('healing cross vertical', 0.25, 0.95, 0.12, 0, 2.8, -1.28, medical, root);
+      box('healing cross horizontal', 0.75, 0.25, 0.12, 0, 2.8, -1.28, medical, root);
+      box('lodge awning', 1.7, 0.12, 0.65, 0, 1.83, -1.35, accents.hospital, root);
     }
-    if (b.kind !== 'hall' && b.kind !== 'farm') {
+    if (b.kind !== 'hall' && b.kind !== 'farm' && b.kind !== 'road' && b.kind !== 'hospital' && b.kind !== 'training' && b.kind !== 'oil') {
       const accent = accents[b.kind];
       if (b.kind === 'lumber') {
         box('timber yard', 3.4, 0.12, 3.4, 0, 0.23, 0, soil, root);
@@ -255,16 +293,21 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
   let buildingKind: BuildingKind = 'farm';
   let candidate: Cell | null = null;
   let movingId: string | null = null;
-  const validCandidate = (cell: Cell) => movingId ? canMoveBuilding(movingId, cell, buildings) : canPlace(cell, buildings);
+  const validCandidate = (cell: Cell) => {
+    if (movingId) return canMoveBuilding(movingId, cell, buildings);
+    const size = getBuildingDimensions(buildingKind);
+    return canPlace(cell, buildings, size.width, size.depth);
+  };
   function refreshGrid() {
     tiles.forEach((tile, i) => {
       const x = i % GRID_WIDTH, z = Math.floor(i / GRID_WIDTH);
-      tile.material = buildings.some(b => b.id !== movingId && x >= b.x && x < b.x + 4 && z >= b.z && z < b.z + 4) ? usedMat : freeMat;
+      tile.material = buildings.some(b => b.id !== movingId && x >= b.x && x < b.x + getBuildingFootprint(b.kind) && z >= b.z && z < b.z + getBuildingFootprint(b.kind)) ? usedMat : freeMat;
     });
   }
   function preview(cell: Cell) {
     candidate = cell; previewRoot.setEnabled(true); previewRoot.position.set(cell.x - HALF_WIDTH, 0, cell.z - HALF_DEPTH);
-    previewTiles.forEach(tile => { tile.material = validCandidate(cell) ? validMat : invalidMat; });
+    const size = getBuildingDimensions(buildingKind, movingId ? buildings.find(b => b.id === movingId)?.rotation : 0);
+    previewTiles.forEach((tile, index) => { const x = index % FOOTPRINT, z = Math.floor(index / FOOTPRINT); tile.setEnabled(x < size.width && z < size.depth); tile.material = validCandidate(cell) ? validMat : invalidMat; });
     events.preview({ ...cell });
   }
   function worldPoint(clientX: number, clientY: number) {
@@ -273,7 +316,13 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
   }
   const pointers = new Map<number, { x: number; y: number; startX: number; startY: number }>();
   let moved = false;
-  function zoom(factor: number) { camera.radius = Math.max(12, Math.min(85, camera.radius * factor)); }
+  function zoom(factor: number) { camera.radius = Math.max(12, Math.min(85, camera.radius * factor)); updateOverview(); }
+  function home() {
+    const hall = buildings.find(b => b.kind === 'hall')!;
+    camera.target.set(hall.x - HALF_WIDTH + FOOTPRINT / 2, 0, hall.z - HALF_DEPTH + FOOTPRINT / 2);
+    camera.radius = 43;
+    updateOverview();
+  }
   function down(e: PointerEvent) {
     if (e.button !== 0) return;
     if (!pointers.size) moved = false;
@@ -306,10 +355,17 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
     pointers.delete(e.pointerId);
     if (e.type === 'pointercancel' || moved || pointers.size) return;
     const point = worldPoint(e.clientX, e.clientY);
-    if (placing && point) preview({ x: Math.floor(point.x + HALF_WIDTH) - FOOTPRINT / 2, z: Math.floor(point.z + HALF_DEPTH) - FOOTPRINT / 2 });
+    if (placing && point) {
+      const size = getBuildingDimensions(buildingKind, movingId ? buildings.find(b => b.id === movingId)?.rotation : 0);
+      preview({ x: Math.floor(point.x + HALF_WIDTH - size.width / 2), z: Math.floor(point.z + HALF_DEPTH - size.depth / 2) });
+    }
     else {
       const rect = canvas.getBoundingClientRect();
       const hit = scene.pick(e.clientX - rect.left, e.clientY - rect.top, mesh => !!mesh.metadata?.buildingId || !!mesh.metadata?.mapObject);
+      if (hit?.pickedMesh?.metadata?.mapObject === 'Everleaf Haven') {
+        home();
+        return;
+      }
       const building = buildings.find(b => b.id === hit?.pickedMesh?.metadata?.buildingId);
       events.select(building || null);
       if (!building && hit?.pickedMesh?.metadata?.mapObject) events.message(hit.pickedMesh.metadata.mapObject);
@@ -321,7 +377,7 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
   canvas.addEventListener('pointerup', up); canvas.addEventListener('pointercancel', up);
   canvas.addEventListener('wheel', wheel, { passive: false });
   const resize = () => engine.resize(); window.addEventListener('resize', resize);
-  engine.runRenderLoop(() => scene.render());
+  engine.runRenderLoop(() => { updateOverview(); scene.render(); });
   function persist(message: string) {
     try { localStorage.setItem(SAVE_KEY, JSON.stringify(buildings)); events.message(message); }
     catch { events.message(`${message} Browser storage unavailable; progress lasts this session.`); }
@@ -337,7 +393,12 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
       catch { events.message(`${message} Browser storage unavailable; troops last this session.`); }
       return true;
     },
-    setGridVisible(visible) { refreshGrid(); gridRoot.setEnabled(visible || placing); },
+    setGridVisible(visible) { refreshGrid(); gridRoot.setEnabled(!camera.radius || camera.radius < WORLD_OVERVIEW_RADIUS ? (visible || placing) : false); },
+    setWorldView(enabled) {
+      if (enabled) { cancel(); camera.target.set(0, 0, 0); camera.radius = 72; }
+      else home();
+      updateOverview();
+    },
     begin(kind) { cancel(); buildingKind = kind; placing = true; gridRoot.setEnabled(true); refreshGrid(); const hall = buildings.find(b => b.kind === 'hall')!; preview({ x: hall.x + FOOTPRINT, z: hall.z }); },
     cancel,
     move(id) {
@@ -375,7 +436,8 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
         const next = moveBuilding(movingId, candidate, buildings);
         if (!next) return false;
         buildings = next; building = buildings.find(b => b.id === movingId)!;
-        buildingRoots.get(movingId)?.position.set(building.x - HALF_WIDTH + FOOTPRINT / 2, 0, building.z - HALF_DEPTH + FOOTPRINT / 2);
+        const size = getBuildingDimensions(building.kind, building.rotation);
+        buildingRoots.get(movingId)?.position.set(building.x - HALF_WIDTH + size.width / 2, 0, building.z - HALF_DEPTH + size.depth / 2);
       } else {
         building = { ...candidate, kind: buildingKind, id: crypto.randomUUID() };
         buildings = [...buildings, building]; makeBuilding(building);
@@ -387,7 +449,7 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
       return true;
     },
     zoom,
-    home() { const hall = buildings.find(b => b.kind === 'hall')!; camera.target.set(hall.x - HALF_WIDTH + FOOTPRINT / 2, 0, hall.z - HALF_DEPTH + FOOTPRINT / 2); camera.radius = 43; },
+    home,
     dispose() {
       canvas.removeEventListener('pointerdown', down); canvas.removeEventListener('pointermove', move);
       canvas.removeEventListener('pointerup', up); canvas.removeEventListener('pointercancel', up);
