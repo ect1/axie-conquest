@@ -6,7 +6,7 @@ export type Coordinate = { x: number; z: number };
 export type Route = { origin: Coordinate; destination: Coordinate; points: Coordinate[]; distance: number };
 export type WorldTarget = Coordinate & { id?: string; label?: string };
 export type ScoutOrder = { id: string; kind: 'scout'; target: WorldTarget; route: Route; status: 'scouting' };
-export type OffensiveMarchOrder = { id: string; kind: 'march'; target: WorldTarget; route: Route; formationIndex: number; status: 'marching' };
+export type OffensiveMarchOrder = { id: string; kind: 'march'; target: WorldTarget; route: Route; formationIndex: number; status: 'marching'; formation?: Formation; cityName?: string; startedAt?: number; arrivesAt?: number };
 export type RouteOrder = ScoutOrder | OffensiveMarchOrder;
 
 export function normalizeCoordinate(value: unknown): Coordinate | null {
@@ -35,11 +35,24 @@ export function restoreRouteOrders(value: string | null): RouteOrder[] {
       if (!target || (source.kind !== 'scout' && source.kind !== 'march') || typeof source.id !== 'string') return [];
       if (source.kind === 'march' && (!Number.isSafeInteger(source.formationIndex) || (source.formationIndex as number) < 0)) return [];
       const route = createRoute(target);
-      return [{ id: source.id, kind: source.kind, target: { ...target, label: typeof (source.target as Record<string, unknown>)?.label === 'string' ? (source.target as Record<string, unknown>).label as string : undefined }, route, ...(source.kind === 'march' ? { formationIndex: source.formationIndex as number, status: 'marching' as const } : { status: 'scouting' as const }) } as RouteOrder];
+      if (source.kind === 'march') {
+        const formation = source.formation as Formation | undefined;
+        if (!formation || !FORMATION_ROWS.every(row => Array.isArray(formation[row]) && formation[row].length <= 5 && formation[row].every(slot => slot && (slot.heroId === null || typeof slot.heroId === 'string') && (slot.military === null || slot.military === 'infantry' || slot.military === 'archer') && Number.isSafeInteger(slot.militaryCount) && slot.militaryCount >= 0))) return [];
+        if (!isValidFormation(formation) || typeof source.startedAt !== 'number' || !Number.isFinite(source.startedAt) || typeof source.arrivesAt !== 'number' || !Number.isFinite(source.arrivesAt) || source.arrivesAt < source.startedAt) return [];
+        return [{ id: source.id, kind: 'march', target, route, formationIndex: source.formationIndex as number, status: 'marching', formation, cityName: typeof source.cityName === 'string' ? source.cityName : 'City', startedAt: source.startedAt, arrivesAt: source.arrivesAt } as RouteOrder];
+      }
+      return [{ id: source.id, kind: 'scout', target, route, status: 'scouting' } as RouteOrder];
     });
   } catch { return []; }
 }
 export function createScoutOrder(target: WorldTarget): ScoutOrder { return { id: `scout-${Date.now()}`, kind: 'scout', target, route: createRoute(target), status: 'scouting' }; }
-export function createOffensiveMarchOrder(target: WorldTarget, formationIndex: number): OffensiveMarchOrder { return { id: `march-${Date.now()}`, kind: 'march', target, route: createRoute(target), formationIndex, status: 'marching' }; }
+export function createOffensiveMarchOrder(target: WorldTarget, formationIndex: number, formation: Formation, cityName: string, now = Date.now()): OffensiveMarchOrder {
+  if (!isValidFormation(formation)) throw new Error('Assign at least one Axie.');
+  const route = createRoute(target);
+  return { id: `march-${now}-${Math.random().toString(36).slice(2)}`, kind: 'march', target, route, formationIndex, status: 'marching', formation: structuredClone(formation), cityName, startedAt: now, arrivesAt: now + Math.max(1000, route.distance / 2 * 1000) };
+}
+export function marchProgress(order: OffensiveMarchOrder, now: number): number {
+  return Math.max(0, Math.min(1, (now - (order.startedAt ?? now)) / Math.max(1, (order.arrivesAt ?? now) - (order.startedAt ?? now))));
+}
 export function targetFromObject(object: WorldObject): WorldTarget { return { x: object.x, z: object.z, id: object.id, label: WORLD_LABELS[object.kind] }; }
 const WORLD_LABELS: Record<WorldObject['kind'], string> = { farm: 'Farmstead', lumber: 'Lumber camp', stone: 'Stone quarry', oil: 'Oil field', boss: 'Chimera lair', village: 'Village', garrison: 'Garrison' };

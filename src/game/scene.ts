@@ -1,12 +1,13 @@
+import { showMarches } from './march-scene';
 import { generateWorld, GenerationSettings, WorldObject, WORLD_DEFINITIONS, WORLD_SAVE_KEY, WORLD_WIDTH, WORLD_DEPTH } from './world';
 import { ArcRotateCamera, Color3, Color4, DirectionalLight, Engine, HemisphericLight, MeshBuilder, Scene, StandardMaterial, TransformNode, Vector3 } from '@babylonjs/core';
 import { BUILDING_DEFINITIONS, BuildableKind, BuildingKind, Building, Cell, FOOTPRINT, GRID_DEPTH, GRID_WIDTH, MAIN_HALL, canPlace, getBuildingDimensions, getBuildingFootprint, restoreBuildings, canMoveBuilding, moveBuilding, removeBuilding, rotateBuilding, Troops, TroopKind } from './base';
 import { createMilitaryService, getTrainingMessage } from './military-service';
 import { CAPITAL_CITY_ID } from './cities';
-import { Coordinate, WorldTarget } from './routes';
+import { Coordinate, WorldTarget, RouteOrder } from './routes';
 
 type Events = { troops: (troops: Troops) => void; change: (b: Building[]) => void; preview: (c: Cell | null) => void; select: (b: Building | null) => void; target: (target: WorldTarget | null) => void; message: (s: string) => void; viewMode: (mode: 'base' | 'world') => void };
-export type BaseView = { regenerateWorld: (settings: GenerationSettings) => WorldObject[]; loadWorld: (objects: WorldObject[]) => void; removeWorld: () => void; train: (kind: TroopKind) => boolean; rotate: (id: string) => boolean; move: (id: string) => boolean; remove: (id: string) => boolean; begin: (kind: BuildableKind) => void; cancel: () => void; confirm: () => boolean; setGridVisible: (visible: boolean) => void; setWorldView: (enabled: boolean) => void; setRoute: (route: { origin: Coordinate; destination: Coordinate } | null) => void; zoom: (factor: number) => void; home: () => void; dispose: () => void };
+export type BaseView = { setMarches: (orders: RouteOrder[]) => void; regenerateWorld: (settings: GenerationSettings) => WorldObject[]; loadWorld: (objects: WorldObject[]) => void; removeWorld: () => void; train: (kind: TroopKind) => boolean; rotate: (id: string) => boolean; move: (id: string) => boolean; remove: (id: string) => boolean; begin: (kind: BuildableKind) => void; cancel: () => void; confirm: () => boolean; setGridVisible: (visible: boolean) => void; setWorldView: (enabled: boolean) => void; setRoute: (route: { origin: Coordinate; destination: Coordinate } | null) => void; zoom: (factor: number) => void; home: () => void; dispose: () => void };
 const SAVE_KEY = 'axie-conquest-base-v2';
 const HALF_WIDTH = GRID_WIDTH / 2;
 const HALF_DEPTH = GRID_DEPTH / 2;
@@ -15,6 +16,8 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
   const engine = new Engine(canvas, true, { stencil: true });
   engine.setHardwareScalingLevel(Math.max(1, window.devicePixelRatio / 1.5));
   const scene = new Scene(engine);
+  let clearMarches = () => {};
+  function setMarches(orders: RouteOrder[]) { clearMarches(); clearMarches = showMarches(scene, orders); }
   scene.clearColor = Color4.FromHexString('#91aaa2ff');
   // Keep building fronts pointing southeast on screen.
   const camera = new ArcRotateCamera('isometric', -5 * Math.PI / 6, 0.66, 43, new Vector3(0, 0, 0), scene);
@@ -474,6 +477,7 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
       updateOverview();
     },
     setRoute,
+    setMarches,
     begin(kind) { cancel(); buildingKind = kind; placing = true; gridRoot.setEnabled(true); refreshGrid(); const hall = buildings.find(b => b.kind === 'hall')!; preview({ x: hall.x + FOOTPRINT, z: hall.z }); },
     cancel,
     move(id) {
