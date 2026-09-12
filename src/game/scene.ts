@@ -36,6 +36,9 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
   const soil = material('soil', '#916344');
   const crop = material('crops', '#b3c354');
   const rockMat = material('quarried stone', '#8e9b9d');
+  const pathMat = material('exploration path', '#c7ae78');
+  const ruinMat = material('ancient ruin', '#9b866e');
+  const crystalMat = material('moon crystals', '#73c8c4');
   const accents = { lumber: material('lumber canopy', '#997244'), stone: material('slate roof', '#647c91'), quarry: rockMat, barracks: material('barracks red', '#b35f51'), tavern: material('tavern amber', '#c18a45'), scout: material('scout blue', '#588caa'), archery: material('archery green', '#567c48') };
   const validMat = material('valid footprint', '#42f099', 0.7);
   const invalidMat = material('invalid footprint', '#ff5056', 0.8);
@@ -50,6 +53,35 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
     return mesh;
   }
   box('floating land', GRID_WIDTH + 5, 1.4, GRID_DEPTH + 5, 0, -0.85, 0, earth);
+  // The settlement is the first safe district in a much larger explorable region.
+  // Keep the buildable island distinct so placement remains constrained to the base.
+  const world = MeshBuilder.CreateGround('Lunacia exploration field', { width: 200, height: 200 }, scene);
+  world.position.y = -0.08; world.material = grass; world.isPickable = false;
+  function worldMarker(name: string, x: number, z: number, kind: 'ruin' | 'crystal' | 'grove', message: string) {
+    const root = new TransformNode(name, scene); root.position.set(x, 0, z);
+    root.metadata = { mapObject: message };
+    if (kind === 'ruin') {
+      box('ruin slab', 4.6, 0.45, 2.8, 0, 0.24, 0, ruinMat, root);
+      for (const offset of [-1.7, 1.7]) box('ruin pillar', 0.6, 2.7, 0.6, offset, 1.35, 0, ruinMat, root);
+      box('ruin lintel', 4, 0.55, 0.6, 0, 2.7, 0, ruinMat, root);
+    } else if (kind === 'crystal') {
+      for (const offset of [-0.9, 0, 0.9]) {
+        const shard = MeshBuilder.CreateCylinder('moon crystal', { diameterTop: 0.12, diameterBottom: 0.75, height: 2.2, tessellation: 6 }, scene);
+        shard.parent = root; shard.position.set(offset, 1.1, Math.abs(offset) * 0.5); shard.material = crystalMat; shard.rotation.z = offset * 0.14;
+      }
+    } else {
+      for (const offset of [-1.5, 0, 1.5]) {
+        const tree = MeshBuilder.CreateCylinder('exploration grove', { diameterTop: 0, diameterBottom: 1.7, height: 3.8, tessellation: 7 }, scene);
+        tree.parent = root; tree.position.set(offset, 1.9, Math.abs(offset) * 0.35); tree.material = roof;
+      }
+    }
+    root.getChildMeshes().forEach(mesh => { mesh.isPickable = true; mesh.metadata = { mapObject: message }; });
+  }
+  worldMarker('sunken temple', -28, -20, 'ruin', 'The Sunken Temple waits beyond the western road. Scout it with an Axie hero.');
+  worldMarker('moon crystal field', 29, 17, 'crystal', 'Moon crystals shimmer here. A gathering party could claim this resource node.');
+  worldMarker('whispering grove', 24, -22, 'grove', 'The Whispering Grove is alive with rustling leaves and hidden paths.');
+  box('west road', 2.2, 0.08, 42, -15, 0.02, -22, pathMat);
+  box('north road', 42, 0.08, 2.2, 19, 0.02, -15, pathMat);
   const land = MeshBuilder.CreateGround('buildable land', { width: GRID_WIDTH, height: GRID_DEPTH }, scene);
   land.material = grass;
   // A wider invisible picking surface lets previews cross the boundary and turn red.
@@ -262,8 +294,8 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
         const previous = worldPoint(p.x, p.y), next = worldPoint(e.clientX, e.clientY);
         if (previous && next) {
           camera.target.addInPlace(previous.subtract(next));
-          camera.target.x = Math.max(-HALF_WIDTH - 2, Math.min(HALF_WIDTH + 2, camera.target.x));
-          camera.target.z = Math.max(-HALF_DEPTH - 2, Math.min(HALF_DEPTH + 2, camera.target.z));
+          camera.target.x = Math.max(-48, Math.min(48, camera.target.x));
+          camera.target.z = Math.max(-39, Math.min(39, camera.target.z));
         }
       }
     }
@@ -277,8 +309,10 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
     if (placing && point) preview({ x: Math.floor(point.x + HALF_WIDTH) - FOOTPRINT / 2, z: Math.floor(point.z + HALF_DEPTH) - FOOTPRINT / 2 });
     else {
       const rect = canvas.getBoundingClientRect();
-      const hit = scene.pick(e.clientX - rect.left, e.clientY - rect.top, mesh => !!mesh.metadata?.buildingId);
-      events.select(buildings.find(b => b.id === hit?.pickedMesh?.metadata?.buildingId) || null);
+      const hit = scene.pick(e.clientX - rect.left, e.clientY - rect.top, mesh => !!mesh.metadata?.buildingId || !!mesh.metadata?.mapObject);
+      const building = buildings.find(b => b.id === hit?.pickedMesh?.metadata?.buildingId);
+      events.select(building || null);
+      if (!building && hit?.pickedMesh?.metadata?.mapObject) events.message(hit.pickedMesh.metadata.mapObject);
     }
   }
   function wheel(e: WheelEvent) { e.preventDefault(); zoom(Math.exp(e.deltaY * 0.001)); }
