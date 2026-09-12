@@ -1,8 +1,9 @@
+import { generateWorld, GenerationSettings, WorldObject, WORLD_DEFINITIONS, WORLD_SAVE_KEY, WORLD_WIDTH, WORLD_DEPTH } from './world';
 import { ArcRotateCamera, Color3, Color4, DirectionalLight, Engine, HemisphericLight, MeshBuilder, Scene, StandardMaterial, TransformNode, Vector3 } from '@babylonjs/core';
 import { BUILDING_DEFINITIONS, BuildableKind, BuildingKind, Building, Cell, FOOTPRINT, GRID_DEPTH, GRID_WIDTH, MAIN_HALL, canPlace, getBuildingDimensions, getBuildingFootprint, restoreBuildings, canMoveBuilding, moveBuilding, removeBuilding, rotateBuilding, Troops, TroopKind, TROOP_DEFINITIONS, TRAINING_BATCH, restoreTroops, trainTroops } from './base';
 
 type Events = { troops: (troops: Troops) => void; change: (b: Building[]) => void; preview: (c: Cell | null) => void; select: (b: Building | null) => void; message: (s: string) => void; viewMode: (mode: 'base' | 'world') => void };
-export type BaseView = { train: (kind: TroopKind) => boolean; rotate: (id: string) => boolean; move: (id: string) => boolean; remove: (id: string) => boolean; begin: (kind: BuildableKind) => void; cancel: () => void; confirm: () => boolean; setGridVisible: (visible: boolean) => void; setWorldView: (enabled: boolean) => void; zoom: (factor: number) => void; home: () => void; dispose: () => void };
+export type BaseView = { regenerateWorld: (settings: GenerationSettings) => WorldObject[]; loadWorld: (objects: WorldObject[]) => void; removeWorld: () => void; train: (kind: TroopKind) => boolean; rotate: (id: string) => boolean; move: (id: string) => boolean; remove: (id: string) => boolean; begin: (kind: BuildableKind) => void; cancel: () => void; confirm: () => boolean; setGridVisible: (visible: boolean) => void; setWorldView: (enabled: boolean) => void; zoom: (factor: number) => void; home: () => void; dispose: () => void };
 const TROOP_SAVE_KEY = 'axie-conquest-troops-v1';
 const SAVE_KEY = 'axie-conquest-base-v2';
 const HALF_WIDTH = GRID_WIDTH / 2;
@@ -54,12 +55,12 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
   box('floating land', GRID_WIDTH + 5, 1.4, GRID_DEPTH + 5, 0, -0.85, 0, earth);
   // The settlement is the first safe district in a much larger explorable region.
   // Keep the buildable island distinct so placement remains constrained to the base.
-  const world = MeshBuilder.CreateGround('Lunacia exploration field', { width: 200, height: 200 }, scene);
+  const world = MeshBuilder.CreateGround('Lunacia exploration field', { width: WORLD_WIDTH, height: WORLD_DEPTH }, scene);
   world.position.y = -0.08; world.material = grass; world.isPickable = false;
   const land = MeshBuilder.CreateGround('buildable land', { width: GRID_WIDTH, height: GRID_DEPTH }, scene);
   land.material = grass;
   // A wider invisible picking surface lets previews cross the boundary and turn red.
-  const picker = MeshBuilder.CreateGround('placement plane', { width: 200, height: 200 }, scene);
+  const picker = MeshBuilder.CreateGround('placement plane', { width: WORLD_WIDTH, height: WORLD_DEPTH }, scene);
   picker.visibility = 0; picker.isPickable = true;
   // Default fortifications sit outside the settlement grid and never consume build cells.
   const perimeter = new TransformNode('base perimeter', scene);
@@ -259,6 +260,56 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
     }
     root.getChildMeshes().forEach(mesh => { mesh.isPickable = true; mesh.metadata = { buildingId: b.id }; });
   }
+  const generatedRoots: TransformNode[] = [];
+  function saveWorld(objects: WorldObject[]) {
+    try { localStorage.setItem(WORLD_SAVE_KEY, JSON.stringify(objects)); }
+    catch { events.message('World saved for this session only; browser storage unavailable.'); }
+  }
+  function removeWorld() {
+    generatedRoots.forEach(root => root.dispose());
+    generatedRoots.length = 0;
+  }
+  function loadWorld(objects: WorldObject[]) {
+    removeWorld(); objects.forEach(makeWorldObject); saveWorld(objects);
+  }
+  function makeWorldObject(object: WorldObject) {
+    const root = new TransformNode(object.id, scene);
+    root.position.set(object.x, 0, object.z);
+    generatedRoots.push(root);
+    box('world site', 4.2, 0.18, 4.2, 0, 0.02, 0, soil, root);
+    if (object.kind === 'farm') {
+      for (const x of [-1.3, 0, 1.3]) box('crop row', 0.65, 0.55, 3.4, x, 0.35, 0, crop, root);
+    } else if (object.kind === 'lumber') {
+      for (const x of [-1.1, 1.1]) {
+        box('tree trunk', 0.4, 1.7, 0.4, x, 0.9, 0, wood, root);
+        const tree = MeshBuilder.CreateCylinder('tree crown', { diameterBottom: 2, diameterTop: 0, height: 2.8, tessellation: 6 }, scene);
+        tree.parent = root; tree.position.set(x, 2.4, 0); tree.material = roof;
+      }
+    } else if (object.kind === 'stone' || object.kind === 'boss') {
+      const boss = object.kind === 'boss';
+      const body = MeshBuilder.CreateSphere(boss ? 'chimera boss' : 'stone deposit', { diameter: 3, segments: 6 }, scene);
+      body.parent = root; body.position.y = 1.3; body.material = boss ? accents.barracks : rockMat;
+      if (boss) {
+        for (const x of [-0.7, 0.7]) {
+          box('boss eyes', 0.35, 0.35, 0.2, x, 1.6, -1.3, gold, root);
+          const horn = MeshBuilder.CreateCylinder('boss horn', { diameterBottom: 0.6, diameterTop: 0, height: 1.2, tessellation: 5 }, scene);
+          horn.parent = root; horn.position.set(x, 2.9, 0); horn.material = stone;
+        }
+      } else box('stone outcrop', 1.3, 0.85, 1.2, 1, 0.5, -1, rockMat, root);
+    } else if (object.kind === 'oil') {
+      const barrel = MeshBuilder.CreateCylinder('world oil barrel', { diameter: 2.5, height: 2.6, tessellation: 12 }, scene);
+      barrel.parent = root; barrel.position.y = 1.35; barrel.material = oilPaint;
+      box('oil marking', 0.75, 0.75, 0.1, 0, 1.4, -1.25, gold, root);
+    } else {
+      const garrison = object.kind === 'garrison';
+      box('site building', 3, garrison ? 2.8 : 1.8, 2.6, 0, garrison ? 1.4 : 0.9, 0, garrison ? rockMat : wall, root);
+      box('site roof', 3.7, 0.4, 3.3, 0, garrison ? 3 : 2, 0, garrison ? accents.barracks : roof, root);
+      box('site door', 0.7, 1, 0.1, 0, 0.55, -1.35, dark, root);
+      box('loot crate', 0.6, 0.6, 0.6, 1.5, 0.4, -1.5, gold, root);
+    }
+    const description = `${WORLD_DEFINITIONS[object.kind].name} ? Structure only${object.loot.apple ? ' ? Loot: 1 apple (unavailable)' : ' ? Gathering and combat unavailable'}`;
+    root.getChildMeshes().forEach(mesh => { mesh.isPickable = true; mesh.metadata = { mapObject: description }; });
+  }
   let buildings: Building[];
   try {
     const saved = localStorage.getItem(SAVE_KEY);
@@ -343,8 +394,8 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
         const previous = worldPoint(p.x, p.y), next = worldPoint(e.clientX, e.clientY);
         if (previous && next) {
           camera.target.addInPlace(previous.subtract(next));
-          camera.target.x = Math.max(-48, Math.min(48, camera.target.x));
-          camera.target.z = Math.max(-39, Math.min(39, camera.target.z));
+          camera.target.x = Math.max(-WORLD_WIDTH / 2, Math.min(WORLD_WIDTH / 2, camera.target.x));
+          camera.target.z = Math.max(-WORLD_DEPTH / 2, Math.min(WORLD_DEPTH / 2, camera.target.z));
         }
       }
     }
@@ -383,6 +434,13 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
     catch { events.message(`${message} Browser storage unavailable; progress lasts this session.`); }
   }
   return {
+    regenerateWorld(settings) {
+      const objects = generateWorld(settings);
+      loadWorld(objects);
+      return objects;
+    },
+    loadWorld,
+    removeWorld,
     train(kind) {
       if (placing) return false;
       const next = trainTroops(kind, buildings, troops);

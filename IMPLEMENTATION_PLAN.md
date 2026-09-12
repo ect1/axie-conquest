@@ -11,6 +11,10 @@
 
 ## TODO
 
+- [x] Add Developer generation controls for farm, lumber, stone, oil, boss mobs, villages and garrisons; default counts, regenerate/remove, session-only structures and one-apple loot placeholders.
+- [x] Generate throughout the 200 ? 200 world with configurable footprint clearance, protected city/walls, full-map camera panning, and capacity shortfall reporting.
+- [x] Verify world generation counts, spacing, city exclusion, map-edge coverage and crowded requests with `npm run test:world`.
+
 - [x] Base grid definitions and placement validation.
 - [x] Main hall, farm models, terrain, and fixed camera.
 - [x] Build catalog, placement preview, confirmation, and selection HUD.

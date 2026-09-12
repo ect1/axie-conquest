@@ -1,0 +1,66 @@
+import { GRID_WIDTH, GRID_DEPTH } from './base';
+
+export const WORLD_WIDTH = 200;
+export const WORLD_DEPTH = 200;
+export const WORLD_OBJECT_RADIUS = 3;
+export const WORLD_SAVE_KEY = 'axie-conquest-world-v1';
+export const WORLD_DEFINITIONS = {
+  farm: { name: 'Farm', count: 5 },
+  lumber: { name: 'Lumber', count: 5 },
+  stone: { name: 'Stone', count: 5 },
+  oil: { name: 'Oil', count: 3 },
+  boss: { name: 'Boss mob', count: 3 },
+  village: { name: 'Village', count: 4 },
+  garrison: { name: 'Garrison', count: 4 },
+} as const;
+export type WorldKind = keyof typeof WORLD_DEFINITIONS;
+export const WORLD_KINDS = Object.keys(WORLD_DEFINITIONS) as WorldKind[];
+export type GenerationSettings = { counts: Record<WorldKind, number>; spacing: number };
+export type WorldObject = { id: string; kind: WorldKind; x: number; z: number; loot: { apple: number } };
+export const DEFAULT_GENERATION: GenerationSettings = {
+  counts: Object.fromEntries(WORLD_KINDS.map(kind => [kind, WORLD_DEFINITIONS[kind].count])) as Record<WorldKind, number>,
+  spacing: 8,
+};
+
+export function restoreWorld(value: string | null): WorldObject[] | null {
+  if (value === null) return null;
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (!Array.isArray(parsed)) return null;
+    return parsed.filter((object): object is WorldObject => {
+      if (!object || typeof object !== 'object') return false;
+      const candidate = object as Record<string, unknown>;
+      const loot = candidate.loot;
+      return typeof candidate.id === 'string' && WORLD_KINDS.includes(candidate.kind as WorldKind)
+        && typeof candidate.x === 'number' && Number.isFinite(candidate.x)
+        && typeof candidate.z === 'number' && Number.isFinite(candidate.z)
+        && !!loot && typeof loot === 'object' && typeof (loot as Record<string, unknown>).apple === 'number';
+    });
+  } catch {
+    return null;
+  }
+}
+
+// Spacing is empty ground between conservative circular object footprints.
+export function generateWorld(settings: GenerationSettings, random = Math.random): WorldObject[] {
+  const spacing = Number.isFinite(settings.spacing) ? Math.max(1, Math.min(50, settings.spacing)) : 8;
+  const pending = WORLD_KINDS.flatMap(kind => Array.from({ length: Number.isFinite(settings.counts[kind]) ? Math.max(0, Math.min(100, Math.floor(settings.counts[kind]))) : 0 }, () => kind));
+  // Shuffle types so scarce space does not always favor the first resource.
+  for (let i = pending.length - 1; i > 0; i--) {
+    const j = Math.floor(random() * (i + 1));
+    [pending[i], pending[j]] = [pending[j], pending[i]];
+  }
+  const objects: WorldObject[] = [];
+  for (const kind of pending) {
+    for (let attempt = 0; attempt < 1000; attempt++) {
+      const x = (random() - 0.5) * (WORLD_WIDTH - WORLD_OBJECT_RADIUS * 2);
+      const z = (random() - 0.5) * (WORLD_DEPTH - WORLD_OBJECT_RADIUS * 2);
+      // Reserve the city island, walls and corner towers, even in overview mode.
+      if (Math.abs(x) < GRID_WIDTH / 2 + 3 + WORLD_OBJECT_RADIUS + spacing && Math.abs(z) < GRID_DEPTH / 2 + 3 + WORLD_OBJECT_RADIUS + spacing) continue;
+      if (objects.some(other => Math.hypot(x - other.x, z - other.z) < WORLD_OBJECT_RADIUS * 2 + spacing)) continue;
+      objects.push({ id: `world-${objects.length}`, kind, x, z, loot: { apple: kind === 'village' || kind === 'garrison' ? 1 : 0 } });
+      break;
+    }
+  }
+  return objects;
+}

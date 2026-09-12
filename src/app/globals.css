@@ -274,3 +274,16 @@ h2 { font: bold 19px Georgia, serif; margin: 3px 0 0; }
   .hud-actions .build-toggle span { margin-left: 0; }
   .panel { bottom: calc(var(--bottom) + 76px); max-height: calc(100dvh - var(--top) - var(--bottom) - 138px); }
 }
+
+.world-mode .developer.panel { display: block; }
+.developer.panel { z-index: 5; }
+.developer-counts { display: grid; gap: 6px; }
+.developer-counts label, .developer-distance { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; }
+.developer-counts small { display: block; color: #617260; font-size: 11px; }
+.developer input { width: 76px; min-height: 44px; border: 1px solid #91a38c; border-radius: 8px; padding: 8px; font: inherit; background: #fffdf7; color: #294d43; }
+.developer-distance { margin-top: 12px; font-weight: 700; }
+.developer .placement-actions { flex-wrap: wrap; }
+@media (max-width: 700px) {
+  .hud-actions { overflow-x: auto; pointer-events: auto; }
+  .hud-actions .build-toggle { flex: 0 0 auto; min-width: 44px; padding-inline: 10px; }
+}

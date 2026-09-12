@@ -6,6 +6,8 @@ import HeroesPanel from './heroes-panel';
 import MilitaryPanel from './military-panel';
 import TrainingDialog from './training-dialog';
 import MailDialog from './mail-dialog';
+import DeveloperPanel from './developer-panel';
+import { DEFAULT_GENERATION, GenerationSettings, restoreWorld, WORLD_SAVE_KEY, WorldObject } from '@/game/world';
 import type { BaseView } from '@/game/scene';
 
 type InventoryTab = 'resources' | 'equipment' | 'other';
@@ -17,11 +19,15 @@ export default function Home() {
   const [heroes, setHeroes] = useState(false);
   const [military, setMilitary] = useState(false);
   const [training, setTraining] = useState(false);
+  const [developer, setDeveloper] = useState(false);
+  const [generation, setGeneration] = useState<GenerationSettings>(DEFAULT_GENERATION);
+  const [worldObjects, setWorldObjects] = useState<WorldObject[]>([]);
+  const [generationStatus, setGenerationStatus] = useState('No objects generated. Changes last for this session.');
   const [mail, setMail] = useState(false);
   const [inventory, setInventory] = useState(false);
   const [inventoryTab, setInventoryTab] = useState<InventoryTab>('resources');
   const [troops, setTroops] = useState<Troops>({ ...EMPTY_TROOPS });
-  const [catalog, setCatalog] = useState(true);
+  const [catalog, setCatalog] = useState(false);
   const [buildingKind, setBuildingKind] = useState<BuildingKind>('farm');
   const [moving, setMoving] = useState<Building | null>(null);
   const [placing, setPlacing] = useState(false);
@@ -34,7 +40,19 @@ export default function Home() {
     let disposed = false;
     import('@/game/scene').then(({ createBase }) => {
       if (disposed || !canvas.current) return;
-      view.current = createBase(canvas.current, { change: setBuildings, preview: setCell, viewMode: mode => { setWorldView(mode === 'world'); if (mode === 'world') { setCatalog(false); setSelected(null); setMilitary(false); setTraining(false); setHeroes(false); setInventory(false); setPlacing(false); setMoving(null); setCell(null); } }, select: building => { setSelected(building); if (building) { setMilitary(false); setTraining(false); setHeroes(false); setInventory(false); } }, message: setMessage, troops: setTroops });
+      view.current = createBase(canvas.current, { change: setBuildings, preview: setCell, viewMode: mode => { setWorldView(mode === 'world'); if (mode === 'world') { setCatalog(false); setSelected(null); setMilitary(false); setTraining(false); setHeroes(false); setInventory(false); setPlacing(false); setMoving(null); setCell(null); } }, select: building => { setSelected(building); if (building) { setDeveloper(false); setMilitary(false); setTraining(false); setHeroes(false); setInventory(false); } }, message: setMessage, troops: setTroops });
+      let initialObjects: WorldObject[];
+      let savedObjects: WorldObject[] | null = null;
+      try { savedObjects = restoreWorld(localStorage.getItem(WORLD_SAVE_KEY)); } catch { savedObjects = null; }
+      if (savedObjects !== null) {
+        view.current.loadWorld(savedObjects);
+        initialObjects = savedObjects;
+      } else {
+        initialObjects = view.current.regenerateWorld(DEFAULT_GENERATION);
+      }
+      setWorldObjects(initialObjects);
+      const requested = Object.values(DEFAULT_GENERATION.counts).reduce((sum, count) => sum + count, 0);
+      setGenerationStatus(savedObjects !== null ? `${initialObjects.length} saved objects restored.` : `${initialObjects.length} / ${requested} generated.`);
       setReady(true);
     }).catch(() => setMessage('Unable to open the 3D view. Please enable WebGL and reload.'));
     return () => { disposed = true; view.current?.dispose(); view.current = null; };
@@ -59,6 +77,7 @@ export default function Home() {
     if (selected && view.current?.remove(selected.id)) { setSelected(null); setCatalog(false); }
   }
   function toggleMilitary() {
+    setDeveloper(false);
     setTraining(false);
     setHeroes(false);
     setInventory(false);
@@ -66,29 +85,48 @@ export default function Home() {
     setSelected(null); setCatalog(false); setMilitary(!military);
   }
   function toggleMail() {
+    setDeveloper(false);
     setHeroes(false); setMilitary(false); setTraining(false); setInventory(false);
     if (placing) { view.current?.cancel(); setPlacing(false); setMoving(null); setCell(null); }
     setSelected(null); setCatalog(false); setMail(true);
   }
   function toggleTraining() {
+    setDeveloper(false);
     setHeroes(false); setMilitary(false); setInventory(false);
     if (placing) { view.current?.cancel(); setPlacing(false); setMoving(null); setCell(null); }
     setSelected(null); setCatalog(false); setTraining(current => !current);
   }
   function toggleHeroes() {
+    setDeveloper(false);
     setInventory(false);
     if (placing) { view.current?.cancel(); setPlacing(false); setMoving(null); setCell(null); }
     setSelected(null); setCatalog(false); setMilitary(false); setTraining(false); setHeroes(!heroes);
   }
   function toggleInventory() {
+    setDeveloper(false);
     setHeroes(false); setMilitary(false); setTraining(false);
     if (placing) { view.current?.cancel(); setPlacing(false); setMoving(null); setCell(null); }
     setSelected(null); setCatalog(false); setInventory(!inventory);
   }
   function toggleWorldView() {
+    setDeveloper(false);
     const next = !worldView;
     setHeroes(false); setMilitary(false); setTraining(false); setInventory(false); setSelected(null); setCatalog(false); setPlacing(false); setMoving(null); setCell(null);
     view.current?.setWorldView(next); setWorldView(next);
+  }
+  function toggleDeveloper() {
+    view.current?.cancel();
+    setPlacing(false); setMoving(null); setCell(null); setSelected(null); setCatalog(false);
+    setHeroes(false); setMilitary(false); setTraining(false); setInventory(false); setMail(false);
+    setDeveloper(current => !current);
+  }
+  function regenerate() {
+    if (!view.current) return;
+    const objects = view.current.regenerateWorld(generation);
+    setWorldObjects(objects);
+    const requested = Object.values(generation.counts).reduce((sum, count) => sum + count, 0);
+    setGenerationStatus(`${objects.length} / ${requested} generated.${objects.length < requested ? ' Not enough space for all objects. Reduce counts or minimum distance.' : ''} Session only.`);
+    view.current.setWorldView(true);
   }
   return <main className={`game ${worldView ? 'world-mode' : ''}`}>
     <button className="world-toggle" onClick={toggleWorldView}>{worldView ? 'Base' : 'World'}</button>
@@ -117,7 +155,8 @@ export default function Home() {
     </section>}
     {heroes && !placing && !selected && <HeroesPanel onClose={() => setHeroes(false)} />}
     {training && <TrainingDialog buildings={buildings} troops={troops} ready={ready} onTrain={kind => { view.current?.train(kind); }} onClose={() => setTraining(false)} />}
+    {developer && <DeveloperPanel settings={generation} onSettings={setGeneration} objects={worldObjects} status={generationStatus} ready={ready} onClose={() => setDeveloper(false)} onRegenerate={regenerate} onRemove={() => { view.current?.removeWorld(); try { localStorage.setItem(WORLD_SAVE_KEY, '[]'); } catch { /* Keep the removal in memory when storage is unavailable. */ } setWorldObjects([]); setGenerationStatus('All generated objects removed.'); }} />}
     {mail && <MailDialog onClose={() => setMail(false)} />}
-    <footer className="bottom-bar"><div className="status" role="status"><span className="status-dot" />{message}<small>DRAG TO PAN · PINCH / SCROLL TO ZOOM</small></div><div className="hud-actions"><button className="build-toggle" onClick={toggleHeroes} aria-expanded={heroes}><span>Axies</span></button><button className="build-toggle" onClick={toggleTraining} aria-expanded={training}><span>Train</span></button><button className="build-toggle" onClick={toggleMail} aria-haspopup="dialog" aria-expanded={mail}><span>Mail</span></button><button className="build-toggle" onClick={toggleMilitary} disabled={!militaryUnlocked} aria-expanded={military}><span>Military</span></button><button className="build-toggle" onClick={() => { setHeroes(false); setMilitary(false); setTraining(false); if (placing) cancel(); else { setSelected(null); setCatalog(selected ? true : !catalog); } }} aria-expanded={(catalog && !selected) || placing}>▦ <span>{placing ? (moving ? 'Cancel move' : 'Cancel build') : 'Build'}</span></button></div></footer>
+    <footer className="bottom-bar"><div className="status" role="status"><span className="status-dot" />{message}<small>DRAG TO PAN · PINCH / SCROLL TO ZOOM</small></div><div className="hud-actions"><button className="build-toggle" onClick={toggleDeveloper} aria-expanded={developer}><span>Developer</span></button><button className="build-toggle" onClick={toggleHeroes} aria-expanded={heroes}><span>Axies</span></button><button className="build-toggle" onClick={toggleTraining} aria-expanded={training}><span>Train</span></button><button className="build-toggle" onClick={toggleMail} aria-haspopup="dialog" aria-expanded={mail}><span>Mail</span></button><button className="build-toggle" onClick={toggleMilitary} disabled={!militaryUnlocked} aria-expanded={military}><span>Military</span></button><button className="build-toggle" onClick={() => { setDeveloper(false); setHeroes(false); setMilitary(false); setTraining(false); if (placing) cancel(); else { setSelected(null); setCatalog(selected ? true : !catalog); } }} aria-expanded={(catalog && !selected) || placing}>▦ <span>{placing ? (moving ? 'Cancel move' : 'Cancel build') : 'Build'}</span></button></div></footer>
   </main>;
 }
