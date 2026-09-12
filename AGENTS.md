@@ -61,6 +61,8 @@ Axies are heroes. A hero’s skills are based on its body parts. The six primary
 
 Follow `IMPLEMENTATION_PLAN.md` for the main base milestone and keep its TODO checklist current as implementation completes.
 
+When writing or updating `IMPLEMENTATION_PLAN.md`, decompose TODO items into nested subtasks when they involve multiple distinct steps or need finer progress tracking. Make each subtask concrete, actionable, and independently verifiable. Keep simple tasks as single checklist items, and mark a parent TODO complete only after all of its subtasks are complete.
+
 Implementation is in `src/game/base.ts` (rules), `src/game/scene.ts` (Babylon scene and input), and `src/app/page.tsx` (HUD). Run `npm run test:placement` for placement and save-validation regression checks. This prototype uses plain CSS and system fonts.
 
 - Implement a 20 x 40 cell settlement grid (5 x 10 building footprints).

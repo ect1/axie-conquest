@@ -226,11 +226,25 @@ h2 { font: bold 19px Georgia, serif; margin: 3px 0 0; }
 .axie-tabs button:active { transform: none; }
 .heroes .empty-state > small { margin-top: 10px; }
 .hero-roster { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; max-height: min(350px, 47dvh); overflow-y: auto; overscroll-behavior: contain; padding: 3px; }
-.hero-card { display: flex; flex-direction: column; align-items: center; min-width: 0; padding: 7px 3px; border: 1px solid #c7d5b5; border-radius: 12px; background: #edf1e1; }
+.hero-card { position: relative; display: flex; flex-direction: column; align-items: center; min-width: 0; padding: 7px 3px; border: 1px solid #c7d5b5; border-radius: 12px; background: #edf1e1; overflow: hidden; }
+.deployment-ribbon { position: absolute; top: 7px; right: -22px; padding: 3px 22px; transform: rotate(45deg); background: #876b34; color: #fff6dc; font-size: 7px; font-weight: 800; letter-spacing: .4px; }
 .axie-portrait { display: block; width: 78px; max-width: 100%; height: auto; }
 .hero-card strong { font-size: 12px; margin-top: 2px; }
 .hero-card > span { font-size: 11px; margin-top: 3px; }
 .hero-card small { font-size: 9px; margin-top: 4px; }
+.hero-card.deployed { border-color: #d8c99d; background: #f0ebdb; }
+.deployed-roster { display: grid; gap: 7px; max-height: min(390px, 52dvh); overflow-y: auto; overscroll-behavior: contain; padding: 3px; }
+.deployed-assign { width: 100%; margin-bottom: 8px; }
+.deployed-axie { display: flex; align-items: center; gap: 7px; padding: 7px; border: 1px solid #c7d5b5; border-radius: 12px; background: #edf1e1; }
+.deployed-axie-summary { display: flex; align-items: center; gap: 7px; min-width: 0; flex: 1; padding: 0; border: 0; background: transparent; text-align: left; }
+.deployed-axie-summary .axie-portrait { width: 64px; flex-shrink: 0; }
+.deployed-axie-summary > span { min-width: 0; flex: 1; }
+.deployed-axie-summary strong, .deployed-axie-summary small { display: block; }
+.deployed-axie-summary strong { font-size: 12px; }
+.deployed-axie-summary small { margin-top: 3px; font-size: 9px; }
+.deployed-axie-summary .arrival-time { color: #52704d; font-weight: 700; }
+.enlist-axie { flex-shrink: 0; padding-inline: 8px; }
+.hero-deploy { width: 100%; margin-top: 12px; }
 .hero-detail { text-align: center; }
 .hero-detail > .secondary { display: block; }
 .hero-detail .axie-portrait { width: 130px; margin: 4px auto; }
@@ -260,6 +274,8 @@ h2 { font: bold 19px Georgia, serif; margin: 3px 0 0; }
 .talent-list span { padding: 6px 8px; border-radius: 999px; background: #f1e5c4; color: #765a29; font-size: 10px; font-weight: 700; }
 .hud-actions .build-toggle[aria-expanded="true"] { background: #567347; border-color: #eed38d; }
 .inventory-toggle { position: absolute; z-index: 3; right: var(--edge-right); bottom: calc(var(--bottom) + 62px); }
+.city-toggle { position: absolute; z-index: 3; right: var(--edge-right); bottom: calc(var(--bottom) + 112px); }.city-tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; padding: 4px; margin: 10px 0; border-radius: 10px; background: #e3e9da; }.city-tabs button { min-height: 38px; border: 0; border-radius: 7px; background: transparent; color: #526b58; font-size: 10px; font-weight: 800; text-transform: capitalize; }.city-tabs button.active { background: #315f44; color: #fff6dc; }.city-list { display: grid; gap: 7px; }.city-stock, .city-axie { display: flex; align-items: center; gap: 9px; padding: 9px; border: 1px solid #d3dfc8; border-radius: 10px; background: #edf1e1; }.city-stock > span, .city-axie > span { display: grid; place-items: center; width: 31px; height: 31px; border-radius: 8px; background: #dce7d1; color: #315f44; font-size: 16px; font-weight: 800; }.city-stock > div, .city-axie > div { min-width: 0; flex: 1; }.city-stock strong, .city-stock small, .city-axie strong, .city-axie small { display: block; }.city-stock strong, .city-axie strong { font-size: 12px; }.city-stock small, .city-axie small { margin-top: 2px; color: #6e7e6d; font-size: 10px; }.city-stock i { display: block; height: 4px; margin-top: 6px; overflow: hidden; border-radius: 99px; background: #cbd9c1; }.city-stock b { display: block; height: 100%; border-radius: inherit; background: #5e8c5d; }.city-stock em { color: #52704d; font-size: 11px; font-style: normal; font-weight: 800; }.city-axie > span { color: #fffaf0; }.city-note { margin: 3px 2px; color: #71806d; font-size: 11px; line-height: 1.45; }
+.city-nickname { margin: 10px 0 12px; padding: 10px; border: 1px solid #d3dfc8; border-radius: 10px; background: #edf1e1; }.city-nickname label { display: block; margin-bottom: 6px; color: #52704d; font-size: 10px; font-weight: 800; text-transform: uppercase; }.city-nickname > div { display: flex; gap: 6px; }.city-nickname input { min-width: 0; flex: 1; min-height: 38px; padding: 8px; border: 1px solid #c7d5b5; border-radius: 8px; background: #fffaf2; color: #315f44; font: inherit; }.city-nickname button { min-height: 38px; padding: 8px 10px; }.city-nickname small { display: block; margin-top: 6px; color: #7d887d; font-size: 10px; }
 .world-mode .panel:not(.heroes) { display: none; }
 .world-mode .inventory.panel { display: block; }
 .world-mode .hud-actions .build-toggle:last-child { display: none; }

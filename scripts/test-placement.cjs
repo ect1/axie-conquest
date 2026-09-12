@@ -132,3 +132,71 @@ for (const kind of TRAINABLE_TROOP_KINDS) {
   assert.equal(trainTroops(kind, settlement, { ...trained, [kind]: Number.MAX_SAFE_INTEGER }), null, 'Reject count overflow');
 }
 console.log('PASS: troop unlocks, training batches, facility removal/movement, and troop save validation');
+
+const militaryServiceSource = ts.transpileModule(fs.readFileSync('src/game/military-service.ts', 'utf8'), {
+  compilerOptions: { module: ts.ModuleKind.CommonJS },
+}).outputText;
+const militaryServiceCompiled = { exports: {} };
+new Function('exports', 'require', 'module', militaryServiceSource)(
+  militaryServiceCompiled.exports,
+  specifier => specifier === './base' ? compiled.exports : require(specifier),
+  militaryServiceCompiled,
+);
+const { createMilitaryService, getTotalMilitary, MILITARY_SAVE_KEY } = militaryServiceCompiled.exports;
+const savedValues = new Map([[MILITARY_SAVE_KEY, '{"infantry":20,"archer":10,"scout":0}']]);
+const storage = {
+  getItem: key => savedValues.get(key) ?? null,
+  setItem: (key, value) => savedValues.set(key, value),
+};
+assert.deepEqual(createMilitaryService().getTroops(), EMPTY_TROOPS, 'A fresh game starts without default troops');
+const militaryService = createMilitaryService(storage);
+assert.deepEqual(militaryService.getTroops(), { infantry: 20, archer: 10, scout: 0 }, 'Military service restores saved troops');
+assert.equal(getTotalMilitary(militaryService.getTroops()), 30, 'Military total includes soldiers and archers');
+const trainedArchers = militaryService.train('archer', [MAIN_HALL, { id: 'range', kind: 'archery', x: 0, z: 0 }]);
+assert.equal(trainedArchers.persisted, true);
+assert.deepEqual(JSON.parse(savedValues.get(MILITARY_SAVE_KEY)), { infantry: 20, archer: 20, scout: 0 }, 'Military service persists training');
+assert.equal(createMilitaryService(storage).getTroops().archer, 20, 'Persisted troops survive service recreation');
+console.log('PASS: zero-unit fresh start, military restoration, training persistence, and totals');
+
+const heroesSource = ts.transpileModule(fs.readFileSync('src/game/heroes.ts', 'utf8'), {
+  compilerOptions: { module: ts.ModuleKind.CommonJS },
+}).outputText;
+const heroesCompiled = { exports: {} };
+new Function('exports', 'require', 'module', heroesSource)(heroesCompiled.exports, require, heroesCompiled);
+const compileGameModule = (path) => {
+  const output = ts.transpileModule(fs.readFileSync(path, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText;
+  const result = { exports: {} };
+  new Function('exports', 'require', 'module', output)(result.exports, specifier => {
+    if (specifier === './base') return compiled.exports;
+    if (specifier === './heroes') return heroesCompiled.exports;
+    return require(specifier);
+  }, result);
+  return result.exports;
+};
+const deployment = compileGameModule('src/game/town-deployment.ts');
+const offense = compileGameModule('src/game/offense-formations.ts');
+assert.deepEqual(deployment.restoreDeployedAxieIds('["ember","moss","ember","unknown"]'), ['ember', 'moss'], 'Town deployment restore rejects unknown and duplicate Axies');
+assert.deepEqual(deployment.restoreDeployedAxieIds('bad'), deployment.getDefaultDeployedAxieIds(), 'Invalid deployment saves use starter town Axies');
+const savedFormation = offense.createEmptyFormations();
+savedFormation[0].front[0] = { heroId: 'ember', military: null, militaryCount: 0 };
+savedFormation[0].front[1] = { heroId: 'moss', military: null, militaryCount: 0 };
+savedFormation[0].mid[0] = { heroId: null, military: 'infantry', militaryCount: 12 };
+savedFormation[0].mid[1] = { heroId: null, military: 'infantry', militaryCount: 9 };
+savedFormation[0].back[0] = { heroId: null, military: 'archer', militaryCount: 7 };
+savedFormation[0].leader = 'ember';
+const restoredFormation = offense.restoreOffenseFormations(JSON.stringify(savedFormation), ['ember'], { infantry: 20, archer: 7, scout: 0 });
+assert.equal(restoredFormation[0].front[0].heroId, 'ember', 'A deployed town Axie restores into offense');
+assert.deepEqual(restoredFormation[0].front[1], { heroId: null, military: null, militaryCount: 0 }, 'An Axie outside town is removed from offense');
+assert.equal(restoredFormation[0].leader, 'ember', 'A deployed Axie in the formation restores as leader');
+assert.equal(restoredFormation[0].mid[0].militaryCount, 12, 'Valid trained military restores');
+assert.deepEqual(restoredFormation[0].mid[1], { heroId: null, military: null, militaryCount: 0 }, 'Military assignments cannot exceed trained totals');
+assert.equal(restoredFormation[0].back[0].militaryCount, 7, 'Each trained military kind restores independently');
+assert.deepEqual(offense.getFormationTroopCounts(restoredFormation[0]), { infantry: 12, archer: 7 });
+assert.deepEqual(offense.getFormationsTroopCounts(restoredFormation), { infantry: 12, archer: 7 }, 'Formation military totals are city-wide');
+const duplicateFormations = offense.createEmptyFormations();
+duplicateFormations[0].front[0] = { heroId: null, military: 'infantry', militaryCount: 15 };
+duplicateFormations[1].front[0] = { heroId: null, military: 'infantry', militaryCount: 15 };
+const cappedFormations = offense.restoreOffenseFormations(JSON.stringify(duplicateFormations), [], { infantry: 20, archer: 0, scout: 0 });
+assert.equal(offense.getFormationsTroopCounts(cappedFormations).infantry, 15, 'Saved formations share the city-wide troop cap');
+assert.deepEqual(offense.restoreOffenseFormations('bad', ['ember'], { infantry: 20, archer: 7, scout: 0 }), offense.createEmptyFormations(), 'Invalid formation saves start empty');
+console.log('PASS: town-only Axie assignments, troop limits, leaders, and offense formation restoration');

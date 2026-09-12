@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from 'react';
 import { Building, Troops, TroopKind, BUILDING_DEFINITIONS, TROOP_DEFINITIONS, TRAINABLE_TROOP_KINDS, TRAINING_BATCH, canTrain } from '@/game/base';
+import { getTotalMilitary } from '@/game/military-service';
 
 export default function TrainingDialog({ buildings, troops, ready, onTrain, onClose }: {
   buildings: Building[]; troops: Troops; ready: boolean;
@@ -28,7 +29,7 @@ export default function TrainingDialog({ buildings, troops, ready, onTrain, onCl
           <button className="primary" disabled aria-describedby="axie-training-description axie-training-requirements">Train Axie</button>
         </div>
       </div>
-      <p className="catalog-footer" role="status">{troops.infantry + troops.archer} troops ready. Training is free and instant for now.</p>
+      <p className="catalog-footer" role="status">{getTotalMilitary(troops)} troops ready. Training is free and instant for now.</p>
     </div>
   </dialog>;
 }

@@ -9,6 +9,8 @@ import MailDialog from './mail-dialog';
 import DeveloperPanel from './developer-panel';
 import { DEFAULT_GENERATION, GenerationSettings, restoreWorld, WORLD_SAVE_KEY, WorldObject } from '@/game/world';
 import type { BaseView } from '@/game/scene';
+import CityUnitPanel from './city-unit-panel';
+import { CAPITAL_CITY_ID, CITIES_SAVE_KEY, CityState, createCapitalCity, restoreCities } from '@/game/cities';
 
 type InventoryTab = 'resources' | 'equipment' | 'other';
 
@@ -18,6 +20,9 @@ export default function Home() {
   const [buildings, setBuildings] = useState<Building[]>([MAIN_HALL]);
   const [heroes, setHeroes] = useState(false);
   const [military, setMilitary] = useState(false);
+  const [cityUnit, setCityUnit] = useState(false);
+  const [selectedCity, setSelectedCity] = useState<CityState>(createCapitalCity);
+  const [nicknameDraft, setNicknameDraft] = useState('');
   const [training, setTraining] = useState(false);
   const [developer, setDeveloper] = useState(false);
   const [generation, setGeneration] = useState<GenerationSettings>(DEFAULT_GENERATION);
@@ -36,6 +41,12 @@ export default function Home() {
   const [ready, setReady] = useState(false);
   const [worldView, setWorldView] = useState(false);
   const [message, setMessage] = useState('A new chapter for Lunacia starts here.');
+  useEffect(() => {
+    try { setSelectedCity(restoreCities(localStorage.getItem(CITIES_SAVE_KEY)).find(city => city.id === CAPITAL_CITY_ID) ?? createCapitalCity()); } catch { /* Keep the in-memory capital when storage is unavailable. */ }
+  }, []);
+  useEffect(() => {
+    try { localStorage.setItem(CITIES_SAVE_KEY, JSON.stringify([{ ...selectedCity, troops }])); } catch { /* City state remains usable for this session. */ }
+  }, [selectedCity, troops]);
   useEffect(() => {
     let disposed = false;
     import('@/game/scene').then(({ createBase }) => {
@@ -75,6 +86,12 @@ export default function Home() {
   }
   function removeSelected() {
     if (selected && view.current?.remove(selected.id)) { setSelected(null); setCatalog(false); }
+  }
+  function renameCapital() {
+    const name = nicknameDraft.trim().replace(/\s+/g, ' ').slice(0, 24);
+    if (!name || name === selectedCity.name) return;
+    setSelectedCity(city => ({ ...city, name }));
+    setNicknameDraft('');
   }
   function toggleMilitary() {
     setDeveloper(false);
@@ -132,19 +149,21 @@ export default function Home() {
     <button className="world-toggle" onClick={toggleWorldView}>{worldView ? 'Base' : 'World'}</button>
     <canvas ref={canvas} aria-label="Lunacia settlement. Drag to pan, scroll or pinch to zoom. Choose a building, then tap the land to position it." />
     <header className="topbar">
-      <div className="identity"><div className="crest">✦</div><div><span className="eyebrow">AXIE CONQUEST</span><strong>Everleaf Haven</strong><small>Lunacia · Your settlement</small></div></div>
-      <div className="resources"><div><span>🌾</span><strong>{farms}<small>FARMS</small></strong></div><div><span>▦</span><strong>{800 - usedCells}<small>FREE CELLS</small></strong></div><div className="level"><span>✦</span><strong>1<small>HALL LEVEL</small></strong></div></div>
+      <div className="identity"><div className="crest">✦</div><div><span className="eyebrow">AXIE CONQUEST</span><strong>{selectedCity.name}</strong><small>Lunacia · Your settlement</small></div></div>
+      <div className="resources"><div><span>🌾</span><strong>{farms}<small>FARMS</small></strong></div><div><span>▦</span><strong>{800 - usedCells}<small>FREE CELLS</small></strong></div><div className="power" aria-label="Power"><span>⚡</span><strong>POWER</strong></div><div className="level"><span>✦</span><strong>1<small>HALL LEVEL</small></strong></div></div>
     </header>
     <aside className="chapter"><span className="eyebrow">CHAPTER 01 / ROOTS OF A KINGDOM</span><h1>A home worth<br />growing.</h1><p>Raise your first farm.<br />Bring life back to Lunacia.</p><div className="objective"><span className={farms ? 'complete' : ''}>{farms ? '✓' : '○'}</span><div>Plant the foundations<small>{farms ? 'First farm established' : 'Build your first farm'}</small></div></div></aside>
     <div className="map-controls"><button aria-label="Zoom in" onClick={() => view.current?.zoom(0.85)}>+</button><button aria-label="Zoom out" onClick={() => view.current?.zoom(1.18)}>−</button><button aria-label="Center on main hall" onClick={() => view.current?.home()}>⌂</button></div>
     {!ready && <div className="loading">Preparing your settlement…</div>}
-    {selected && !placing && <section className="selection panel"><button className="close" aria-label="Close building details" onClick={() => setSelected(null)}>×</button><span className="eyebrow">LEVEL 1 · {BUILDING_DEFINITIONS[selected.kind].category}</span><h2>{BUILDING_DEFINITIONS[selected.kind].name}</h2><p>{BUILDING_DEFINITIONS[selected.kind].description}</p><small>{getBuildingDimensions(selected.kind, selected.rotation).width} × {getBuildingDimensions(selected.kind, selected.rotation).depth} footprint · Cell {selected.x + 1}, {selected.z + 1}</small><div className="placement-actions"><button className="primary" onClick={moveSelected}>Move</button><button className="secondary" onClick={() => view.current?.rotate(selected.id)} aria-label="Rotate building 90 degrees">Rotate</button>{selected.kind !== 'hall' && <button className="secondary remove-action" onClick={removeSelected}>Remove</button>}</div></section>}
+    {selected && !placing && <section className="selection panel"><button className="close" aria-label="Close building details" onClick={() => setSelected(null)}>×</button><span className="eyebrow">LEVEL 1 · {BUILDING_DEFINITIONS[selected.kind].category}</span><h2>{selected.kind === 'hall' ? selectedCity.name : BUILDING_DEFINITIONS[selected.kind].name}</h2>{selected.kind === 'hall' && <div className="city-nickname"><label htmlFor="city-nickname">City name</label><div><input id="city-nickname" value={nicknameDraft || selectedCity.name} maxLength={24} onChange={event => setNicknameDraft(event.target.value)} onFocus={event => { if (!nicknameDraft) setNicknameDraft(event.currentTarget.value); }} onKeyDown={event => { if (event.key === 'Enter') renameCapital(); }} /><button className="primary" disabled={!nicknameDraft.trim() || nicknameDraft.trim() === selectedCity.name} onClick={renameCapital}>Rename</button></div><small>You can update this name anytime.</small></div>}<p>{BUILDING_DEFINITIONS[selected.kind].description}</p><small>{getBuildingDimensions(selected.kind, selected.rotation).width} × {getBuildingDimensions(selected.kind, selected.rotation).depth} footprint · Cell {selected.x + 1}, {selected.z + 1}</small><div className="placement-actions"><button className="primary" onClick={moveSelected}>Move</button><button className="secondary" onClick={() => view.current?.rotate(selected.id)} aria-label="Rotate building 90 degrees">Rotate</button>{selected.kind !== 'hall' && <button className="secondary remove-action" onClick={removeSelected}>Remove</button>}</div></section>}
     {placing ? <section className="placement panel"><div><span className="eyebrow">{moving ? 'MOVING' : 'PLACING'} / {BUILDING_DEFINITIONS[buildingKind].name}</span><h2>{valid ? 'Room to grow' : 'Choose another spot'}</h2><p aria-live="polite">{cell ? (valid ? `Clear land at ${cell.x + 1}, ${cell.z + 1}. Ready to ${moving ? 'move' : 'build'}.` : 'Blocked: overlaps a building or crosses the base edge.') : `Tap the land to position your ${BUILDING_DEFINITIONS[buildingKind].name}.`}</p><div className="legend"><span>🟩 Available</span><span>🟥 Blocked</span><span>{size.width} × {size.depth} cells</span></div></div><div className="placement-actions"><button className="secondary" onClick={cancel}>Cancel</button><button className="primary" disabled={!valid} onClick={confirm}>✓ {moving ? 'Confirm move' : `Build ${BUILDING_DEFINITIONS[buildingKind].name}`}</button></div></section> : catalog && !selected && <section className="catalog panel"><div className="catalog-heading"><div><span className="eyebrow">MAKE ROOM FOR POSSIBILITY</span><h2>Build your haven</h2></div><button className="close" aria-label="Close build menu" onClick={() => setCatalog(false)}>×</button></div><div className="building-options">{BUILDABLE_KINDS.map(kind => {
       const definition = BUILDING_DEFINITIONS[kind];
       const dimensions = getBuildingDimensions(kind);
       return <button key={kind} className="building-card" onClick={() => begin(kind)} disabled={!ready}><span className="building-art" aria-hidden="true">{definition.icon}</span><span><strong>{definition.name}</strong><small>{definition.category} &middot; {dimensions.width} &times; {dimensions.depth}</small></span><span className="add" aria-hidden="true">+</span></button>;
     })}</div><div className="catalog-footer">Prototype construction is free <span>40 × 20 base grid</span></div></section>}
-    {military && !placing && !selected && <MilitaryPanel buildings={buildings} troops={troops} ready={ready} onClose={() => setMilitary(false)} onTrain={kind => { view.current?.train(kind); }} />}
+    {military && !placing && !selected && <MilitaryPanel troops={troops} onClose={() => setMilitary(false)} />}
+    {cityUnit && !placing && !selected && <CityUnitPanel city={{ ...selectedCity, troops }} onClose={() => setCityUnit(false)} />}
+    <button className="city-toggle build-toggle" onClick={() => { setHeroes(false); setMilitary(false); setTraining(false); setInventory(false); setSelected(null); setCatalog(false); setCityUnit(current => !current); }} aria-expanded={cityUnit}><span>City</span></button>
     <button className="inventory-toggle build-toggle" onClick={toggleInventory} aria-expanded={inventory}><span>Inventory</span></button>
     {inventory && !catalog && !placing && !selected && <section className="inventory panel" aria-label="Inventory">
       <div className="catalog-heading"><div><span className="eyebrow">YOUR LUNACIAN STORES</span><h2>Inventory</h2></div><button className="close" aria-label="Close inventory" onClick={() => setInventory(false)}>&times;</button></div>
@@ -153,7 +172,7 @@ export default function Home() {
       </div>
       <div className="empty-state" role="tabpanel"><span className="empty-state-icon" aria-hidden="true">▧</span><strong>No {inventoryTab} yet</strong><p>Your {inventoryTab} will appear here as you explore and rebuild Lunacia.</p></div>
     </section>}
-    {heroes && !placing && !selected && <HeroesPanel onClose={() => setHeroes(false)} />}
+    {heroes && !placing && !selected && <HeroesPanel onClose={() => setHeroes(false)} onCoordinate={() => { setHeroes(false); view.current?.home(); }} />}
     {training && <TrainingDialog buildings={buildings} troops={troops} ready={ready} onTrain={kind => { view.current?.train(kind); }} onClose={() => setTraining(false)} />}
     {developer && <DeveloperPanel settings={generation} onSettings={setGeneration} objects={worldObjects} status={generationStatus} ready={ready} onClose={() => setDeveloper(false)} onRegenerate={regenerate} onRemove={() => { view.current?.removeWorld(); try { localStorage.setItem(WORLD_SAVE_KEY, '[]'); } catch { /* Keep the removal in memory when storage is unavailable. */ } setWorldObjects([]); setGenerationStatus('All generated objects removed.'); }} />}
     {mail && <MailDialog onClose={() => setMail(false)} />}

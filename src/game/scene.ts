@@ -1,10 +1,11 @@
 import { generateWorld, GenerationSettings, WorldObject, WORLD_DEFINITIONS, WORLD_SAVE_KEY, WORLD_WIDTH, WORLD_DEPTH } from './world';
 import { ArcRotateCamera, Color3, Color4, DirectionalLight, Engine, HemisphericLight, MeshBuilder, Scene, StandardMaterial, TransformNode, Vector3 } from '@babylonjs/core';
-import { BUILDING_DEFINITIONS, BuildableKind, BuildingKind, Building, Cell, FOOTPRINT, GRID_DEPTH, GRID_WIDTH, MAIN_HALL, canPlace, getBuildingDimensions, getBuildingFootprint, restoreBuildings, canMoveBuilding, moveBuilding, removeBuilding, rotateBuilding, Troops, TroopKind, TROOP_DEFINITIONS, TRAINING_BATCH, restoreTroops, trainTroops } from './base';
+import { BUILDING_DEFINITIONS, BuildableKind, BuildingKind, Building, Cell, FOOTPRINT, GRID_DEPTH, GRID_WIDTH, MAIN_HALL, canPlace, getBuildingDimensions, getBuildingFootprint, restoreBuildings, canMoveBuilding, moveBuilding, removeBuilding, rotateBuilding, Troops, TroopKind } from './base';
+import { createMilitaryService, getTrainingMessage } from './military-service';
+import { CAPITAL_CITY_ID } from './cities';
 
 type Events = { troops: (troops: Troops) => void; change: (b: Building[]) => void; preview: (c: Cell | null) => void; select: (b: Building | null) => void; message: (s: string) => void; viewMode: (mode: 'base' | 'world') => void };
 export type BaseView = { regenerateWorld: (settings: GenerationSettings) => WorldObject[]; loadWorld: (objects: WorldObject[]) => void; removeWorld: () => void; train: (kind: TroopKind) => boolean; rotate: (id: string) => boolean; move: (id: string) => boolean; remove: (id: string) => boolean; begin: (kind: BuildableKind) => void; cancel: () => void; confirm: () => boolean; setGridVisible: (visible: boolean) => void; setWorldView: (enabled: boolean) => void; zoom: (factor: number) => void; home: () => void; dispose: () => void };
-const TROOP_SAVE_KEY = 'axie-conquest-troops-v1';
 const SAVE_KEY = 'axie-conquest-base-v2';
 const HALF_WIDTH = GRID_WIDTH / 2;
 const HALF_DEPTH = GRID_DEPTH / 2;
@@ -318,10 +319,8 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
       : restoreBuildings(saved);
   }
   catch { buildings = restoreBuildings(null); }
-  let troops: Troops;
-  try { troops = restoreTroops(localStorage.getItem(TROOP_SAVE_KEY)); }
-  catch { troops = restoreTroops(null); }
-  events.troops({ ...troops });
+  const military = createMilitaryService(localStorage, CAPITAL_CITY_ID);
+  events.troops(military.getTroops());
   buildings.forEach(makeBuilding); events.change([...buildings]);
   const gridRoot = new TransformNode('construction grid', scene);
   const tiles: ReturnType<typeof box>[] = [];
@@ -443,12 +442,11 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
     removeWorld,
     train(kind) {
       if (placing) return false;
-      const next = trainTroops(kind, buildings, troops);
-      if (!next) return false;
-      troops = next; events.troops({ ...troops });
-      const message = `${TRAINING_BATCH} ${TROOP_DEFINITIONS[kind].name.toLowerCase()} trained.`;
-      try { localStorage.setItem(TROOP_SAVE_KEY, JSON.stringify(troops)); events.message(message); }
-      catch { events.message(`${message} Browser storage unavailable; troops last this session.`); }
+      const result = military.train(kind, buildings);
+      if (!result) return false;
+      events.troops(result.troops);
+      const message = getTrainingMessage(kind);
+      events.message(result.persisted ? message : `${message} Browser storage unavailable; troops last this session.`);
       return true;
     },
     setGridVisible(visible) { refreshGrid(); gridRoot.setEnabled(!camera.radius || camera.radius < WORLD_OVERVIEW_RADIUS ? (visible || placing) : false); },
