@@ -1,0 +1,32 @@
+# Dependencies
+node_modules/
+
+# Next.js build output
+.next/
+out/
+
+# TypeScript cache
+*.tsbuildinfo
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Environment and local secrets
+.env
+.env*.local
+
+# Local editor and tool state
+.vscode/
+.idea/
+.codex/
+
+# Babylon editor local workspace state
+.bjseditor/
+project.bjseditor
+
+# OS files
+.DS_Store
+Thumbs.db
