@@ -21,10 +21,10 @@ export function showMarches(scene: Scene, orders: RouteOrder[]) {
       unit.position.set((column - (order.formation![row].length - 1) / 2) * 1.15, 0, (1.5 - rowIndex) * 1.25);
       units.push(unit);
       const body = MeshBuilder.CreateSphere('unit body', { diameter: hero ? 0.95 : 0.65, segments: 8 }, scene);
-      body.parent = unit; body.position.y = 0.65; body.material = mat; body.isPickable = false;
+      body.parent = unit; body.position.y = 0.65; body.material = mat; body.isPickable = true; body.metadata = { marchId: order.id };
       if (hero) for (const side of [-1, 1]) {
         const ear = MeshBuilder.CreateCylinder('Axie ears', { height: 0.45, diameterBottom: 0.25, diameterTop: 0, tessellation: 6 }, scene);
-        ear.parent = unit; ear.position.set(side * 0.3, 1.15, 0); ear.material = mat; ear.isPickable = false;
+        ear.parent = unit; ear.position.set(side * 0.3, 1.15, 0); ear.material = mat; ear.isPickable = true; ear.metadata = { marchId: order.id };
       }
     }));
     const line = MeshBuilder.CreateLines('active march route', { points: [new Vector3(origin.x, 0.2, origin.z), new Vector3(destination.x, 0.2, destination.z)] }, scene);
@@ -36,7 +36,7 @@ export function showMarches(scene: Scene, orders: RouteOrder[]) {
     for (const { order, army, units, line } of armies) {
       const progress = marchProgress(order, now);
       army.position.set(order.route.origin.x + (order.target.x - order.route.origin.x) * progress, 0, order.route.origin.z + (order.target.z - order.route.origin.z) * progress);
-      line.setEnabled(progress < 1);
+      line.setEnabled(true);
       units.forEach((unit, index) => { unit.position.y = progress < 1 ? Math.abs(Math.sin(now / 150 + index)) * 0.15 : 0; });
     }
   });

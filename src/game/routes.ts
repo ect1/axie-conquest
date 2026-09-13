@@ -1,5 +1,6 @@
 import { Formation, FORMATION_ROWS } from './offense-formations';
 import { WORLD_DEPTH, WORLD_WIDTH, WorldObject } from './world';
+import { activeUnitGlobalStats, DEFAULT_UNIT_GLOBAL_STATS } from './unit-stats';
 
 export const ROUTES_SAVE_KEY = 'axie-conquest-routes-v1';
 export type Coordinate = { x: number; z: number };
@@ -46,10 +47,13 @@ export function restoreRouteOrders(value: string | null): RouteOrder[] {
   } catch { return []; }
 }
 export function createScoutOrder(target: WorldTarget): ScoutOrder { return { id: `scout-${Date.now()}`, kind: 'scout', target, route: createRoute(target), status: 'scouting' }; }
-export function createOffensiveMarchOrder(target: WorldTarget, formationIndex: number, formation: Formation, cityName: string, now = Date.now()): OffensiveMarchOrder {
+export function marchTravelTimeMs(route: Route, marchSpeed = activeUnitGlobalStats.marchSpeed): number { return Math.max(1000, route.distance / Math.max(0.1, marchSpeed) * 1000); }
+export function formatDuration(ms: number): string { const totalSeconds = Math.max(0, Math.ceil(ms / 1000)); const hours = Math.floor(totalSeconds / 3600); const minutes = Math.floor(totalSeconds % 3600 / 60); const seconds = totalSeconds % 60; return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`; }
+export function getMarchArrivalTime(target: Coordinate, now = Date.now()): number { return now + marchTravelTimeMs(createRoute(target)); }
+export function createOffensiveMarchOrder(target: WorldTarget, formationIndex: number, formation: Formation, cityName: string, now = Date.now(), marchSpeed = DEFAULT_UNIT_GLOBAL_STATS.marchSpeed): OffensiveMarchOrder {
   if (!isValidFormation(formation)) throw new Error('Assign at least one Axie.');
   const route = createRoute(target);
-  return { id: `march-${now}-${Math.random().toString(36).slice(2)}`, kind: 'march', target, route, formationIndex, status: 'marching', formation: structuredClone(formation), cityName, startedAt: now, arrivesAt: now + Math.max(1000, route.distance / 2 * 1000) };
+  return { id: `march-${now}-${Math.random().toString(36).slice(2)}`, kind: 'march', target, route, formationIndex, status: 'marching', formation: structuredClone(formation), cityName, startedAt: now, arrivesAt: now + marchTravelTimeMs(route, marchSpeed) };
 }
 export function marchProgress(order: OffensiveMarchOrder, now: number): number {
   return Math.max(0, Math.min(1, (now - (order.startedAt ?? now)) / Math.max(1, (order.arrivesAt ?? now) - (order.startedAt ?? now))));

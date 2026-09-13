@@ -6,7 +6,7 @@ import { createMilitaryService, getTrainingMessage } from './military-service';
 import { CAPITAL_CITY_ID } from './cities';
 import { Coordinate, WorldTarget, RouteOrder } from './routes';
 
-type Events = { troops: (troops: Troops) => void; change: (b: Building[]) => void; preview: (c: Cell | null) => void; select: (b: Building | null) => void; target: (target: WorldTarget | null) => void; message: (s: string) => void; viewMode: (mode: 'base' | 'world') => void };
+type Events = { troops: (troops: Troops) => void; change: (b: Building[]) => void; preview: (c: Cell | null) => void; select: (b: Building | null) => void; marchSelect: (id: string) => void; target: (target: WorldTarget | null) => void; message: (s: string) => void; viewMode: (mode: 'base' | 'world') => void };
 export type BaseView = { setMarches: (orders: RouteOrder[]) => void; regenerateWorld: (settings: GenerationSettings) => WorldObject[]; loadWorld: (objects: WorldObject[]) => void; removeWorld: () => void; train: (kind: TroopKind) => boolean; rotate: (id: string) => boolean; move: (id: string) => boolean; remove: (id: string) => boolean; begin: (kind: BuildableKind) => void; cancel: () => void; confirm: () => boolean; setGridVisible: (visible: boolean) => void; setWorldView: (enabled: boolean) => void; setRoute: (route: { origin: Coordinate; destination: Coordinate } | null) => void; zoom: (factor: number) => void; home: () => void; dispose: () => void };
 const SAVE_KEY = 'axie-conquest-base-v2';
 const HALF_WIDTH = GRID_WIDTH / 2;
@@ -427,7 +427,11 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
     }
     else {
       const rect = canvas.getBoundingClientRect();
-      const hit = scene.pick(e.clientX - rect.left, e.clientY - rect.top, mesh => !!mesh.metadata?.buildingId || !!mesh.metadata?.mapObject);
+      const hit = scene.pick(e.clientX - rect.left, e.clientY - rect.top, mesh => !!mesh.metadata?.buildingId || !!mesh.metadata?.mapObject || !!mesh.metadata?.marchId);
+      if (typeof hit?.pickedMesh?.metadata?.marchId === 'string') {
+        events.marchSelect(hit.pickedMesh.metadata.marchId);
+        return;
+      }
       if (hit?.pickedMesh?.metadata?.mapObject === 'Everleaf Haven') {
         home();
         return;

@@ -75,6 +75,9 @@ Implementation is in `src/game/base.ts` (rules), `src/game/scene.ts` (Babylon sc
 
 ## Product and implementation principles
 
+- Every new module or service that persists resettable game data MUST be registered in `src/game/reset.ts` (`RESETTABLE_MODULES`). Include all current and legacy storage keys, plus a narrowly scoped matcher for per-city or other dynamic keys. Supply a synchronous `reset` callback for module-level caches or state that needs cleanup. Registration must be eager, independent of whether the feature UI has opened. Other persistence backends must extend the reset contract before shipping.
+- Reset must leave unrelated browser data untouched, report failures, and reload after successful cleanup to discard React, scene, and service state. Add reset regression coverage for each new persistent module, including restoration of starter defaults. Never introduce persistent game state that cannot be reset through the shared reset workflow.
+
 - Design mobile-first touch interactions, with generous hit areas and clear selected/disabled/loading states.
 - Build reusable data-driven definitions for Axie classes, parts, skills, buildings, troops, resources, quests, and map objects.
 - Keep game rules separate from presentation so the same systems can support city view, world map, battle previews, and future multiplayer features.
