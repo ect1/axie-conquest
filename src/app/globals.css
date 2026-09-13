@@ -283,6 +283,10 @@ h2 { font: bold 19px Georgia, serif; margin: 3px 0 0; }
 .world-action.panel { z-index: 10; }
 .world-action .building-card { width: 100%; margin: 8px 0; }
 .world-action .building-card[aria-pressed="true"] { border: 2px solid #315f44; background: #cfe2b9; }
+.world-object-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.world-object-actions > div { flex: 1 1 90px; }
+.world-object-actions button { width: 100%; min-height: 42px; }
+.world-object-actions small { display: block; margin-top: 4px; color: #866d43; font-size: 9px; }
 .world-mode .inventory.panel { display: block; }
 .world-mode .hud-actions .build-toggle:last-child { display: none; }
 .world-mode .heroes.panel { display: block; }

@@ -15,12 +15,32 @@ export const WORLD_DEFINITIONS = {
 } as const;
 export type WorldKind = keyof typeof WORLD_DEFINITIONS;
 export const WORLD_KINDS = Object.keys(WORLD_DEFINITIONS) as WorldKind[];
+export type WorldAction = 'scout' | 'attack' | 'gather' | 'occupy';
+export type WorldObjectState = 'available' | 'defended' | 'defeated';
+export type WorldActionOption = { action: WorldAction; enabled: boolean; reason?: string };
 export type GenerationSettings = { counts: Record<WorldKind, number>; spacing: number };
-export type WorldObject = { id: string; kind: WorldKind; x: number; z: number; loot: { apple: number } };
+export type WorldObject = { id: string; kind: WorldKind; x: number; z: number; state: WorldObjectState; loot: { apple: number } };
 export const DEFAULT_GENERATION: GenerationSettings = {
   counts: Object.fromEntries(WORLD_KINDS.map(kind => [kind, WORLD_DEFINITIONS[kind].count])) as Record<WorldKind, number>,
   spacing: 8,
 };
+
+export function defaultWorldObjectState(kind: WorldKind): WorldObjectState {
+  return kind === 'boss' || kind === 'garrison' || kind === 'village' ? 'defended' : 'available';
+}
+
+export function getWorldObjectActions(object: WorldObject): WorldActionOption[] {
+  if (object.kind === 'boss') return object.state === 'defended'
+    ? [{ action: 'scout', enabled: true }, { action: 'attack', enabled: true }]
+    : [];
+  if (object.kind === 'garrison') return object.state === 'defeated'
+    ? [{ action: 'occupy', enabled: true }]
+    : [{ action: 'scout', enabled: true }, { action: 'attack', enabled: true }, { action: 'occupy', enabled: false, reason: 'Defeat this garrison first.' }];
+  if (object.kind === 'village') return object.state === 'defeated'
+    ? [{ action: 'occupy', enabled: true }]
+    : [{ action: 'attack', enabled: true }, { action: 'occupy', enabled: false, reason: 'Defeat this village first.' }];
+  return [{ action: 'gather', enabled: true }];
+}
 
 export function restoreWorld(value: string | null): WorldObject[] | null {
   if (value === null) return null;
@@ -35,6 +55,11 @@ export function restoreWorld(value: string | null): WorldObject[] | null {
         && typeof candidate.x === 'number' && Number.isFinite(candidate.x)
         && typeof candidate.z === 'number' && Number.isFinite(candidate.z)
         && !!loot && typeof loot === 'object' && typeof (loot as Record<string, unknown>).apple === 'number';
+    }).map(object => {
+      const savedState = (object as WorldObject).state;
+      const state = ['available', 'defended', 'defeated'].includes(savedState) ? savedState : defaultWorldObjectState(object.kind);
+      // Villages were resource sites in older saves. Promote that legacy state to the new defended lifecycle.
+      return { ...object, state: object.kind === 'village' && state === 'available' ? 'defended' : state };
     });
   } catch {
     return null;
@@ -58,7 +83,7 @@ export function generateWorld(settings: GenerationSettings, random = Math.random
       // Reserve the city island, walls and corner towers, even in overview mode.
       if (Math.abs(x) < GRID_WIDTH / 2 + 3 + WORLD_OBJECT_RADIUS + spacing && Math.abs(z) < GRID_DEPTH / 2 + 3 + WORLD_OBJECT_RADIUS + spacing) continue;
       if (objects.some(other => Math.hypot(x - other.x, z - other.z) < WORLD_OBJECT_RADIUS * 2 + spacing)) continue;
-      objects.push({ id: `world-${objects.length}`, kind, x, z, loot: { apple: kind === 'village' || kind === 'garrison' ? 1 : 0 } });
+      objects.push({ id: `world-${objects.length}`, kind, x, z, state: defaultWorldObjectState(kind), loot: { apple: kind === 'village' || kind === 'garrison' ? 1 : 0 } });
       break;
     }
   }

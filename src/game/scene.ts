@@ -8,7 +8,7 @@ import { CAPITAL_CITY_ID } from './cities';
 import { Coordinate, WorldTarget } from './routes';
 
 type Events = { troops: (troops: Troops) => void; change: (b: Building[]) => void; preview: (c: Cell | null) => void; select: (b: Building | null) => void; unitSelect: (id: string) => void; target: (target: WorldTarget | null) => void; message: (s: string) => void; viewMode: (mode: 'base' | 'world') => void };
-export type BaseView = { setUnits: (orders: WorldUnit[], selectedId: string | null) => void; focusCoordinate: (coordinate: Coordinate) => void; regenerateWorld: (settings: GenerationSettings) => WorldObject[]; loadWorld: (objects: WorldObject[]) => void; removeWorld: () => void; train: (kind: TroopKind) => boolean; rotate: (id: string) => boolean; move: (id: string) => boolean; remove: (id: string) => boolean; begin: (kind: BuildableKind) => void; cancel: () => void; confirm: () => boolean; setGridVisible: (visible: boolean) => void; setWorldView: (enabled: boolean) => void; setRoute: (route: { origin: Coordinate; destination: Coordinate } | null) => void; zoom: (factor: number) => void; home: () => void; dispose: () => void };
+export type BaseView = { setUnits: (orders: WorldUnit[], selectedId: string | null) => void; setSelectedTarget: (id: string | null) => void; focusCoordinate: (coordinate: Coordinate) => void; regenerateWorld: (settings: GenerationSettings) => WorldObject[]; loadWorld: (objects: WorldObject[]) => void; removeWorld: () => void; train: (kind: TroopKind) => boolean; rotate: (id: string) => boolean; move: (id: string) => boolean; remove: (id: string) => boolean; begin: (kind: BuildableKind) => void; cancel: () => void; confirm: () => boolean; setGridVisible: (visible: boolean) => void; setWorldView: (enabled: boolean) => void; setRoute: (route: { origin: Coordinate; destination: Coordinate } | null) => void; zoom: (factor: number) => void; home: () => void; dispose: () => void };
 const SAVE_KEY = 'axie-conquest-base-v2';
 const HALF_WIDTH = GRID_WIDTH / 2;
 const HALF_DEPTH = GRID_DEPTH / 2;
@@ -279,6 +279,8 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
     root.getChildMeshes().forEach(mesh => { mesh.isPickable = true; mesh.metadata = { buildingId: b.id }; });
   }
   const generatedRoots: TransformNode[] = [];
+  const targetRings = new Map<string, ReturnType<typeof MeshBuilder.CreateTorus>>();
+  function setSelectedTarget(id: string | null) { targetRings.forEach((ring, objectId) => ring.setEnabled(objectId === id)); }
   function saveWorld(objects: WorldObject[]) {
     try { localStorage.setItem(WORLD_SAVE_KEY, JSON.stringify(objects)); }
     catch { events.message('World saved for this session only; browser storage unavailable.'); }
@@ -286,6 +288,7 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
   function removeWorld() {
     generatedRoots.forEach(root => root.dispose());
     generatedRoots.length = 0;
+    targetRings.clear();
   }
   function loadWorld(objects: WorldObject[]) {
     removeWorld(); objects.forEach(makeWorldObject); saveWorld(objects);
@@ -295,6 +298,8 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
     root.position.set(object.x, 0, object.z);
     generatedRoots.push(root);
     box('world site', 4.2, 0.18, 4.2, 0, 0.02, 0, soil, root);
+    const selection = MeshBuilder.CreateTorus('world object selection', { diameter: 5.5, thickness: 0.16, tessellation: 32 }, scene);
+    selection.parent = root; selection.position.y = 0.25; selection.material = gold; selection.isPickable = false; selection.setEnabled(false); targetRings.set(object.id, selection);
     if (object.kind === 'farm') {
       for (const x of [-1.3, 0, 1.3]) box('crop row', 0.65, 0.55, 3.4, x, 0.35, 0, crop, root);
     } else if (object.kind === 'lumber') {
@@ -483,6 +488,7 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
     },
     setRoute,
     setUnits,
+    setSelectedTarget,
     focusCoordinate(coordinate) {
       camera.target.set(coordinate.x, 0, coordinate.z);
       camera.radius = Math.min(camera.radius, 48);
