@@ -57,6 +57,7 @@ These fill gaps in the discussion and can be adjusted during implementation:
 - [ ] Connect action travel and placeholder outcomes.
   - [x] Send Scout through scout capability checks and allow eligible existing scouts to be reused.
   - [x] Display intended action, target, and ETA in the selected-unit panel and activity list.
+  - [x] Keep every deployed formation's home-base trail visible without requiring unit selection.
   - [x] Resolve arrivals into explicit placeholder action states; Hold or Return cancels pending interaction.
   - [x] Add the placeholder simulated-defeat control and guard it against invalid targets or repeat resolution.
   - [x] Update garrison/village state immediately after simulated defeat, unlocking Occupy and removing combat actions when selected again.

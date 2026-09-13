@@ -45,7 +45,7 @@ export function showMarches(scene: Scene, orders: WorldUnit[], selectedId: strin
       const moving = !!current.order;
       army.setEnabled(visible() && current.status !== 'home');
       army.position.set(position.x, 0, position.z);
-      line.setEnabled(visible() && current.status !== 'home' && order.id === selectedId);
+      line.setEnabled(visible() && current.status !== 'home');
       units.forEach((unit, index) => { unit.position.y = moving ? Math.abs(Math.sin(now / 150 + index)) * 0.15 : 0; });
     }
   });
