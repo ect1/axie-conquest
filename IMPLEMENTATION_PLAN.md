@@ -48,6 +48,12 @@ this milestone does not simulate multiplayer or free-moving world-map combat.
 
 ## Follow-up milestones
 
+- [x] Connect applied developer overlays to World View marches.
+  - [x] Persist checkbox choices and all-units scope with tuning and restore them at startup.
+  - [x] Draw moving awareness, engagement, attack, body, facing, and order-target overlays using applied settings.
+  - [x] Refresh deployed overlays on Apply and report applied/off/save-failure states.
+  - [x] Cover overlay restoration, legacy saves, and reset defaults in regression checks.
+
 - [ ] Expand Axie skills to all six part slots and add progression/talent selection.
 - [ ] Add terrain, line of sight, troop counters, and formation frontage limits.
 - [ ] Add attack-angle restrictions and configurable stances after movement playtesting.

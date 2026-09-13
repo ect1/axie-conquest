@@ -3,11 +3,9 @@ import { UnitMember, WorldUnit, createArmy } from './units';
 import { createEmptyFormation } from './offense-formations';
 import { commanderSkill } from './battle-skills';
 import { leaderTalent, NO_MODIFIERS } from './battle-modifiers';
+import { activeBattleSettings } from './battle-settings';
 
 export const BATTLE_STEP = 0.1;
-export const AWARENESS_RADIUS = 18;
-export const ENGAGEMENT_RADIUS = 10;
-export const LEASH_RADIUS = 30;
 export const MAX_BATTLE_TICKS = 3000;
 export type CombatStats = { health: number; attack: number; defense: number; speed: number; range: number; interval: number; radius: number };
 export const TROOP_COMBAT_STATS: Record<'infantry' | 'archer' | 'scout', CombatStats> = {
@@ -38,12 +36,12 @@ export function createBattle(army: WorldUnit, enemyCount = 18): Battle {
   const members: Fighter[] = army.members.map(member => {
     const hero = STARTER_HEROES.find(h => h.id === member.heroId);
     const base: CombatStats = hero ? { health: hero.stats.health, attack: hero.stats.attack, defense: hero.stats.defense, speed: 2.5 * hero.stats.speed / 100, range: hero.class === 'bird' || hero.class === 'dawn' ? 5 : 0.8, interval: 1.3, radius: 0.5 } : TROOP_COMBAT_STATS[member.troopKind ?? 'infantry'];
-    const stats = { ...base, health: base.health * modifiers.health, attack: base.attack * modifiers.attack, defense: base.defense * modifiers.defense, speed: base.speed * modifiers.speed };
+    const stats = { ...base, range: base.range * activeBattleSettings.attackRangeMultiplier, radius: base.radius * activeBattleSettings.bodyRadiusMultiplier, health: base.health * modifiers.health, attack: base.attack * modifiers.attack, defense: base.defense * modifiers.defense, speed: base.speed * modifiers.speed };
     return { id: `player:${member.id}`, memberId: member.id, side: 'player', name: hero?.name ?? member.troopKind ?? 'Squad', heroId: member.heroId, troopKind: member.troopKind, initialCount: member.count, hp: stats.health * member.count * (member.healthRatio ?? 1), maxHp: stats.health * member.count, stats, x: member.offset.x, z: -8 + member.offset.z, facing: 0, cooldown: 0, targetId: null, state: 'holding' };
   });
   for (let index = 0; index < 3; index++) {
     const kind = index === 2 ? 'archer' : 'infantry';
-    const stats = { ...TROOP_COMBAT_STATS[kind] };
+    const base = TROOP_COMBAT_STATS[kind], stats = { ...base, range: base.range * activeBattleSettings.attackRangeMultiplier, radius: base.radius * activeBattleSettings.bodyRadiusMultiplier };
     members.push({ id: `enemy:${index}`, memberId: `${index}`, side: 'enemy', name: kind === 'archer' ? 'Chimera archers' : 'Chimera guards', troopKind: kind, initialCount: enemyCount, hp: stats.health * enemyCount, maxHp: stats.health * enemyCount, stats, x: (index - 1) * 2, z: index === 2 ? 10 : 7, facing: Math.PI, cooldown: 0, targetId: null, state: 'holding' });
   }
   return { version: 1, tick: 0, fighters: members, leaderId: members.find(f => f.heroId === army.leaderId)?.id ?? null, skillCooldown: 0, retreating: false, result: null, events: [] };
@@ -82,11 +80,11 @@ export function stepBattle(previous: Battle): Battle {
       fighter.z = Math.max(-23, fighter.z - fighter.stats.speed * BATTLE_STEP); continue;
     }
     const origin = previous.fighters.find(f => f.id === fighter.id)!;
-    const enemies = previous.fighters.filter(f => f.side !== fighter.side && f.hp > 0 && (fighter.side === 'player' || Math.hypot(f.x, f.z - 8) <= LEASH_RADIUS));
+    const enemies = previous.fighters.filter(f => f.side !== fighter.side && f.hp > 0 && (fighter.side === 'player' || Math.hypot(f.x, f.z - 8) <= activeBattleSettings.leashRadius));
     enemies.sort((a, b) => edgeDistance(origin, a) - edgeDistance(origin, b) || a.id.localeCompare(b.id));
     const target = enemies.find(e => e.id === fighter.targetId && edgeDistance(origin, e) <= fighter.stats.range) ?? enemies[0];
     const center = centers[fighter.side];
-    if (!target || Math.hypot(target.x - center.x, target.z - center.z) - target.stats.radius > AWARENESS_RADIUS) { fighter.state = 'holding'; fighter.targetId = null; continue; }
+    if (!target || Math.hypot(target.x - center.x, target.z - center.z) - target.stats.radius > activeBattleSettings.awarenessRadius) { fighter.state = 'holding'; fighter.targetId = null; continue; }
     fighter.targetId = target.id;
     fighter.facing = Math.atan2(target.x - fighter.x, target.z - fighter.z);
     const distance = edgeDistance(origin, target);
@@ -99,7 +97,7 @@ export function stepBattle(previous: Battle): Battle {
         fighter.cooldown = fighter.stats.interval;
       }
     } else {
-      const charge = fighter.stats.range < 2 && Math.hypot(target.x - center.x, target.z - center.z) - target.stats.radius <= ENGAGEMENT_RADIUS;
+      const charge = fighter.stats.range < 2 && Math.hypot(target.x - center.x, target.z - center.z) - target.stats.radius <= activeBattleSettings.engagementRadius;
       fighter.state = charge ? 'charging' : 'approaching';
       const step = Math.min(distance - fighter.stats.range, fighter.stats.speed * (charge ? 1.1 : 1) * BATTLE_STEP);
       fighter.x += Math.sin(fighter.facing) * step; fighter.z += Math.cos(fighter.facing) * step;

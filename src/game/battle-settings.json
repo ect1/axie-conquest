@@ -1,0 +1,7 @@
+{
+  "awarenessRadius": 18,
+  "engagementRadius": 10,
+  "leashRadius": 30,
+  "attackRangeMultiplier": 1,
+  "bodyRadiusMultiplier": 1
+}

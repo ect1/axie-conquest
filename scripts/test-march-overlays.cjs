@@ -1,0 +1,56 @@
+const fs = require('node:fs');
+const path = require('node:path');
+const ts = require('typescript');
+const assert = require('node:assert/strict');
+
+(async () => {
+  const babylon = await import('@babylonjs/core');
+  const cache = new Map();
+  function load(file) {
+    file = path.resolve(file);
+    if (file.endsWith('.json')) return JSON.parse(fs.readFileSync(file, 'utf8'));
+    if (cache.has(file)) return cache.get(file).exports;
+    const module = { exports: {} }; cache.set(file, module);
+    const source = ts.transpileModule(fs.readFileSync(file, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, esModuleInterop: true } }).outputText;
+    new Function('require', 'module', 'exports', source)(name => name === '@babylonjs/core' ? babylon : load(path.resolve(path.dirname(file), name.endsWith('.json') ? name : name + '.ts')), module, module.exports);
+    return module.exports;
+  }
+  const { NullEngine, Scene, FreeCamera, Vector3 } = babylon;
+  const engine = new NullEngine();
+  const scene = new Scene(engine);
+  new FreeCamera('test', new Vector3(0, 40, -40), scene).setTarget(Vector3.Zero());
+  const settings = load('src/game/battle-settings.ts');
+  const battle = load('src/game/battle.ts');
+  const units = load('src/game/units.ts');
+  const { showMarches } = load('src/game/march-scene.ts');
+  const start = Date.now() - 5000;
+  const army = units.commandUnit({ ...battle.createSandboxArmy('balanced'), speed: 1 }, 'move', start, { x: 100, z: 0 });
+  const second = { ...army, id: 'second' };
+  let visible = true;
+  const dispose = showMarches(scene, [army, second], null, () => visible);
+  scene.render();
+  const ranges = () => scene.meshes.filter(mesh => mesh.name === 'world battle range');
+  assert.equal(ranges().length, 0, 'default overlays off');
+  settings.setActiveBattleSettings({ ...settings.DEFAULT_BATTLE_SETTINGS, awarenessRadius: 25, overlays: { ...settings.DEFAULT_BATTLE_SETTINGS.overlays, awareness: true } });
+  scene.render();
+  assert.equal(ranges().filter(mesh => mesh.isEnabled()).length, 1, 'Apply shows first deployed march without requiring selection');
+  const ring = ranges().find(mesh => mesh.isEnabled());
+  assert.ok(Math.abs(ring.getBoundingInfo().boundingBox.extendSize.x - 25) < 0.001, 'applied radius reaches geometry');
+  assert.ok(scene.getTransformNodeByName(army.id).position.x >= 5, 'overlays follow interpolated marching position');
+  settings.setActiveBattleSettings({ ...settings.activeBattleSettings, awarenessRadius: 40, showAll: true });
+  scene.render();
+  assert.equal(ranges().length, 2, 'Apply replaces old geometry rather than accumulating meshes');
+  assert.equal(ranges().filter(mesh => mesh.isEnabled()).length, 2, 'all-units scope takes effect on existing marches');
+  assert.ok(ranges().every(mesh => Math.abs(mesh.getBoundingInfo().boundingBox.extendSize.x - 40) < 0.001));
+  visible = false; scene.render();
+  assert.equal(ranges().filter(mesh => mesh.isEnabled()).length, 0, 'overlays hidden in city view');
+  visible = true;
+  settings.setActiveBattleSettings({ ...settings.DEFAULT_BATTLE_SETTINGS, overlays: { ...settings.DEFAULT_BATTLE_SETTINGS.overlays, attack: true, body: true, facing: true, targets: true } });
+  scene.render();
+  assert.equal(ranges().filter(mesh => mesh.isEnabled()).length, army.members.length * 2, 'member attack and body rings render');
+  assert.equal(scene.meshes.filter(mesh => mesh.name === 'world order target' && mesh.isEnabled()).length, 1);
+  dispose();
+  assert.equal(ranges().length, 0, 'scene cleanup removes overlays');
+  scene.dispose(); engine.dispose();
+  console.log('PASS: applied world ranges, marching positions, live radius edits, selection fallback, all units, city visibility and cleanup');
+})().catch(error => { console.error(error); process.exitCode = 1; });

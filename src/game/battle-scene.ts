@@ -1,5 +1,6 @@
 import { ArcRotateCamera, Color3, Color4, Engine, HemisphericLight, Matrix, Mesh, MeshBuilder, Scene, StandardMaterial, Vector3 } from '@babylonjs/core';
-import { AWARENESS_RADIUS, Battle, ENGAGEMENT_RADIUS, formationCenter } from './battle';
+import { Battle, formationCenter } from './battle';
+import { activeBattleSettings } from './battle-settings';
 import { AXIE_CLASSES, STARTER_HEROES } from './heroes';
 
 import { BATTLE_OVERLAYS, BattleOverlays } from './battle-debug';
@@ -63,8 +64,8 @@ export function createBattleScene(canvas: HTMLCanvasElement, read: () => { battl
       const side = battle.fighters.find(f => f.id === selected)?.side ?? 'player';
       for (const team of (all ? ['player', 'enemy'] : [side]) as ('player' | 'enemy')[]) {
         const center = formationCenter(battle, team);
-        if (overlays.awareness) ring(center.x, center.z, AWARENESS_RADIUS, BATTLE_OVERLAYS.awareness.color);
-        if (overlays.engagement) ring(center.x, center.z, ENGAGEMENT_RADIUS, BATTLE_OVERLAYS.engagement.color);
+        if (overlays.awareness) ring(center.x, center.z, activeBattleSettings.awarenessRadius, BATTLE_OVERLAYS.awareness.color);
+        if (overlays.engagement) ring(center.x, center.z, activeBattleSettings.engagementRadius, BATTLE_OVERLAYS.engagement.color);
       }
       for (const event of battle.events) {
         const from = battle.fighters.find(f => f.id === event.from), to = battle.fighters.find(f => f.id === event.to);

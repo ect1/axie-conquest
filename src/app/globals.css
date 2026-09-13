@@ -343,6 +343,9 @@ h2 { font: bold 19px Georgia, serif; margin: 3px 0 0; }
 .battle-debug input[type=checkbox] { width: 20px; height: 20px; min-height: 20px; accent-color: #d5e795; }
 .battle-debug select { max-width: 100%; }
 .battle-debug p { margin: 0; line-height: 1.6; }
+.battle-system .battle-debug { margin: 14px 0; border: 1px solid #718d78; border-radius: 8px; }
+.battle-system .battle-debug label { justify-content: space-between; }
+.battle-system .battle-debug input[type=number] { width: 88px; min-height: 38px; margin-left: auto; }
 .battle-report { padding: 12px; margin: 12px 0; border: 1px solid #75957a; border-radius: 8px; }
 @media (max-width: 600px) { .battle-dialog { height: 100dvh; border-radius: 0; } .battle-debug { grid-template-columns: 1fr; } .battle-skill { align-items: stretch; flex-direction: column; } .battle-header h2 { font-size: 17px; } }
 

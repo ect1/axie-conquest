@@ -7,6 +7,7 @@ import { ROUTES_SAVE_KEY } from './routes';
 import { DEPLOYED_AXIES_SAVE_KEY } from './town-deployment';
 import { DEFAULT_UNIT_GLOBAL_STATS, setActiveUnitGlobalStats } from './unit-stats';
 import { WORLD_SAVE_KEY } from './world';
+import { BATTLE_SETTINGS_SAVE_KEY, DEFAULT_BATTLE_SETTINGS, setActiveBattleSettings } from './battle-settings';
 
 export type ResettableModule = {
   id: string;
@@ -30,6 +31,7 @@ export const RESETTABLE_MODULES: readonly ResettableModule[] = [
   { id: 'formations', storageKeys: [OFFENSE_FORMATIONS_SAVE_KEY] },
   { id: 'deployments', storageKeys: [DEPLOYED_AXIES_SAVE_KEY] },
   { id: 'unit-stats', storageKeys: ['axie-conquest-unit-stats-v1'], reset: () => setActiveUnitGlobalStats({ ...DEFAULT_UNIT_GLOBAL_STATS }) },
+  { id: 'battle-settings', storageKeys: [BATTLE_SETTINGS_SAVE_KEY], reset: () => setActiveBattleSettings({ ...DEFAULT_BATTLE_SETTINGS }) },
 ];
 
 type ResetStorage = Pick<Storage, 'length' | 'key' | 'removeItem'>;
