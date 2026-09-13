@@ -23,6 +23,7 @@ this milestone does not simulate multiplayer or free-moving world-map combat.
   - [x] Default overlays to the selected unit/formation, with an all-units option.
   - [x] Inspect each combatant's state, target, health, movement, and attack timer.
 - [x] Connect battles to existing world and military systems.
+  - [x] Preserve the free March command for open land and defended sites; only Attack begins combat.
   - [x] Start real combat when an attack march arrives; remove the simulated-defeat shortcut.
   - [x] Mark sites defeated only after victory and persist troop losses and reduced slot assignments.
   - [x] Return survivors home and keep them reserved until arrival.

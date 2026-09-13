@@ -58,7 +58,7 @@ export default function Home() {
   const [message, setMessage] = useState('A new chapter for Lunacia starts here.');
   const [target, setTarget] = useState<WorldTarget | null>(null);
   const [routeAction, setRouteAction] = useState<'choose' | 'formation' | null>(null);
-  const [selectedAction, setSelectedAction] = useState<WorldAction | null>(null);
+  const [selectedAction, setSelectedAction] = useState<WorldAction | 'march' | null>(null);
   const [formationIndex, setFormationIndex] = useState<number | null>(null);
   const [formations, setFormations] = useState<Formation[]>(createEmptyFormations);
   const [units, setUnits] = useState<WorldUnit[]>([]);
@@ -211,7 +211,7 @@ export default function Home() {
     setHeroes(false); setMilitary(false); setTraining(false); setInventory(false); setMail(false);
     setDeveloper(current => !current);
   }
-  function chooseMarch(action: WorldAction) {
+  function chooseMarch(action: WorldAction | 'march') {
     try {
       setFormations(restoreOffenseFormations(localStorage.getItem(OFFENSE_FORMATIONS_SAVE_KEY), restoreDeployedAxieIds(localStorage.getItem(DEPLOYED_AXIES_SAVE_KEY)), troops));
     } catch { /* Keep current formations when storage is unavailable. */ }
@@ -232,18 +232,21 @@ export default function Home() {
     try { return deploymentError(createArmy(formations[index], index, selectedCity.id, selectedCity.name, unitStats.marchSpeed, 'preview'), units, troops, now); }
     catch (error) { return (error as Error).message; }
   }
-  function deploy(index: number | null, action: WorldAction) {
+  function deploy(index: number | null, action: WorldAction | 'march') {
     try {
       const object = target?.id ? worldObjects.find(item => item.id === target.id) : undefined;
-      if (!target || !object) throw new Error('Choose a world object.');
+      if (!target) throw new Error('Choose a destination.');
+      if (action !== 'march' && !object) throw new Error('Choose a world object.');
       const dispatchedAt = Date.now();
       if (index !== null) {
         const active = units.find(unit => unit.kind === 'army' && unit.cityId === selectedCity.id && unit.formationIndex === index);
         if (active) {
-          const redirected = commandWorldAction(active, action, object, dispatchedAt);
+          const redirected = action === 'march'
+            ? commandUnit(active, 'move', dispatchedAt, target)
+            : commandWorldAction(active, action, object!, dispatchedAt);
           setUnits(current => current.map(unit => unit.id === redirected.id ? redirected : unit));
           setSelectedUnitId(redirected.id); setTarget(null); setRouteAction(null); setSelectedAction(null);
-          setMessage(`${redirected.name} redirected to ${action} ${target.label}.`);
+          setMessage(action === 'march' ? `${redirected.name} marching to the selected destination.` : `${redirected.name} redirected to ${action} ${target.label}.`);
           return;
         }
       }
@@ -251,9 +254,9 @@ export default function Home() {
         ? createArmy(formations[index], index, selectedCity.id, selectedCity.name, unitStats.marchSpeed, crypto.randomUUID())
         : createScout(selectedCity.id, selectedCity.name, unitStats.marchSpeed, crypto.randomUUID());
       const deployed = deployUnit(candidate, units, troops, target, dispatchedAt);
-      const unit = commandWorldAction(deployed, action, object, dispatchedAt);
+      const unit = action === 'march' ? deployed : commandWorldAction(deployed, action, object!, dispatchedAt);
       setUnits(current => [...current, unit]); setSelectedUnitId(unit.id);
-      setTarget(null); setRouteAction(null); setSelectedAction(null); setMessage(`${unit.name} dispatched to ${action} ${target.label}.`);
+      setTarget(null); setRouteAction(null); setSelectedAction(null); setMessage(action === 'march' ? `${unit.name} is marching to the selected destination.` : `${unit.name} dispatched to ${action} ${target.label}.`);
     } catch (error) { setMessage((error as Error).message); }
   }
   function chooseWorldAction(action: WorldAction) {
@@ -307,8 +310,8 @@ export default function Home() {
       const dimensions = getBuildingDimensions(kind);
       return <button key={kind} className="building-card" onClick={() => begin(kind)} disabled={!ready}><span className="building-art" aria-hidden="true">{definition.icon}</span><span><strong>{definition.name}</strong><small>{definition.category} &middot; {dimensions.width} &times; {dimensions.depth}</small></span><span className="add" aria-hidden="true">+</span></button>;
     })}</div><div className="catalog-footer">Prototype construction is free <span>40 × 20 base grid</span></div></section>}
-    {!selectedUnit && target && routeAction === 'choose' && <section className="selection world-action panel" aria-label="World actions"><button className="close" aria-label="Close world actions" onClick={() => { setTarget(null); setRouteAction(null); setSelectedAction(null); }}>&times;</button><span className="eyebrow">{selectedObject ? `${selectedObject.state} · ${selectedObject.kind}` : 'WORLD TARGET'}</span><h2>{target.label || 'Uncharted land'}</h2><p>Coordinate {target.x.toFixed(1)}, {target.z.toFixed(1)} · Route {createRoute(target).distance} tiles</p>{selectedObject ? <div className="world-object-actions">{targetActions.map(option => <div key={option.action}><button className={option.action === 'attack' ? 'primary' : 'secondary'} disabled={!option.enabled} onClick={() => chooseWorldAction(option.action)}>{option.action[0].toUpperCase() + option.action.slice(1)}</button>{option.reason && <small>{option.reason}</small>}</div>)}</div> : <p>Select a map object to Scout, Attack, or Gather.</p>}</section>}
-    {!selectedUnit && target && routeAction === 'formation' && selectedAction && <section className="selection world-action panel" aria-label="World actions"><button className="close" aria-label="Close world actions" onClick={() => { setRouteAction('choose'); setFormationIndex(null); }}>&times;</button><span className="eyebrow">{selectedAction.toUpperCase()} · {target.label}</span><h2>Choose formation</h2><p>At-home and deployed formations can take this order.</p>{formations.map((formation, index) => { const active = units.find(unit => unit.kind === 'army' && unit.cityId === selectedCity.id && unit.formationIndex === index); const issue = formationIssue(index); const origin = active ? unitPosition(active, now) : { x: 0, z: 0 }; const eta = marchTravelTimeMs(createRoute(target, origin), active?.speed ?? unitStats.marchSpeed); return <button key={index} className="building-card" aria-pressed={formationIndex === index} disabled={!!issue} onClick={() => setFormationIndex(index)}><strong>Formation {index + 1}{active ? ' · Deployed' : ' · At home'}{formationIndex === index ? ' · Selected' : ''}</strong><small>{issue || `${active ? `${settleUnit(active, now).status} · ${active.members.reduce((sum, member) => sum + member.count, 0)} members` : 'Ready to deploy'} · ETA ${formatDuration(eta)}`}</small></button>; })}{!formations.some(isValidFormation) && !units.some(unit => unit.kind === 'army') && <button className="secondary" onClick={() => { setTarget(null); setRouteAction(null); setSelectedAction(null); setMilitary(true); }}>Configure formations in Military</button>}<button className="primary" disabled={formationIndex === null || !!formationIssue(formationIndex)} onClick={() => { if (formationIndex !== null) deploy(formationIndex, selectedAction); }}>{selectedAction === 'attack' ? 'Send attack' : selectedAction === 'occupy' ? 'Send occupiers' : 'Send gatherers'}</button></section>}
+    {!selectedUnit && target && routeAction === 'choose' && <section className="selection world-action panel" aria-label="World actions"><button className="close" aria-label="Close world actions" onClick={() => { setTarget(null); setRouteAction(null); setSelectedAction(null); }}>&times;</button><span className="eyebrow">{selectedObject ? `${selectedObject.state} · ${selectedObject.kind}` : 'WORLD TARGET'}</span><h2>{target.label || 'Uncharted land'}</h2><p>Coordinate {target.x.toFixed(1)}, {target.z.toFixed(1)} · Route {createRoute(target).distance} tiles</p>{selectedObject && <div className="world-object-actions">{targetActions.map(option => <div key={option.action}><button className={option.action === 'attack' ? 'primary' : 'secondary'} disabled={!option.enabled} onClick={() => chooseWorldAction(option.action)}>{option.action[0].toUpperCase() + option.action.slice(1)}</button>{option.reason && <small>{option.reason}</small>}</div>)}</div>}<button className={selectedObject ? 'secondary' : 'primary'} onClick={() => chooseMarch('march')}>March here</button><small>{selectedObject ? 'March here moves a formation into position without starting combat.' : 'Choose a formation and send it to this location.'}</small></section>}
+    {!selectedUnit && target && routeAction === 'formation' && selectedAction && <section className="selection world-action panel" aria-label="World actions"><button className="close" aria-label="Close world actions" onClick={() => { setRouteAction('choose'); setFormationIndex(null); }}>&times;</button><span className="eyebrow">{selectedAction === 'march' ? `MARCH · ${target.label || 'DESTINATION'}` : `${selectedAction.toUpperCase()} · ${target.label}`}</span><h2>Choose formation</h2><p>At-home and deployed formations can take this order.</p>{formations.map((formation, index) => { const active = units.find(unit => unit.kind === 'army' && unit.cityId === selectedCity.id && unit.formationIndex === index); const issue = formationIssue(index); const origin = active ? unitPosition(active, now) : { x: 0, z: 0 }; const eta = marchTravelTimeMs(createRoute(target, origin), active?.speed ?? unitStats.marchSpeed); return <button key={index} className="building-card" aria-pressed={formationIndex === index} disabled={!!issue} onClick={() => setFormationIndex(index)}><strong>Formation {index + 1}{active ? ' · Deployed' : ' · At home'}{formationIndex === index ? ' · Selected' : ''}</strong><small>{issue || `${active ? `${settleUnit(active, now).status} · ${active.members.reduce((sum, member) => sum + member.count, 0)} members` : 'Ready to deploy'} · ETA ${formatDuration(eta)}`}</small></button>; })}{!formations.some(isValidFormation) && !units.some(unit => unit.kind === 'army') && <button className="secondary" onClick={() => { setTarget(null); setRouteAction(null); setSelectedAction(null); setMilitary(true); }}>Configure formations in Military</button>}<button className="primary" disabled={formationIndex === null || !!formationIssue(formationIndex)} onClick={() => { if (formationIndex !== null) deploy(formationIndex, selectedAction); }}>{selectedAction === 'march' ? 'Send march' : selectedAction === 'attack' ? 'Send attack' : selectedAction === 'occupy' ? 'Send occupiers' : 'Send gatherers'}</button></section>}
     {military && !placing && !selected && <MilitaryPanel troops={troops} units={units} cityId={selectedCity.id} now={now} onClose={() => setMilitary(false)} />}
     {cityUnit && !placing && !selected && <CityUnitPanel city={{ ...selectedCity, troops }} onClose={() => setCityUnit(false)} />}
     <button className="city-toggle build-toggle" onClick={() => { setHeroes(false); setMilitary(false); setTraining(false); setInventory(false); setSelected(null); setCatalog(false); setCityUnit(current => !current); }} aria-expanded={cityUnit}><span>City</span></button>
