@@ -1,5 +1,8 @@
 import { WorldUnit } from './units';
 import { showMarches } from './march-scene';
+import { activeBattleSettings } from './battle-settings';
+import { BATTLE_OVERLAYS } from './battle-debug';
+import { TROOP_COMBAT_STATS } from './battle';
 import { generateWorld, GenerationSettings, WorldObject, WORLD_DEFINITIONS, WORLD_SAVE_KEY, WORLD_WIDTH, WORLD_DEPTH } from './world';
 import { ArcRotateCamera, Color3, Color4, DirectionalLight, Engine, HemisphericLight, MeshBuilder, Scene, StandardMaterial, TransformNode, Vector3 } from '@babylonjs/core';
 import { BUILDING_DEFINITIONS, BuildableKind, BuildingKind, Building, Cell, FOOTPRINT, GRID_DEPTH, GRID_WIDTH, MAIN_HALL, canPlace, getBuildingDimensions, getBuildingFootprint, restoreBuildings, canMoveBuilding, moveBuilding, removeBuilding, rotateBuilding, Troops, TroopKind } from './base';
@@ -279,8 +282,43 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
     root.getChildMeshes().forEach(mesh => { mesh.isPickable = true; mesh.metadata = { buildingId: b.id }; });
   }
   const generatedRoots: TransformNode[] = [];
+  const worldObjectsById = new Map<string, WorldObject>();
+  const worldCombatDebugs = new Map<string, TransformNode>();
+  let selectedTargetId: string | null = null;
+  let lastWorldBattleSettings: typeof activeBattleSettings | null = null;
   const targetRings = new Map<string, ReturnType<typeof MeshBuilder.CreateTorus>>();
-  function setSelectedTarget(id: string | null) { targetRings.forEach((ring, objectId) => ring.setEnabled(objectId === id)); }
+  function worldBoundary(parent: TransformNode, x: number, z: number, radius: number, color: string) {
+    const points = Array.from({ length: 97 }, (_, i) => new Vector3(x + Math.sin(i * Math.PI / 48) * radius, 0.24, z + Math.cos(i * Math.PI / 48) * radius));
+    const mesh = MeshBuilder.CreateLines('world battle range', { points }, scene);
+    mesh.parent = parent; mesh.color = Color3.FromHexString(color); mesh.isPickable = false;
+  }
+  function refreshWorldCombatDebugs() {
+    worldCombatDebugs.forEach(debug => debug.dispose()); worldCombatDebugs.clear();
+    const { overlays, awarenessRadius, engagementRadius, attackRangeMultiplier, bodyRadiusMultiplier, showAll } = activeBattleSettings;
+    if (!Object.values(overlays).some(Boolean)) return;
+    worldObjectsById.forEach(object => {
+      if (object.state !== 'defended' || !['boss', 'garrison', 'village'].includes(object.kind)) return;
+      const root = generatedRoots.find(candidate => candidate.name === object.id);
+      if (!root) return;
+      const debug = new TransformNode('world enemy battle overlays', scene); debug.parent = root;
+      if (overlays.awareness) worldBoundary(debug, 0, 0, awarenessRadius, BATTLE_OVERLAYS.awareness.color);
+      if (overlays.engagement) worldBoundary(debug, 0, 0, engagementRadius, BATTLE_OVERLAYS.engagement.color);
+      const positions = [{ x: -2, z: -1, kind: 'infantry' as const }, { x: 0, z: -1, kind: 'infantry' as const }, { x: 2, z: 2, kind: 'archer' as const }];
+      positions.forEach(member => {
+        const stats = TROOP_COMBAT_STATS[member.kind];
+        const radius = stats.radius * bodyRadiusMultiplier;
+        if (overlays.attack) worldBoundary(debug, member.x, member.z, radius + stats.range * attackRangeMultiplier, BATTLE_OVERLAYS.attack.color);
+        if (overlays.body) worldBoundary(debug, member.x, member.z, radius, BATTLE_OVERLAYS.body.color);
+        if (overlays.facing) {
+          const facing = MeshBuilder.CreateLines('world enemy facing', { points: [new Vector3(member.x, 0.25, member.z), new Vector3(member.x, 0.25, member.z - 2)] }, scene);
+          facing.parent = debug; facing.color = Color3.FromHexString(BATTLE_OVERLAYS.facing.color); facing.isPickable = false;
+        }
+      });
+      debug.setEnabled(showAll || object.id === selectedTargetId);
+      worldCombatDebugs.set(object.id, debug);
+    });
+  }
+  function setSelectedTarget(id: string | null) { selectedTargetId = id; targetRings.forEach((ring, objectId) => ring.setEnabled(objectId === id)); worldCombatDebugs.forEach((debug, objectId) => debug.setEnabled(activeBattleSettings.showAll || objectId === id)); }
   function saveWorld(objects: WorldObject[]) {
     try { localStorage.setItem(WORLD_SAVE_KEY, JSON.stringify(objects)); }
     catch { events.message('World saved for this session only; browser storage unavailable.'); }
@@ -288,15 +326,17 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
   function removeWorld() {
     generatedRoots.forEach(root => root.dispose());
     generatedRoots.length = 0;
-    targetRings.clear();
+    targetRings.clear(); worldObjectsById.clear(); worldCombatDebugs.clear();
   }
   function loadWorld(objects: WorldObject[]) {
     removeWorld(); objects.forEach(makeWorldObject); saveWorld(objects);
+    refreshWorldCombatDebugs();
   }
   function makeWorldObject(object: WorldObject) {
     const root = new TransformNode(object.id, scene);
     root.position.set(object.x, 0, object.z);
     generatedRoots.push(root);
+    worldObjectsById.set(object.id, object);
     box('world site', 4.2, 0.18, 4.2, 0, 0.02, 0, soil, root);
     const selection = MeshBuilder.CreateTorus('world object selection', { diameter: 5.5, thickness: 0.16, tessellation: 32 }, scene);
     selection.parent = root; selection.position.y = 0.25; selection.material = gold; selection.isPickable = false; selection.setEnabled(false); targetRings.set(object.id, selection);
@@ -458,7 +498,7 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
   canvas.addEventListener('pointerup', up); canvas.addEventListener('pointercancel', up);
   canvas.addEventListener('wheel', wheel, { passive: false });
   const resize = () => engine.resize(); window.addEventListener('resize', resize);
-  engine.runRenderLoop(() => { updateOverview(); scene.render(); });
+  engine.runRenderLoop(() => { if (lastWorldBattleSettings !== activeBattleSettings) { lastWorldBattleSettings = activeBattleSettings; refreshWorldCombatDebugs(); } updateOverview(); scene.render(); });
   function persist(message: string) {
     try { localStorage.setItem(SAVE_KEY, JSON.stringify(buildings)); events.message(message); }
     catch { events.message(`${message} Browser storage unavailable; progress lasts this session.`); }

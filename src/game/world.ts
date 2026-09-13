@@ -20,6 +20,10 @@ export type WorldObjectState = 'available' | 'defended' | 'defeated';
 export type WorldActionOption = { action: WorldAction; enabled: boolean; reason?: string };
 export type GenerationSettings = { counts: Record<WorldKind, number>; spacing: number };
 export type WorldObject = { id: string; kind: WorldKind; x: number; z: number; state: WorldObjectState; loot: { apple: number } };
+export type SpawnableMobGroup = 'chimera-pack';
+export const SPAWNABLE_MOB_GROUPS: Record<SpawnableMobGroup, { label: string; kind: 'boss' }> = {
+  'chimera-pack': { label: 'Chimera pack', kind: 'boss' },
+};
 export const DEFAULT_GENERATION: GenerationSettings = {
   counts: Object.fromEntries(WORLD_KINDS.map(kind => [kind, WORLD_DEFINITIONS[kind].count])) as Record<WorldKind, number>,
   spacing: 8,
@@ -27,6 +31,19 @@ export const DEFAULT_GENERATION: GenerationSettings = {
 
 export function defaultWorldObjectState(kind: WorldKind): WorldObjectState {
   return kind === 'boss' || kind === 'garrison' || kind === 'village' ? 'defended' : 'available';
+}
+
+/** Creates a developer-placed defended encounter at an explicitly chosen map coordinate. */
+export function createMobGroup(group: SpawnableMobGroup, x: number, z: number, existing: WorldObject[]): WorldObject | null {
+  const definition = SPAWNABLE_MOB_GROUPS[group];
+  if (!definition || !Number.isFinite(x) || !Number.isFinite(z)
+    || Math.abs(x) > WORLD_WIDTH / 2 - WORLD_OBJECT_RADIUS || Math.abs(z) > WORLD_DEPTH / 2 - WORLD_OBJECT_RADIUS
+    || (Math.abs(x) < GRID_WIDTH / 2 + 3 + WORLD_OBJECT_RADIUS && Math.abs(z) < GRID_DEPTH / 2 + 3 + WORLD_OBJECT_RADIUS)
+    || existing.some(object => Math.hypot(object.x - x, object.z - z) < WORLD_OBJECT_RADIUS * 2)) return null;
+  let serial = existing.length;
+  let id = `developer-mob-${serial}`;
+  while (existing.some(object => object.id === id)) id = `developer-mob-${++serial}`;
+  return { id, kind: definition.kind, x, z, state: 'defended', loot: { apple: 0 } };
 }
 
 export function getWorldObjectActions(object: WorldObject): WorldActionOption[] {

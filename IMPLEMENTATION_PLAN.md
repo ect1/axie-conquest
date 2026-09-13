@@ -48,6 +48,12 @@ this milestone does not simulate multiplayer or free-moving world-map combat.
 
 ## Follow-up milestones
 
+- [x] Add developer-spawned world encounters.
+  - [x] Add an opt-in Battle system checkbox and selectable mob group.
+  - [x] Let empty-ground taps offer an encounter spawn and validate map placement.
+  - [x] Persist spawned defended sites through the existing world save and battle flow.
+  - [x] Show selected or all defended-site combat ranges with the same applied tuning.
+
 - [x] Connect applied developer overlays to World View marches.
   - [x] Persist checkbox choices and all-units scope with tuning and restore them at startup.
   - [x] Draw moving awareness, engagement, attack, body, facing, and order-target overlays using applied settings.
