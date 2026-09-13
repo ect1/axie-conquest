@@ -2,12 +2,14 @@
 
 import { useEffect, useRef, useState } from 'react';
 
+import type { BattleReport } from '@/game/battle-save';
+
 const MAIL_CATEGORIES = [
   { id: 'battle', label: 'Battle Logs', icon: '⚔', title: 'No battle logs yet', description: 'Battle results, troop losses, and rewards will appear here after your marches fight.' },
   { id: 'scout', label: 'Scout Reports', icon: '⌁', title: 'No scout reports yet', description: 'Discoveries, resource locations, and enemy information will appear here after scouting.' },
 ] as const;
 
-export default function MailDialog({ onClose }: { onClose: () => void }) {
+export default function MailDialog({ onClose, battleReport }: { onClose: () => void; battleReport?: BattleReport | null }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [category, setCategory] = useState(0);
   const current = MAIL_CATEGORIES[category];
@@ -23,9 +25,9 @@ export default function MailDialog({ onClose }: { onClose: () => void }) {
         dialog.current?.querySelector<HTMLButtonElement>(`#mail-tab-${MAIL_CATEGORIES[next].id}`)?.focus();
       }}>{item.label}</button>)}</div>
       <div className="empty-state" id="mail-content" role="tabpanel" aria-labelledby={`mail-tab-${current.id}`} tabIndex={0}>
-        <span className="empty-state-icon" aria-hidden="true">{current.icon}</span><strong>{current.title}</strong><p>{current.description}</p>
+        {category === 0 && battleReport ? <><strong>Latest battle: {battleReport.result}</strong><p>{battleReport.target}: {battleReport.seconds.toFixed(1)} seconds</p><p>Lost: {battleReport.losses.infantry} infantry, {battleReport.losses.archer} archers.<br />{battleReport.survivors} surviving members returned toward home.</p></> : <><span className="empty-state-icon" aria-hidden="true">{current.icon}</span><strong>{current.title}</strong><p>{current.description}</p></>}
       </div>
-      <p className="catalog-footer">Coming soon</p>
+      <p className="catalog-footer">The latest battle report is saved. Scout reports and rewards are coming later.</p>
     </div>
   </dialog>;
 }

@@ -1,80 +1,60 @@
-# World-object actions and formation dispatch
+# Playable battle milestone
 
-This milestone supports map strategy and city growth: select a world object, choose an appropriate action, then dispatch a formation from home or redirect one already deployed without locating it manually.
+The first battle loop is a local PvE encounter: march to a defended village, garrison,
+or boss, fight its chimera formation, then return home with the surviving troops.
+Battle combat uses a dedicated fixed-isometric battlefield. Concurrent arrivals queue;
+this milestone does not simulate multiplayer or free-moving world-map combat.
 
-## Agreed interaction rules
+- [x] Implement combat rules separately from Babylon and React.
+  - [x] Convert each hero slot into a combatant and each military slot into a counted squad.
+  - [x] Define troop health, attack, defense, movement speed, attack range, interval, and body radius.
+  - [x] Apply existing Axie stats and preserve the deployed formation's selected leader.
+  - [x] Simulate deterministic 0.1-second ticks and simultaneous basic-attack damage.
+  - [x] Reduce squad damage as soldiers fall; retain individual defense, speed, and range.
+  - [x] Implement awareness (18), engagement (10), edge-to-edge attacks, and 10% melee charge speed.
+  - [x] Keep archers at shooting distance, separate bodies, and replace defeated targets.
+  - [x] Implement retreat, enemy pursuit leash (30), defeat, victory, and a five-minute draw limit.
+- [x] Add developer battle tools and readable presentation.
+  - [x] Add Developer > Battle system with balanced, infantry-heavy, and archer-heavy presets.
+  - [x] Add enemy strength selection, start/pause, single-step, retreat, reset, and sandbox isolation.
+  - [x] Add fixed-isometric 3D presentation, touch selection, drag panning, and pinch/wheel zoom.
+  - [x] Show health bars, attack/skill feedback, remaining headcounts, and outcomes.
+  - [x] Add independent awareness, engagement, attack, body, facing, and target overlays.
+  - [x] Default overlays to the selected unit/formation, with an all-units option.
+  - [x] Inspect each combatant's state, target, health, movement, and attack timer.
+- [x] Connect battles to existing world and military systems.
+  - [x] Start real combat when an attack march arrives; remove the simulated-defeat shortcut.
+  - [x] Mark sites defeated only after victory and persist troop losses and reduced slot assignments.
+  - [x] Return survivors home and keep them reserved until arrival.
+  - [x] Carry wounds on redirected marches; recover heroes and surviving soldiers at home.
+  - [x] Save the latest battle outcome in Mail > Battle Logs.
+- [x] Make battle persistence recoverable and resettable.
+  - [x] Save and validate active battle checkpoints; resume without offline combat advancement.
+  - [x] Journal absolute outcome writes and replay interrupted transactions before loading game state.
+  - [x] Pause and report storage failures, with explicit retry controls.
+  - [x] Register battle and transaction keys eagerly in RESETTABLE_MODULES.
+  - [x] Test interrupted writes, unrelated-key protection, reset, and starter restoration.
+- [x] Establish separate skill and talent modules.
+  - [x] Add manual mouth-part skills with independent range and cooldown.
+  - [x] Prevent healing from reviving lost soldiers.
+  - [x] Apply one class-based leader talent bonus at battle start without stacking.
+- [x] Verify the integrated milestone.
+  - [x] Add and pass npm run test:battle for combat, replay, outcomes, and recovery.
+  - [x] Pass placement, unit, world, and reset regression suites.
+  - [x] Pass production compilation and TypeScript validation.
+  - [x] Check sandbox controls, colored overlays, and mobile layout in a browser.
+  - [x] Check world arrival, reload resume, casualty settlement, return orders, and Mail in a browser.
 
-| Target | Actions |
-| --- | --- |
-| Living mob / boss | Scout, Attack |
-| Defended garrison | Scout, Attack; Occupy visible but locked with "Defeat this garrison first" |
-| Defeated garrison | Occupy |
-| Defended village | Attack; Occupy visible but locked with "Defeat this village first" |
-| Defeated village | Occupy |
-| Other available resources (farm, lumber, stone, oil) | Gather only |
-| Empty terrain | Move for an existing selected unit |
+## Follow-up milestones
 
-Tap an object to highlight it and open a compact mobile panel showing its name, coordinates, state, and relevant actions. Attack and Gather open the formation picker. Scout uses eligible scout units. Keep the chosen target and action while choosing a formation.
+- [ ] Expand Axie skills to all six part slots and add progression/talent selection.
+- [ ] Add terrain, line of sight, troop counters, and formation frontage limits.
+- [ ] Add attack-angle restrictions and configurable stances after movement playtesting.
+- [ ] Add durable battle history, rewards, hospital treatment, and enemy replenishment rules.
+- [ ] Support simultaneous world-map battles, allied reinforcements, and multiplayer authority.
 
-The formation picker includes formations at home and already deployed. Show each formation's leader, members, status, and estimated travel time to the selected target. Deployed formations use their actual deployed members and current position. Selecting one issues an order to that same unit; it must not spawn another army or reserve its members again. Moving, holding, and returning armies can be redirected. Confirming replaces the previous order; cancelling leaves it untouched.
-
-## Proposed prototype defaults
-
-These fill gaps in the discussion and can be adjusted during implementation:
-
-- Treat villages and garrisons as defended sites that can be occupied after defeat.
-- Use existing army formations for gathering; no new gatherer type is required.
-- Keep combat, scouting reports, and resource collection as clearly identified placeholders. Dispatch and travel work, but arrival alone does not grant rewards or silently count as victory.
-- Provide a clearly labelled placeholder "Simulate defeat" action for an arrived attacking army to exercise the garrison/village Occupy unlock and defeated-mob state. Defeated mobs have no further actions.
-- Gather arrival shows a placeholder gathering/ready state without crediting resources or depleting the site. Scout arrival shows a placeholder scouting state without inventing a report. Timed collection, carrying capacity, resource delivery, respawns, and actual combat are future work.
-
-## Implementation checklist
-
-- [ ] Define target actions and lifecycle in game rules.
-  - [x] Add data-driven action definitions for each world-object kind and supported state.
-  - [x] Implement one action resolver returning available actions and disabled reasons, including garrison/village Occupy locks.
-  - [x] Store target identity and action intent in unit orders so arrival can distinguish Move, Scout, Attack, and Gather.
-  - [ ] Validate target existence, current state, and unit capability when issuing an order and again on arrival.
-  - [ ] Define safe behavior for removed or regenerated targets: clear the interaction and hold the unit without granting an outcome.
-
-- [ ] Build world-object selection and contextual actions.
-  - [x] Resolve picked objects by ID against current world state and highlight the selected target.
-  - [x] Replace universal Scout/March buttons with the action matrix above and clear locked/disabled explanations.
-  - [x] Preserve target and action through formation selection, back navigation, and confirmation.
-  - [ ] Support targeting an object while a player unit is selected, using the same capability and target rules.
-  - [ ] Preserve drag panning, pinch/wheel zoom, and empty-ground movement with generous touch targets.
-
-- [x] Include deployed formations in the formation picker.
-  - [x] Resolve each formation to its existing active army using city ID and formation identity; distinguish at-home and deployed entries.
-  - [x] Show deployed members, current status, and ETA from the army's interpolated current position.
-  - [x] Allow eligible holding, moving, and returning formations to be selected; deployment alone is not a disabled reason.
-  - [x] Show precise reasons for genuinely unavailable at-home formations.
-  - [x] Dispatch at-home formations with existing deployment/reservation validation.
-  - [x] Redirect deployed formations in place, preserving unit ID, members, home city, and existing reservations.
-  - [x] Revalidate on confirmation, including a formation that arrived home while the picker was open.
-  - [x] Keep deployed formation editing locked until return; selection for a new order does not unlock roster editing.
-
-- [ ] Connect action travel and placeholder outcomes.
-  - [x] Send Scout through scout capability checks and allow eligible existing scouts to be reused.
-  - [x] Display intended action, target, and ETA in the selected-unit panel and activity list.
-  - [x] Keep every deployed formation's home-base trail visible without requiring unit selection.
-  - [x] Resolve arrivals into explicit placeholder action states; Hold or Return cancels pending interaction.
-  - [x] Add the placeholder simulated-defeat control and guard it against invalid targets or repeat resolution.
-  - [x] Update garrison/village state immediately after simulated defeat, unlocking Occupy and removing combat actions when selected again.
-  - [ ] Prevent incompatible or duplicate placeholder interactions on one target and explain the restriction.
-
-- [x] Persist action and world state through the shared reset contract.
-  - [x] Extend world and unit save validation for action intent and lifecycle state; migrate old saves to valid defaults.
-  - [x] Restore travel and placeholder arrival state after reload without replaying completed outcomes.
-  - [x] Reuse the existing registered world/unit storage keys; no new persistent module is introduced.
-  - [x] Verify reset removes the new state, restores starter defaults, preserves unrelated browser data, reports failures, and reloads after success.
-
-- [ ] Verify rules and mobile interaction.
-  - [x] Add action-matrix regression coverage, including locked Occupy, defeated garrisons/villages, and resource-only actions.
-  - [ ] Test deployed-formation redirection from holding, moving, and returning states, with no duplicate armies or double reservations.
-  - [ ] Test current-position ETA, cancellation, arrival-home races, stale targets, and repeated confirmations/outcome resolution.
-  - [ ] Add save migration, reload, and reset coverage for the new state.
-  - [x] Run `npm run test:placement`, relevant unit/world/reset regression suites, TypeScript checking, and the production build.
-  - [ ] Manually verify on a mobile WebGL browser: target selection, locked actions, home and deployed formation selection, redirecting without locating the army, arrival, simulated defeat, Occupy unlock, and reload/reset.
-
-Complete a parent checklist item only when all its subtasks are complete. Remaining unchecked work covers extra conflict handling, direct object orders from a selected map unit, edge-case tests, and manual mobile verification.
+Initial balance is provisional. Soldiers have 100 HP, 12 attack, and 35 defense;
+archers have 65 HP, 14 attack, and 10 defense. Damage is attack × 100 / (100 + defense).
+Training adds headcount; it does not upgrade every soldier's stats. Talent bonuses are
+5% at battle start. Only the implemented mouth skills affect combat; other existing
+part descriptions remain future behavior.

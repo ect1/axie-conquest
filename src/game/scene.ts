@@ -8,7 +8,7 @@ import { CAPITAL_CITY_ID } from './cities';
 import { Coordinate, WorldTarget } from './routes';
 
 type Events = { troops: (troops: Troops) => void; change: (b: Building[]) => void; preview: (c: Cell | null) => void; select: (b: Building | null) => void; unitSelect: (id: string) => void; target: (target: WorldTarget | null) => void; message: (s: string) => void; viewMode: (mode: 'base' | 'world') => void };
-export type BaseView = { setUnits: (orders: WorldUnit[], selectedId: string | null) => void; setSelectedTarget: (id: string | null) => void; focusCoordinate: (coordinate: Coordinate) => void; regenerateWorld: (settings: GenerationSettings) => WorldObject[]; loadWorld: (objects: WorldObject[]) => void; removeWorld: () => void; train: (kind: TroopKind) => boolean; rotate: (id: string) => boolean; move: (id: string) => boolean; remove: (id: string) => boolean; begin: (kind: BuildableKind) => void; cancel: () => void; confirm: () => boolean; setGridVisible: (visible: boolean) => void; setWorldView: (enabled: boolean) => void; setRoute: (route: { origin: Coordinate; destination: Coordinate } | null) => void; zoom: (factor: number) => void; home: () => void; dispose: () => void };
+export type BaseView = { refreshMilitary: () => void; setUnits: (orders: WorldUnit[], selectedId: string | null) => void; setSelectedTarget: (id: string | null) => void; focusCoordinate: (coordinate: Coordinate) => void; regenerateWorld: (settings: GenerationSettings) => WorldObject[]; loadWorld: (objects: WorldObject[]) => void; removeWorld: () => void; train: (kind: TroopKind) => boolean; rotate: (id: string) => boolean; move: (id: string) => boolean; remove: (id: string) => boolean; begin: (kind: BuildableKind) => void; cancel: () => void; confirm: () => boolean; setGridVisible: (visible: boolean) => void; setWorldView: (enabled: boolean) => void; setRoute: (route: { origin: Coordinate; destination: Coordinate } | null) => void; zoom: (factor: number) => void; home: () => void; dispose: () => void };
 const SAVE_KEY = 'axie-conquest-base-v2';
 const HALF_WIDTH = GRID_WIDTH / 2;
 const HALF_DEPTH = GRID_DEPTH / 2;
@@ -330,7 +330,7 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
       box('site door', 0.7, 1, 0.1, 0, 0.55, -1.35, dark, root);
       box('loot crate', 0.6, 0.6, 0.6, 1.5, 0.4, -1.5, gold, root);
     }
-    const description = `${WORLD_DEFINITIONS[object.kind].name} ? Structure only${object.loot.apple ? ' ? Loot: 1 apple (unavailable)' : ' ? Gathering and combat unavailable'}`;
+    const description = `${WORLD_DEFINITIONS[object.kind].name}: ${object.state}${object.state === 'defended' ? ' - Attack to battle the defenders' : ' - Gathering and loot collection unavailable'}`;
     root.getChildMeshes().forEach(mesh => { mesh.isPickable = true; mesh.metadata = { mapObject: description, worldTarget: { x: object.x, z: object.z, id: object.id, label: WORLD_DEFINITIONS[object.kind].name } }; });
   }
   let buildings: Building[];
@@ -341,7 +341,7 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
       : restoreBuildings(saved);
   }
   catch { buildings = restoreBuildings(null); }
-  const military = createMilitaryService(localStorage, CAPITAL_CITY_ID);
+  let military = createMilitaryService(localStorage, CAPITAL_CITY_ID);
   events.troops(military.getTroops());
   buildings.forEach(makeBuilding); events.change([...buildings]);
   const gridRoot = new TransformNode('construction grid', scene);
@@ -464,6 +464,7 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
     catch { events.message(`${message} Browser storage unavailable; progress lasts this session.`); }
   }
   return {
+    refreshMilitary() { military = createMilitaryService(localStorage, CAPITAL_CITY_ID); events.troops(military.getTroops()); },
     regenerateWorld(settings) {
       const objects = generateWorld(settings);
       loadWorld(objects);

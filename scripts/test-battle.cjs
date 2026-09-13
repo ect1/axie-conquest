@@ -1,0 +1,131 @@
+const fs = require('node:fs');
+const path = require('node:path');
+const ts = require('typescript');
+const assert = require('node:assert/strict');
+const cache = new Map();
+function load(file) {
+  file = path.resolve(file);
+  if (file.endsWith('.json')) return JSON.parse(fs.readFileSync(file, 'utf8'));
+  if (cache.has(file)) return cache.get(file).exports;
+  const module = { exports: {} };
+  cache.set(file, module);
+  const source = ts.transpileModule(fs.readFileSync(file, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, esModuleInterop: true } }).outputText;
+  new Function('require', 'module', 'exports', source)(name => load(path.resolve(path.dirname(file), name.endsWith('.json') ? name : `${name}.ts`)), module, module.exports);
+  return module.exports;
+}
+
+
+const b = load('src/game/battle.ts');
+const save = load('src/game/battle-save.ts');
+const u = load('src/game/units.ts');
+const f = load('src/game/offense-formations.ts');
+const military = load('src/game/military-service.ts');
+const world = load('src/game/world.ts');
+const { STARTER_HEROES } = load('src/game/heroes.ts');
+const troops = { infantry: 100, archer: 100, scout: 0 };
+const army = b.createSandboxArmy('balanced');
+assert.equal(army.leaderId, STARTER_HEROES[0].id);
+let initial = b.createBattle(army);
+assert.equal(initial.fighters.find(f => f.troopKind === 'infantry').maxHp, 2000);
+assert.equal(b.damageAfterDefense(100, 100), 50);
+const squad = initial.fighters.find(f => f.troopKind === 'infantry');
+assert.equal(b.livingCount({ ...squad, hp: 1450 }), 15);
+assert.equal(b.livingCount({ ...squad, hp: 0 }), 0);
+const before = JSON.stringify(initial);
+b.stepBattle(initial);
+assert.equal(JSON.stringify(initial), before, 'simulation does not mutate inputs');
+function run(battle) { while (!battle.result) battle = b.stepBattle(battle); return battle; }
+assert.deepEqual(run(initial), run(structuredClone(initial)), 'deterministic outcomes');
+for (const kind of ['balanced', 'infantry', 'archer']) {
+  const result = run(b.createBattle(b.createSandboxArmy(kind)));
+  assert.ok(['victory', 'defeat'].includes(result.result), `${kind} resolves without deadlock`);
+  assert.ok(result.fighters.every(f => f.hp >= 0));
+  console.log(`${kind}: ${result.result} in ${result.tick / 10}s`);
+}
+let melee = { ...initial.fighters[0], stats: { ...squad.stats }, x: 0, z: 0, initialCount: 1, hp: 100, maxHp: 100, targetId: null, cooldown: 0 };
+let enemy = { ...melee, id: 'enemy:test', side: 'enemy', x: 0, z: 5 };
+let duel = { ...initial, fighters: [melee, enemy], leaderId: null };
+let step = b.stepBattle(duel);
+assert.equal(step.fighters[0].state, 'charging');
+assert.ok(Math.abs(step.fighters[0].z - melee.stats.speed * 1.1 * b.BATTLE_STEP) < 1e-10, '10 percent movement charge');
+const archer = { ...melee, stats: { ...b.TROOP_COMBAT_STATS.archer }, troopKind: 'archer' };
+step = b.stepBattle({ ...duel, fighters: [archer, enemy] });
+assert.equal(step.fighters[0].state, 'attacking');
+assert.equal(step.fighters[0].z, 0, 'archers hold shooting distance');
+assert.ok(step.fighters[1].hp < enemy.hp);
+step = b.stepBattle({ ...duel, fighters: [melee, { ...enemy, z: 50 }] });
+assert.equal(step.fighters[0].state, 'holding', 'awareness does not reach distant enemies');
+const lethal = { ...melee, hp: 1, stats: { ...melee.stats, attack: 1000, range: 2 } };
+step = b.stepBattle({ ...duel, fighters: [lethal, { ...lethal, side: 'enemy', id: 'enemy:test', z: 1 }] });
+assert.equal(step.result, 'draw', 'simultaneous lethal attacks have no ordering advantage');
+assert.equal(run({ ...initial, retreating: true }).result, 'retreated');
+assert.equal(b.stepBattle({ ...duel, tick: b.MAX_BATTLE_TICKS - 1, fighters: [melee, { ...enemy, z: 50 }] }).result, 'draw');
+let skillBattle = { ...initial, fighters: initial.fighters.map(f => ({ ...f, x: f.side === 'player' ? 0 : 1, z: 0, hp: f.hp / 2 })) };
+const cast = b.activateCommanderSkill(skillBattle);
+assert.notEqual(cast, skillBattle);
+assert.ok(cast.skillCooldown > 0);
+assert.equal(b.activateCommanderSkill(cast), cast, 'cooldown prevents repeated skill casts');
+assert.equal(b.activateCommanderSkill({ ...skillBattle, retreating: true }).skillCooldown, 0);
+const healer = STARTER_HEROES.find(h => h.parts.mouth === 'Axie Kiss');
+assert.ok(healer);
+let healing = structuredClone(initial);
+const leaderIndex = healing.fighters.findIndex(f => f.id === healing.leaderId);
+healing.fighters[leaderIndex].heroId = healer.id;
+healing.fighters.forEach(f => { f.x = 0; f.z = 0; });
+const woundedIndex = healing.fighters.findIndex(f => f.side === 'player' && f.troopKind === 'infantry');
+healing.fighters[woundedIndex].hp = 1450;
+const healed = b.activateCommanderSkill(healing);
+assert.equal(b.livingCount(healed.fighters[woundedIndex]), 15, 'healing cannot resurrect lost soldiers');
+assert.equal(healed.fighters[woundedIndex].hp, 1500, 'healing repairs the remaining wounded soldier');
+const retarget = b.stepBattle({ ...duel, fighters: [{ ...melee, targetId: 'dead' }, { ...enemy, id: 'dead', hp: 0 }, { ...enemy, id: 'alive' }] });
+assert.equal(retarget.fighters[0].targetId, 'alive');
+const target = { id: 'test-garrison', kind: 'garrison', state: 'defended', x: 40, z: 0, loot: { apple: 1 } };
+const attacking = { ...army, position: { x: 40, z: 0 }, activity: { action: 'attack', targetId: target.id, targetLabel: 'Garrison' } };
+let session = save.createBattleSession(attacking, target);
+for (let i = 0; i < 100; i++) session = { ...session, battle: b.stepBattle(session.battle) };
+const restored = save.restoreBattleSave(JSON.stringify({ active: session, report: null }), troops).active;
+assert.ok(restored, 'valid active battle restores');
+assert.equal(JSON.stringify(run(restored.battle)), JSON.stringify(run(session.battle)), 'reload resumes exactly the same simulation');
+for (const corrupt of [null, {}, { ...session.battle, tick: -1 }, { ...session.battle, fighters: [{ ...session.battle.fighters[0], hp: -1 }] }]) {
+  assert.equal(save.restoreBattleSave(JSON.stringify({ active: { ...session, battle: corrupt } }), troops).active, null);
+}
+const completed = { ...session, battle: run(session.battle) };
+const formation = f.createEmptyFormation();
+formation.front[1].heroId = STARTER_HEROES[0].id; formation.leader = STARTER_HEROES[0].id;
+formation.front[0] = { heroId: null, military: 'infantry', militaryCount: 20 };
+formation.rear[2] = { heroId: null, military: 'archer', militaryCount: 20 };
+function storageFor(failAt = Infinity) {
+  const data = new Map([['unrelated', 'keep']]); let writes = 0;
+  return { data, getItem: key => data.get(key) ?? null, setItem(key, value) { if (++writes === failAt) throw Error('Interrupted'); data.set(key, value); }, removeItem: key => data.delete(key), get length() { return data.size; }, key: i => [...data.keys()][i] ?? null };
+}
+const storage = storageFor();
+const outcome = save.commitBattleOutcome(storage, completed, [attacking], troops, [formation], [target], 10000);
+assert.equal(outcome.troops.infantry, troops.infantry - outcome.report.losses.infantry);
+assert.equal(outcome.units[0].status, 'returning');
+assert.equal(outcome.units[0].activity, undefined);
+assert.equal(storage.getItem(save.BATTLE_TRANSACTION_KEY), null);
+assert.ok(u.restoreUnits(JSON.stringify(outcome.units), outcome.troops, 10000).length, 'survivors restore and remain reserved');
+assert.equal(save.restoreBattleSave(storage.getItem(save.BATTLE_SAVE_KEY), outcome.troops).active, null);
+assert.ok(save.restoreBattleSave(storage.getItem(save.BATTLE_SAVE_KEY), outcome.troops).report);
+for (let failAt = 2; failAt <= 6; failAt++) {
+  const interrupted = storageFor(failAt);
+  assert.throws(() => save.commitBattleOutcome(interrupted, completed, [attacking], troops, [formation], [target], 10000), /Interrupted/);
+  assert.ok(interrupted.getItem(save.BATTLE_TRANSACTION_KEY));
+  save.recoverBattleTransaction(interrupted);
+  assert.deepEqual([...interrupted.data].sort(), [...storage.data].sort(), `recovery after write ${failAt}`);
+  save.recoverBattleTransaction(interrupted);
+  assert.equal(interrupted.getItem('unrelated'), 'keep');
+}
+const denied = storageFor(1);
+assert.throws(() => save.commitBattleOutcome(denied, completed, [attacking], troops, [formation], [target], 10000), /Interrupted/);
+assert.deepEqual([...denied.data], [['unrelated', 'keep']], 'journal failure makes no partial writes');
+const malicious = storageFor(); malicious.data.set(save.BATTLE_TRANSACTION_KEY, JSON.stringify([['unrelated', 'bad']]));
+assert.throws(() => save.recoverBattleTransaction(malicious), /invalid/);
+assert.equal(malicious.getItem('unrelated'), 'keep');
+const { resetGame } = load('src/game/reset.ts');
+resetGame(storage);
+assert.equal(storage.getItem('unrelated'), 'keep');
+assert.deepEqual(save.restoreBattleSave(storage.getItem(save.BATTLE_SAVE_KEY), troops), { active: null, report: null });
+assert.deepEqual(military.createMilitaryService(storage, army.cityId).getTroops(), { infantry: 0, archer: 0, scout: 0 });
+assert.equal(world.restoreWorld(storage.getItem(world.WORLD_SAVE_KEY)), null);
+console.log('PASS: battle rules, range, charge, archers, simultaneous damage, retreat, skill cooldown, deterministic resume, casualties, transaction recovery and reset');

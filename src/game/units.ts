@@ -10,10 +10,11 @@ export const UNIT_DEFINITIONS = {
   scout: { capabilities: ['move', 'hold', 'return', 'scout'] },
 } as const;
 export type UnitKind = keyof typeof UNIT_DEFINITIONS;
-export type UnitMember = { id: string; heroId?: string; troopKind?: TroopKind; count: number; offset: Coordinate };
+export type UnitMember = { id: string; heroId?: string; troopKind?: TroopKind; count: number; offset: Coordinate; healthRatio?: number };
 export type UnitActivity = { action: WorldAction; targetId: string; targetLabel: string };
 export type UnitOrder = { kind: 'move' | 'return'; origin: Coordinate; destination: Coordinate; startedAt: number; arrivesAt: number; activity?: UnitActivity };
 export type WorldUnit = {
+  leaderId?: string | null;
   id: string; kind: UnitKind; ownerId: string; cityId: string; name: string;
   home: Coordinate; position: Coordinate; speed: number; members: UnitMember[];
   formationIndex?: number; order: UnitOrder | null; activity?: UnitActivity; status: 'holding' | 'moving' | 'returning' | 'home';
@@ -74,7 +75,7 @@ export function createArmy(formation: Formation, formationIndex: number, cityId:
   const members = formationMembers(formation);
   if (!members.some(m => m.heroId)) throw new Error('Assign at least one Axie.');
   if (!Number.isFinite(speed) || speed <= 0) throw new Error('Invalid movement speed.');
-  return { id, kind: 'army', ownerId: 'player', cityId, name: `${cityName} · Formation ${formationIndex + 1}`, home: { x: 0, z: 0 }, position: { x: 0, z: 0 }, speed, members, formationIndex, order: null, status: 'holding' };
+  return { id, kind: 'army', ownerId: 'player', cityId, name: `${cityName} · Formation ${formationIndex + 1}`, home: { x: 0, z: 0 }, position: { x: 0, z: 0 }, speed, members, formationIndex, leaderId: formation.leader, order: null, status: 'holding' };
 }
 export function createScout(cityId: string, cityName: string, speed: number, id: string): WorldUnit {
   if (!Number.isFinite(speed) || speed <= 0) throw new Error('Invalid movement speed.');
@@ -102,6 +103,8 @@ export function restoreUnits(raw: string | null, troops: Troops, now: number): W
       if (u.formationIndex !== undefined && (!Number.isSafeInteger(u.formationIndex) || u.formationIndex < 0)) continue;
       if (u.members.some(m => !m || typeof m.id !== 'string' || !validPoint(m.offset) || !Number.isSafeInteger(m.count) || m.count <= 0 || (m.heroId ? m.count !== 1 || !!m.troopKind || !STARTER_HEROES.some(h => h.id === m.heroId) : !['infantry', 'archer', 'scout'].includes(m.troopKind!)))) continue;
       if (new Set(u.members.map(m => m.id)).size !== u.members.length || (u.kind === 'army' && !u.members.some(m => m.heroId))) continue;
+      if (u.members.some(m => m.healthRatio !== undefined && (!Number.isFinite(m.healthRatio) || m.healthRatio < 0 || m.healthRatio > 1))) continue;
+      if (u.leaderId != null && !u.members.some(m => m.heroId === u.leaderId)) continue;
       if (u.order !== null) {
         const o = u.order;
         if (!o || !['move', 'return'].includes(o.kind) || !validPoint(o.origin) || !validPoint(o.destination) || !Number.isFinite(o.startedAt) || !Number.isFinite(o.arrivesAt) || o.arrivesAt < o.startedAt || u.status !== (o.kind === 'return' ? 'returning' : 'moving')) continue;

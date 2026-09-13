@@ -320,3 +320,34 @@ h2 { font: bold 19px Georgia, serif; margin: 3px 0 0; }
 .unit-coordinate { display: inline-block; margin-top: 5px; color: #72590d; font-weight: 750; text-decoration: underline; text-underline-offset: 2px; }
 
 .world-mode .military.panel { display: block; }
+
+.battle-dialog { position: fixed; inset: 0; width: min(1100px, 100vw); height: 96dvh; max-width: 100vw; max-height: 100dvh; margin: auto; padding: 0; border: 1px solid #708673; border-radius: 16px; color: #e9f0de; background: #243e35; overflow: auto; }
+.battle-dialog::backdrop { background: #11271ee6; }
+.battle-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; }
+.battle-header h2 { margin: 4px 0; font-size: 20px; }
+.battle-header .eyebrow { color: #c5d6aa; }
+.battle-field { position: relative; height: 43dvh; min-height: 240px; }
+.game .battle-field canvas { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; }
+.battle-camera { position: absolute; top: 8px; right: 8px; display: flex; gap: 5px; }
+.battle-dialog button, .battle-debug select, .developer select { min-height: 44px; border-radius: 8px; padding: 8px 12px; }
+.battle-camera button { min-width: 44px; }
+.battle-controls { padding: 12px 16px 20px; }
+.battle-controls .placement-actions { flex-wrap: wrap; margin: 10px 0; }
+.battle-totals { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; }
+.battle-totals strong { display: block; }
+.battle-skill { display: flex; gap: 12px; align-items: center; margin: 12px 0; }
+.battle-skill small { flex: 1; }
+.battle-debug { margin-top: 12px; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.battle-debug fieldset { grid-row: span 2; border: 1px solid #718d78; border-radius: 8px; }
+.battle-debug label { display: flex; align-items: center; gap: 8px; min-height: 44px; }
+.battle-debug input[type=checkbox] { width: 20px; height: 20px; min-height: 20px; accent-color: #d5e795; }
+.battle-debug select { max-width: 100%; }
+.battle-debug p { margin: 0; line-height: 1.6; }
+.battle-report { padding: 12px; margin: 12px 0; border: 1px solid #75957a; border-radius: 8px; }
+@media (max-width: 600px) { .battle-dialog { height: 100dvh; border-radius: 0; } .battle-debug { grid-template-columns: 1fr; } .battle-skill { align-items: stretch; flex-direction: column; } .battle-header h2 { font-size: 17px; } }
+
+.battle-dialog, .battle-dialog h2 { font-family: Arial, Helvetica, sans-serif; }
+.battle-dialog .secondary, .battle-camera button { background: #e8ecdd; color: #294d43; border: 1px solid #a6bca1; }
+.battle-dialog small { color: #c0d0ba; }
+.battle-dialog select { color: #294d43; background: #fffdf1; }
+.battle-loading { position: absolute; inset: 40% 0 auto; text-align: center; z-index: 1; pointer-events: none; }

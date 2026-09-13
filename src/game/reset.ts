@@ -1,4 +1,5 @@
 import { UNITS_SAVE_KEY } from './units';
+import { BATTLE_SAVE_KEY, BATTLE_TRANSACTION_KEY } from './battle-save';
 import { CITIES_SAVE_KEY } from './cities';
 import { MILITARY_SAVE_KEY } from './military-service';
 import { OFFENSE_FORMATIONS_SAVE_KEY } from './offense-formations';
@@ -19,6 +20,7 @@ export type ResettableModule = {
  * This eager registry must cover modules even if their UI has never been opened.
  */
 export const RESETTABLE_MODULES: readonly ResettableModule[] = [
+  { id: 'battle', storageKeys: [BATTLE_SAVE_KEY, BATTLE_TRANSACTION_KEY] },
   { id: 'buildings', storageKeys: ['axie-conquest-base-v1', 'axie-conquest-base-v2'] },
   { id: 'world', storageKeys: [WORLD_SAVE_KEY] },
   { id: 'units', storageKeys: [UNITS_SAVE_KEY] },
