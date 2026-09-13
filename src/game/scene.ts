@@ -1,13 +1,14 @@
+import { WorldUnit } from './units';
 import { showMarches } from './march-scene';
 import { generateWorld, GenerationSettings, WorldObject, WORLD_DEFINITIONS, WORLD_SAVE_KEY, WORLD_WIDTH, WORLD_DEPTH } from './world';
 import { ArcRotateCamera, Color3, Color4, DirectionalLight, Engine, HemisphericLight, MeshBuilder, Scene, StandardMaterial, TransformNode, Vector3 } from '@babylonjs/core';
 import { BUILDING_DEFINITIONS, BuildableKind, BuildingKind, Building, Cell, FOOTPRINT, GRID_DEPTH, GRID_WIDTH, MAIN_HALL, canPlace, getBuildingDimensions, getBuildingFootprint, restoreBuildings, canMoveBuilding, moveBuilding, removeBuilding, rotateBuilding, Troops, TroopKind } from './base';
 import { createMilitaryService, getTrainingMessage } from './military-service';
 import { CAPITAL_CITY_ID } from './cities';
-import { Coordinate, WorldTarget, RouteOrder } from './routes';
+import { Coordinate, WorldTarget } from './routes';
 
-type Events = { troops: (troops: Troops) => void; change: (b: Building[]) => void; preview: (c: Cell | null) => void; select: (b: Building | null) => void; marchSelect: (id: string) => void; target: (target: WorldTarget | null) => void; message: (s: string) => void; viewMode: (mode: 'base' | 'world') => void };
-export type BaseView = { setMarches: (orders: RouteOrder[]) => void; regenerateWorld: (settings: GenerationSettings) => WorldObject[]; loadWorld: (objects: WorldObject[]) => void; removeWorld: () => void; train: (kind: TroopKind) => boolean; rotate: (id: string) => boolean; move: (id: string) => boolean; remove: (id: string) => boolean; begin: (kind: BuildableKind) => void; cancel: () => void; confirm: () => boolean; setGridVisible: (visible: boolean) => void; setWorldView: (enabled: boolean) => void; setRoute: (route: { origin: Coordinate; destination: Coordinate } | null) => void; zoom: (factor: number) => void; home: () => void; dispose: () => void };
+type Events = { troops: (troops: Troops) => void; change: (b: Building[]) => void; preview: (c: Cell | null) => void; select: (b: Building | null) => void; unitSelect: (id: string) => void; target: (target: WorldTarget | null) => void; message: (s: string) => void; viewMode: (mode: 'base' | 'world') => void };
+export type BaseView = { setUnits: (orders: WorldUnit[], selectedId: string | null) => void; focusCoordinate: (coordinate: Coordinate) => void; regenerateWorld: (settings: GenerationSettings) => WorldObject[]; loadWorld: (objects: WorldObject[]) => void; removeWorld: () => void; train: (kind: TroopKind) => boolean; rotate: (id: string) => boolean; move: (id: string) => boolean; remove: (id: string) => boolean; begin: (kind: BuildableKind) => void; cancel: () => void; confirm: () => boolean; setGridVisible: (visible: boolean) => void; setWorldView: (enabled: boolean) => void; setRoute: (route: { origin: Coordinate; destination: Coordinate } | null) => void; zoom: (factor: number) => void; home: () => void; dispose: () => void };
 const SAVE_KEY = 'axie-conquest-base-v2';
 const HALF_WIDTH = GRID_WIDTH / 2;
 const HALF_DEPTH = GRID_DEPTH / 2;
@@ -17,7 +18,7 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
   engine.setHardwareScalingLevel(Math.max(1, window.devicePixelRatio / 1.5));
   const scene = new Scene(engine);
   let clearMarches = () => {};
-  function setMarches(orders: RouteOrder[]) { clearMarches(); clearMarches = showMarches(scene, orders); }
+  function setUnits(orders: WorldUnit[], selectedId: string | null) { clearMarches(); clearMarches = showMarches(scene, orders, selectedId, () => overviewActive); }
   scene.clearColor = Color4.FromHexString('#91aaa2ff');
   // Keep building fronts pointing southeast on screen.
   const camera = new ArcRotateCamera('isometric', -5 * Math.PI / 6, 0.66, 43, new Vector3(0, 0, 0), scene);
@@ -427,9 +428,9 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
     }
     else {
       const rect = canvas.getBoundingClientRect();
-      const hit = scene.pick(e.clientX - rect.left, e.clientY - rect.top, mesh => !!mesh.metadata?.buildingId || !!mesh.metadata?.mapObject || !!mesh.metadata?.marchId);
-      if (typeof hit?.pickedMesh?.metadata?.marchId === 'string') {
-        events.marchSelect(hit.pickedMesh.metadata.marchId);
+      const hit = scene.pick(e.clientX - rect.left, e.clientY - rect.top, mesh => mesh.isEnabled() && mesh.isPickable && (!!mesh.metadata?.buildingId || !!mesh.metadata?.mapObject || !!mesh.metadata?.unitId));
+      if (typeof hit?.pickedMesh?.metadata?.unitId === 'string') {
+        events.unitSelect(hit.pickedMesh.metadata.unitId);
         return;
       }
       if (hit?.pickedMesh?.metadata?.mapObject === 'Everleaf Haven') {
@@ -481,7 +482,12 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
       updateOverview();
     },
     setRoute,
-    setMarches,
+    setUnits,
+    focusCoordinate(coordinate) {
+      camera.target.set(coordinate.x, 0, coordinate.z);
+      camera.radius = Math.min(camera.radius, 48);
+      updateOverview();
+    },
     begin(kind) { cancel(); buildingKind = kind; placing = true; gridRoot.setEnabled(true); refreshGrid(); const hall = buildings.find(b => b.kind === 'hall')!; preview({ x: hall.x + FOOTPRINT, z: hall.z }); },
     cancel,
     move(id) {
@@ -537,7 +543,7 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
       canvas.removeEventListener('pointerdown', down); canvas.removeEventListener('pointermove', move);
       canvas.removeEventListener('pointerup', up); canvas.removeEventListener('pointercancel', up);
       canvas.removeEventListener('wheel', wheel); window.removeEventListener('resize', resize);
-      scene.dispose(); engine.dispose();
+      clearMarches(); scene.dispose(); engine.dispose();
     },
   };
 }

@@ -1,3 +1,4 @@
+import { UNITS_SAVE_KEY } from './units';
 import { CITIES_SAVE_KEY } from './cities';
 import { MILITARY_SAVE_KEY } from './military-service';
 import { OFFENSE_FORMATIONS_SAVE_KEY } from './offense-formations';
@@ -20,6 +21,7 @@ export type ResettableModule = {
 export const RESETTABLE_MODULES: readonly ResettableModule[] = [
   { id: 'buildings', storageKeys: ['axie-conquest-base-v1', 'axie-conquest-base-v2'] },
   { id: 'world', storageKeys: [WORLD_SAVE_KEY] },
+  { id: 'units', storageKeys: [UNITS_SAVE_KEY] },
   { id: 'routes', storageKeys: [ROUTES_SAVE_KEY] },
   { id: 'cities', storageKeys: [CITIES_SAVE_KEY] },
   { id: 'military', storageKeys: [MILITARY_SAVE_KEY], matchesStorageKey: key => /^axie-conquest-city-.+-troops-v1$/.test(key) },

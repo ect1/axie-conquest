@@ -2,6 +2,7 @@
   "name": "axie-conquest",
   "private": true,
   "scripts": {
+    "test:units": "node scripts/test-units.cjs",
     "test:reset": "node scripts/test-reset.cjs",
     "test:world": "node scripts/test-world.cjs",
     "test:placement": "node scripts/test-placement.cjs",

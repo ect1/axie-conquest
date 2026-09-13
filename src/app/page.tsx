@@ -13,7 +13,9 @@ import { DEPLOYED_AXIES_SAVE_KEY, restoreDeployedAxieIds } from '@/game/town-dep
 import CityUnitPanel from './city-unit-panel';
 import { CAPITAL_CITY_ID, CITIES_SAVE_KEY, CityState, createCapitalCity, restoreCities } from '@/game/cities';
 import { createEmptyFormations, Formation, OFFENSE_FORMATIONS_SAVE_KEY, restoreOffenseFormations } from '@/game/offense-formations';
-import { createOffensiveMarchOrder, createRoute, createScoutOrder, formatDuration, isValidFormation, marchTravelTimeMs, restoreRouteOrders, RouteOrder, WorldTarget } from '@/game/routes';
+import { createRoute, formatDuration, isValidFormation, marchTravelTimeMs, WorldTarget } from '@/game/routes';
+import { WorldUnit, UNITS_SAVE_KEY, createArmy, createScout, deployUnit, commandUnit, deploymentError, restoreUnits, migrateMarches, settleUnit, unitPosition } from '@/game/units';
+import { createMilitaryService } from '@/game/military-service';
 import { activeUnitGlobalStats } from '@/game/unit-stats';
 
 type InventoryTab = 'resources' | 'equipment' | 'other';
@@ -50,11 +52,13 @@ export default function Home() {
   const [routeAction, setRouteAction] = useState<'choose' | 'formation' | null>(null);
   const [formationIndex, setFormationIndex] = useState<number | null>(null);
   const [formations, setFormations] = useState<Formation[]>(createEmptyFormations);
-  const [orders, setOrders] = useState<RouteOrder[]>([]);
-  const [selectedMarchId, setSelectedMarchId] = useState<string | null>(null);
+  const [units, setUnits] = useState<WorldUnit[]>([]);
+  const [selectedUnitId, setSelectedUnitId] = useState<string | null>(null);
   const [now, setNow] = useState(Date.now);
   useEffect(() => { const timer = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(timer); }, []);
-  useEffect(() => { if (ready) view.current?.setMarches(orders); }, [orders, ready]);
+  useEffect(() => { if (ready) view.current?.setUnits(units, selectedUnitId); }, [units, selectedUnitId, ready]);
+  useEffect(() => { if (!ready) return; setUnits(current => { const next = current.map(u => settleUnit(u, now)).filter(u => u.status !== 'home'); return next.length !== current.length || next.some((u, i) => u !== current[i]) ? next : current; }); }, [now, ready]);
+  useEffect(() => { if (!ready) return; try { localStorage.setItem(UNITS_SAVE_KEY, JSON.stringify(units)); } catch { setMessage('Browser storage unavailable; units last this session.'); } }, [units, ready]);
   useEffect(() => {
     try { setSelectedCity(restoreCities(localStorage.getItem(CITIES_SAVE_KEY)).find(city => city.id === CAPITAL_CITY_ID) ?? createCapitalCity()); } catch { /* Keep the in-memory capital when storage is unavailable. */ }
   }, []);
@@ -65,7 +69,7 @@ export default function Home() {
     let disposed = false;
     import('@/game/scene').then(({ createBase }) => {
       if (disposed || !canvas.current) return;
-      view.current = createBase(canvas.current, { change: setBuildings, preview: setCell, target: next => { setTarget(next); setRouteAction(next ? 'choose' : null); setFormationIndex(null); if (next) { setSelected(null); setDeveloper(false); setMilitary(false); setTraining(false); setHeroes(false); setInventory(false); setCatalog(false); } }, viewMode: mode => { setWorldView(mode === 'world'); if (mode !== 'world') { setTarget(null); setRouteAction(null); } }, select: building => { setSelected(building); if (building) { setDeveloper(false); setMilitary(false); setTraining(false); setHeroes(false); setInventory(false); } }, message: setMessage, troops: setTroops });
+      view.current = createBase(canvas.current, { change: setBuildings, preview: setCell, unitSelect: id => { setSelectedUnitId(id); setTarget(null); setRouteAction(null); }, target: next => { setTarget(next); setRouteAction(next ? 'choose' : null); setFormationIndex(null); if (next) { setSelected(null); setDeveloper(false); setMilitary(false); setTraining(false); setHeroes(false); setInventory(false); setCatalog(false); } }, viewMode: mode => { setWorldView(mode === 'world'); if (mode !== 'world') { setSelectedUnitId(null); setTarget(null); setRouteAction(null); } }, select: building => { setSelected(building); if (building) { setDeveloper(false); setMilitary(false); setTraining(false); setHeroes(false); setInventory(false); } }, message: setMessage, troops: setTroops });
       let initialObjects: WorldObject[];
       let savedObjects: WorldObject[] | null = null;
       try { savedObjects = restoreWorld(localStorage.getItem(WORLD_SAVE_KEY)); } catch { savedObjects = null; }
@@ -76,7 +80,12 @@ export default function Home() {
         initialObjects = view.current.regenerateWorld(DEFAULT_GENERATION);
       }
       setWorldObjects(initialObjects);
-      try { setOrders(restoreRouteOrders(localStorage.getItem('axie-conquest-routes-v1'))); setFormations(restoreOffenseFormations(localStorage.getItem(OFFENSE_FORMATIONS_SAVE_KEY), selectedCity.deployedAxieIds, troops)); } catch { /* Keep empty in-memory state when storage is unavailable. */ }
+      try {
+        const available = createMilitaryService(localStorage, CAPITAL_CITY_ID).getTroops();
+        const raw = localStorage.getItem(UNITS_SAVE_KEY);
+        setUnits(raw === null ? migrateMarches(localStorage.getItem('axie-conquest-routes-v1'), CAPITAL_CITY_ID, available, unitStats.marchSpeed, Date.now()) : restoreUnits(raw, available, Date.now()));
+        setFormations(restoreOffenseFormations(localStorage.getItem(OFFENSE_FORMATIONS_SAVE_KEY), restoreDeployedAxieIds(localStorage.getItem(DEPLOYED_AXIES_SAVE_KEY)), available));
+      } catch { /* Keep session defaults if storage is unavailable. */ }
       const requested = Object.values(DEFAULT_GENERATION.counts).reduce((sum, count) => sum + count, 0);
       setGenerationStatus(savedObjects !== null ? `${initialObjects.length} saved objects restored.` : `${initialObjects.length} / ${requested} generated.`);
       setReady(true);
@@ -90,7 +99,6 @@ export default function Home() {
   const size = getBuildingDimensions(buildingKind, moving?.rotation);
   const valid = cell !== null && (moving ? canMoveBuilding(moving.id, cell, buildings) : canPlace(cell, buildings, size.width, size.depth));
   const farms = buildings.filter(b => b.kind === 'farm').length;
-  const militaryUnlocked = buildings.some(building => ['barracks', 'archery', 'scout'].includes(building.kind));
   const usedCells = buildings.reduce((total, building) => { const size = getBuildingDimensions(building.kind, building.rotation); return total + size.width * size.depth; }, 0);
   function begin(kind: BuildableKind) { setHeroes(false); setMilitary(false); setTraining(false); setMoving(null); setBuildingKind(kind); setSelected(null); setPlacing(true); setCatalog(false); view.current?.begin(kind); }
   function cancel() { view.current?.cancel(); setPlacing(false); setCell(null); setCatalog(!moving); if (moving) setSelected(moving); setMoving(null); }
@@ -114,6 +122,7 @@ export default function Home() {
     setHeroes(false);
     setInventory(false);
     if (placing) { view.current?.cancel(); setPlacing(false); setMoving(null); setCell(null); }
+    setSelectedUnitId(null); setTarget(null); setRouteAction(null); setCityUnit(false); setMail(false);
     setSelected(null); setCatalog(false); setMilitary(!military);
   }
   function toggleMail() {
@@ -167,7 +176,33 @@ export default function Home() {
     setGenerationStatus(`${objects.length} / ${requested} generated.${objects.length < requested ? ' Not enough space for all objects. Reduce counts or minimum distance.' : ''} Session only.`);
     view.current.setWorldView(true);
   }
-  function saveOrder(order: RouteOrder) { const next = [...orders, order]; setOrders(next); try { localStorage.setItem('axie-conquest-routes-v1', JSON.stringify(next)); } catch { /* Session fallback. */ }  setMessage(order.kind === 'scout' ? 'Scout dispatched.' : 'Offensive march dispatched.'); setTarget(null); setRouteAction(null); }
+  function formationIssue(index: number): string | null {
+    try { return deploymentError(createArmy(formations[index], index, selectedCity.id, selectedCity.name, unitStats.marchSpeed, 'preview'), units, troops, now); }
+    catch (error) { return (error as Error).message; }
+  }
+  function deploy(index: number | null) {
+    try {
+      if (!target) return;
+      const candidate: WorldUnit = index !== null
+        ? createArmy(formations[index], index, selectedCity.id, selectedCity.name, unitStats.marchSpeed, crypto.randomUUID())
+        : createScout(selectedCity.id, selectedCity.name, unitStats.marchSpeed, crypto.randomUUID());
+      const unit = deployUnit(candidate, units, troops, target, Date.now());
+      setUnits(current => [...current, unit]); setSelectedUnitId(unit.id);
+      setTarget(null); setRouteAction(null); setMessage(`${unit.name} dispatched.`);
+    } catch (error) { setMessage((error as Error).message); }
+  }
+  function issueCommand(kind: 'move' | 'hold' | 'return') {
+    const unit = units.find(u => u.id === selectedUnitId);
+    if (!unit) return;
+    try {
+      const next = commandUnit(unit, kind, Date.now(), target ?? undefined);
+      setUnits(current => current.map(u => u.id === next.id ? next : u));
+      setTarget(null); setRouteAction(null); setMessage(kind === 'return' ? 'Unit returning to base.' : kind === 'hold' ? 'Unit holding position.' : 'Destination updated.');
+    } catch (error) { setMessage((error as Error).message); }
+  }
+  const selectedUnit = units.find(u => u.id === selectedUnitId);
+  const selectedPosition = selectedUnit ? unitPosition(selectedUnit, now) : null;
+
   return <main className={`game ${worldView ? 'world-mode' : ''}`}>
     <button className="world-toggle" onClick={toggleWorldView}>{worldView ? 'Base' : 'World'}</button>
     <canvas ref={canvas} aria-label="Lunacia settlement. Drag to pan, scroll or pinch to zoom. Choose a building, then tap the land to position it." />
@@ -177,7 +212,8 @@ export default function Home() {
     </header>
     <aside className="chapter"><span className="eyebrow">CHAPTER 01 / ROOTS OF A KINGDOM</span><h1>A home worth<br />growing.</h1><p>Raise your first farm.<br />Bring life back to Lunacia.</p><div className="objective"><span className={farms ? 'complete' : ''}>{farms ? '✓' : '○'}</span><div>Plant the foundations<small>{farms ? 'First farm established' : 'Build your first farm'}</small></div></div></aside>
     <div className="map-controls"><button aria-label="Zoom in" onClick={() => view.current?.zoom(0.85)}>+</button><button aria-label="Zoom out" onClick={() => view.current?.zoom(1.18)}>−</button><button aria-label="Center on main hall" onClick={() => view.current?.home()}>⌂</button></div>
-    {worldView && <aside className="march-list" aria-label="Army marches"><strong>Army marches</strong>{orders.filter(order => order.kind === 'march').map(order => order.kind === 'march' && <article key={order.id}><strong>Formation {order.formationIndex + 1} · {(order.arrivesAt ?? 0) <= now ? 'Arrived' : 'Marching'}</strong><small>From {order.cityName}</small><small>To {order.target.x.toFixed(1)}, {order.target.z.toFixed(1)}</small><small>Travel remaining {formatDuration(Math.max(0, (order.arrivesAt ?? now) - now))}</small></article>)}{!orders.some(order => order.kind === 'march') && <small>No armies marching</small>}</aside>}
+    <aside className="march-list" aria-label="World units"><strong>World units</strong>{units.map(unit => { const position = unitPosition(unit, now); return <button key={unit.id} aria-pressed={selectedUnitId === unit.id} aria-label={`Focus camera on ${unit.name} at ${position.x.toFixed(1)}, ${position.z.toFixed(1)}`} onClick={() => { setSelectedUnitId(unit.id); setTarget(null); setRouteAction(null); if (!worldView) { view.current?.setWorldView(true); setWorldView(true); } view.current?.focusCoordinate(position); }}><strong>{unit.name}</strong><small>{settleUnit(unit, now).status} {unit.order ? `· ${formatDuration(unit.order.arrivesAt - now)}` : ''}</small><span className="unit-coordinate">⌖ {position.x.toFixed(1)}, {position.z.toFixed(1)} · View unit</span></button>; })}{!units.length && <small>No units deployed</small>}</aside>
+    {worldView && selectedUnit && <section className="selection world-action panel" aria-label="Selected unit"><button className="close" aria-label="Deselect unit" onClick={() => setSelectedUnitId(null)}>&times;</button><span className="eyebrow">{selectedUnit.kind} ? {settleUnit(selectedUnit, now).status}</span><h2>{selectedUnit.name}</h2><p>Position {selectedPosition!.x.toFixed(1)}, {selectedPosition!.z.toFixed(1)} ? {selectedUnit.members.reduce((n, m) => n + m.count, 0)} members</p><p>{target ? `Move to ${target.x.toFixed(1)}, ${target.z.toFixed(1)}` : 'Tap a destination on the map, then choose Move.'}</p><div className="placement-actions"><button className="primary" disabled={!target} onClick={() => issueCommand('move')}>Move</button><button className="secondary" disabled={!selectedUnit.order} onClick={() => issueCommand('hold')}>Hold</button><button className="secondary" disabled={selectedUnit.status === 'returning'} onClick={() => issueCommand('return')}>Return to base</button></div></section>}
     {!ready && <div className="loading">Preparing your settlement…</div>}
     {selected && !placing && <section className="selection panel"><button className="close" aria-label="Close building details" onClick={() => setSelected(null)}>×</button><span className="eyebrow">LEVEL 1 · {BUILDING_DEFINITIONS[selected.kind].category}</span><h2>{selected.kind === 'hall' ? selectedCity.name : BUILDING_DEFINITIONS[selected.kind].name}</h2>{selected.kind === 'hall' && <div className="city-nickname"><label htmlFor="city-nickname">City name</label><div><input id="city-nickname" value={nicknameDraft || selectedCity.name} maxLength={24} onChange={event => setNicknameDraft(event.target.value)} onFocus={event => { if (!nicknameDraft) setNicknameDraft(event.currentTarget.value); }} onKeyDown={event => { if (event.key === 'Enter') renameCapital(); }} /><button className="primary" disabled={!nicknameDraft.trim() || nicknameDraft.trim() === selectedCity.name} onClick={renameCapital}>Rename</button></div><small>You can update this name anytime.</small></div>}<p>{BUILDING_DEFINITIONS[selected.kind].description}</p><small>{getBuildingDimensions(selected.kind, selected.rotation).width} × {getBuildingDimensions(selected.kind, selected.rotation).depth} footprint · Cell {selected.x + 1}, {selected.z + 1}</small><div className="placement-actions"><button className="primary" onClick={moveSelected}>Move</button><button className="secondary" onClick={() => view.current?.rotate(selected.id)} aria-label="Rotate building 90 degrees">Rotate</button>{selected.kind !== 'hall' && <button className="secondary remove-action" onClick={removeSelected}>Remove</button>}</div></section>}
     {placing ? <section className="placement panel"><div><span className="eyebrow">{moving ? 'MOVING' : 'PLACING'} / {BUILDING_DEFINITIONS[buildingKind].name}</span><h2>{valid ? 'Room to grow' : 'Choose another spot'}</h2><p aria-live="polite">{cell ? (valid ? `Clear land at ${cell.x + 1}, ${cell.z + 1}. Ready to ${moving ? 'move' : 'build'}.` : 'Blocked: overlaps a building or crosses the base edge.') : `Tap the land to position your ${BUILDING_DEFINITIONS[buildingKind].name}.`}</p><div className="legend"><span>🟩 Available</span><span>🟥 Blocked</span><span>{size.width} × {size.depth} cells</span></div></div><div className="placement-actions"><button className="secondary" onClick={cancel}>Cancel</button><button className="primary" disabled={!valid} onClick={confirm}>✓ {moving ? 'Confirm move' : `Build ${BUILDING_DEFINITIONS[buildingKind].name}`}</button></div></section> : catalog && !selected && <section className="catalog panel"><div className="catalog-heading"><div><span className="eyebrow">MAKE ROOM FOR POSSIBILITY</span><h2>Build your haven</h2></div><button className="close" aria-label="Close build menu" onClick={() => setCatalog(false)}>×</button></div><div className="building-options">{BUILDABLE_KINDS.map(kind => {
@@ -185,9 +221,9 @@ export default function Home() {
       const dimensions = getBuildingDimensions(kind);
       return <button key={kind} className="building-card" onClick={() => begin(kind)} disabled={!ready}><span className="building-art" aria-hidden="true">{definition.icon}</span><span><strong>{definition.name}</strong><small>{definition.category} &middot; {dimensions.width} &times; {dimensions.depth}</small></span><span className="add" aria-hidden="true">+</span></button>;
     })}</div><div className="catalog-footer">Prototype construction is free <span>40 × 20 base grid</span></div></section>}
-    {target && routeAction === 'choose' && <section className="selection world-action panel" aria-label="World actions"><button className="close" aria-label="Close world actions" onClick={() => { setTarget(null); setRouteAction(null); }}>&times;</button><span className="eyebrow">WORLD TARGET</span><h2>{target.label || 'Uncharted land'}</h2><p>Coordinate {target.x.toFixed(1)}, {target.z.toFixed(1)} · Route {createRoute(target).distance} tiles</p><button className="secondary" onClick={() => saveOrder(createScoutOrder(target))}>Scout</button><button className="primary" onClick={chooseMarch}>March</button></section>}
-    {target && routeAction === 'formation' && <section className="selection world-action panel" aria-label="World actions"><button className="close" aria-label="Close world actions" onClick={() => { setTarget(null); setRouteAction(null); }}>&times;</button><span className="eyebrow">OFFENSIVE MARCH</span><h2>Choose formation</h2><p>At least one Axie must be assigned.</p>{formations.map((formation, index) => <button key={index} className="building-card" aria-pressed={formationIndex === index} disabled={!isValidFormation(formation)} onClick={() => setFormationIndex(index)}><strong>Formation {index + 1}{formationIndex === index ? ' · Selected' : ''}</strong><small>{isValidFormation(formation) ? `Axie assigned · Estimated travel ${formatDuration(marchTravelTimeMs(createRoute(target), unitStats.marchSpeed))}` : 'Unavailable · Assign an Axie first'}</small></button>)}{!formations.some(isValidFormation) && <button className="secondary" onClick={() => { setTarget(null); setRouteAction(null); setMilitary(true); view.current?.home(); }}>Configure formations in Military</button>}<button className="primary" disabled={formationIndex === null || !isValidFormation(formations[formationIndex ?? -1])} onClick={() => { if (target && formationIndex !== null) saveOrder(createOffensiveMarchOrder(target, formationIndex, formations[formationIndex], selectedCity.name, Date.now(), unitStats.marchSpeed)); }}>Send march</button></section>}
-    {military && !placing && !selected && <MilitaryPanel troops={troops} onClose={() => setMilitary(false)} />}
+    {!selectedUnit && target && routeAction === 'choose' && <section className="selection world-action panel" aria-label="World actions"><button className="close" aria-label="Close world actions" onClick={() => { setTarget(null); setRouteAction(null); }}>&times;</button><span className="eyebrow">WORLD TARGET</span><h2>{target.label || 'Uncharted land'}</h2><p>Coordinate {target.x.toFixed(1)}, {target.z.toFixed(1)} · Route {createRoute(target).distance} tiles</p><button className="secondary" disabled={troops.scout <= units.flatMap(u => u.members).filter(m => m.troopKind === 'scout').reduce((n, m) => n + m.count, 0)} onClick={() => deploy(null)}>Send scout</button><button className="primary" onClick={chooseMarch}>March</button></section>}
+    {!selectedUnit && target && routeAction === 'formation' && <section className="selection world-action panel" aria-label="World actions"><button className="close" aria-label="Close world actions" onClick={() => { setTarget(null); setRouteAction(null); }}>&times;</button><span className="eyebrow">OFFENSIVE MARCH</span><h2>Choose formation</h2><p>At least one Axie must be assigned.</p>{formations.map((formation, index) => <button key={index} className="building-card" aria-pressed={formationIndex === index} disabled={!!formationIssue(index)} onClick={() => setFormationIndex(index)}><strong>Formation {index + 1}{formationIndex === index ? ' · Selected' : ''}</strong><small>{!formationIssue(index) ? `Axie assigned · Estimated travel ${formatDuration(marchTravelTimeMs(createRoute(target), unitStats.marchSpeed))}` : formationIssue(index)}</small></button>)}{!formations.some(isValidFormation) && <button className="secondary" onClick={() => { setTarget(null); setRouteAction(null); setMilitary(true); }}>Configure formations in Military</button>}<button className="primary" disabled={formationIndex === null || !!formationIssue(formationIndex)} onClick={() => { if (formationIndex !== null) deploy(formationIndex); }}>Send march</button></section>}
+    {military && !placing && !selected && <MilitaryPanel troops={troops} units={units} cityId={selectedCity.id} now={now} onClose={() => setMilitary(false)} />}
     {cityUnit && !placing && !selected && <CityUnitPanel city={{ ...selectedCity, troops }} onClose={() => setCityUnit(false)} />}
     <button className="city-toggle build-toggle" onClick={() => { setHeroes(false); setMilitary(false); setTraining(false); setInventory(false); setSelected(null); setCatalog(false); setCityUnit(current => !current); }} aria-expanded={cityUnit}><span>City</span></button>
     <button className="inventory-toggle build-toggle" onClick={toggleInventory} aria-expanded={inventory}><span>Inventory</span></button>
@@ -202,7 +238,7 @@ export default function Home() {
     {training && <TrainingDialog buildings={buildings} troops={troops} ready={ready} onTrain={kind => { view.current?.train(kind); }} onClose={() => setTraining(false)} />}
     {developer && <DeveloperPanel settings={generation} onSettings={setGeneration} objects={worldObjects} status={generationStatus} ready={ready} onClose={() => setDeveloper(false)} onRegenerate={regenerate} onRemove={() => { view.current?.removeWorld(); try { localStorage.setItem(WORLD_SAVE_KEY, '[]'); } catch { /* Keep the removal in memory when storage is unavailable. */ } setWorldObjects([]); setGenerationStatus('All generated objects removed.'); }} />}
     {mail && <MailDialog onClose={() => setMail(false)} />}
-    <footer className="bottom-bar"><div className="status" role="status"><span className="status-dot" />{message}<small>DRAG TO PAN · PINCH / SCROLL TO ZOOM</small></div><div className="hud-actions"><button className="build-toggle" onClick={toggleDeveloper} aria-expanded={developer}><span>Developer</span></button><button className="build-toggle" onClick={toggleHeroes} aria-expanded={heroes}><span>Axies</span></button><button className="build-toggle" onClick={toggleTraining} aria-expanded={training}><span>Train</span></button><button className="build-toggle" onClick={toggleMail} aria-haspopup="dialog" aria-expanded={mail}><span>Mail</span></button><button className="build-toggle" onClick={toggleMilitary} disabled={!militaryUnlocked} aria-expanded={military}><span>Military</span></button><button className="build-toggle" onClick={() => { setDeveloper(false); setHeroes(false); setMilitary(false); setTraining(false); if (placing) cancel(); else { setSelected(null); setCatalog(selected ? true : !catalog); } }} aria-expanded={(catalog && !selected) || placing}>▦ <span>{placing ? (moving ? 'Cancel move' : 'Cancel build') : 'Build'}</span></button></div></footer>
+    <footer className="bottom-bar"><div className="status" role="status"><span className="status-dot" />{message}<small>DRAG TO PAN · PINCH / SCROLL TO ZOOM</small></div><div className="hud-actions"><button className="build-toggle" onClick={toggleDeveloper} aria-expanded={developer}><span>Developer</span></button><button className="build-toggle" onClick={toggleHeroes} aria-expanded={heroes}><span>Axies</span></button><button className="build-toggle" onClick={toggleTraining} aria-expanded={training}><span>Train</span></button><button className="build-toggle" onClick={toggleMail} aria-haspopup="dialog" aria-expanded={mail}><span>Mail</span></button><button className="build-toggle" onClick={toggleMilitary} aria-expanded={military}><span>Military</span></button><button className="build-toggle" onClick={() => { setDeveloper(false); setHeroes(false); setMilitary(false); setTraining(false); if (placing) cancel(); else { setSelected(null); setCatalog(selected ? true : !catalog); } }} aria-expanded={(catalog && !selected) || placing}>▦ <span>{placing ? (moving ? 'Cancel move' : 'Cancel build') : 'Build'}</span></button></div></footer>
   </main>;
 }
 

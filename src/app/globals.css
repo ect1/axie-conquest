@@ -309,3 +309,10 @@ h2 { font: bold 19px Georgia, serif; margin: 3px 0 0; }
   .hud-actions { overflow-x: auto; pointer-events: auto; }
   .hud-actions .build-toggle { flex: 0 0 auto; min-width: 44px; padding-inline: 10px; }
 }
+
+.march-list > button { display: block; width: 100%; text-align: left; min-height: 48px; padding: 10px; margin-top: 6px; border: 1px solid #cbd4c0; border-radius: 8px; background: #fffaf2; color: #294437; }
+.march-list > button[aria-pressed="true"] { border-color: #90721b; background: #fff0b8; }
+.march-list small { display: block; }
+.unit-coordinate { display: inline-block; margin-top: 5px; color: #72590d; font-weight: 750; text-decoration: underline; text-underline-offset: 2px; }
+
+.world-mode .military.panel { display: block; }
