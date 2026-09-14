@@ -320,6 +320,20 @@ h2 { font: bold 19px Georgia, serif; margin: 3px 0 0; }
 .unit-coordinate { display: inline-block; margin-top: 5px; color: #72590d; font-weight: 750; text-decoration: underline; text-underline-offset: 2px; }
 
 .world-mode .military.panel { display: block; }
+.world-battle { z-index: 7; }
+.world-battle .battle-totals { margin: 10px 0; }
+.world-battle .battle-totals span { min-width: 120px; }
+.world-battle .battle-totals strong { display: block; }
+.world-battle-health { z-index: 7; left: auto; right: 18px; bottom: calc(var(--bottom) + 76px); width: min(340px, calc(100vw - 36px)); background: #fffaf2eF; }
+.world-battle-side { margin: 6px 0 10px; }
+.world-battle-side.enemy { color: #843f35; }
+.world-fighter { display: flex; justify-content: space-between; gap: 8px; font-size: 11px; margin-top: 5px; }
+.world-health-track { height: 7px; flex: 1 1 100%; background: #d6d6c8; border-radius: 5px; overflow: hidden; }
+.world-health-track i { display: block; height: 100%; background: #4d9b63; transition: width .15s linear; }
+.enemy .world-health-track i { background: #c55a4e; }
+.world-fighter { flex-wrap: wrap; }
+.world-hit-feed { border-top: 1px solid #d5d8c6; padding-top: 7px; font-size: 11px; animation: world-hit .3s ease-out; }
+@keyframes world-hit { from { opacity: .2; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
 
 .battle-dialog { position: fixed; inset: 0; width: min(1100px, 100vw); height: 96dvh; max-width: 100vw; max-height: 100dvh; margin: auto; padding: 0; border: 1px solid #708673; border-radius: 16px; color: #e9f0de; background: #243e35; overflow: auto; }
 .battle-dialog::backdrop { background: #11271ee6; }
@@ -354,3 +368,31 @@ h2 { font: bold 19px Georgia, serif; margin: 3px 0 0; }
 .battle-dialog small { color: #c0d0ba; }
 .battle-dialog select { color: #294d43; background: #fffdf1; }
 .battle-loading { position: absolute; inset: 40% 0 auto; text-align: center; z-index: 1; pointer-events: none; }
+.world-mode .world-fight-status.panel { display: block; pointer-events: auto; max-width: 300px; z-index: 8; }
+.world-fight-status small { display: block; margin-top: 6px; }
+.battle-mail-list { display: flex; gap: 8px; overflow-x: auto; padding: 12px 0; }
+.battle-mail-list button { flex: 0 0 170px; text-align: left; min-height: 56px; padding: 8px; border-radius: 8px; }
+.battle-mail-list button[aria-pressed=true] { outline: 2px solid #528b70; }
+.battle-mail-list small, .battle-report-table th small { display: block; font-weight: normal; }
+.battle-mail-report { text-align: left; padding: 4px 0 12px; }
+.battle-mail-report p { font-size: 13px; line-height: 1.5; }
+.battle-report-table { overflow-x: auto; }
+.battle-report-table table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.battle-report-table th, .battle-report-table td { padding: 8px 5px; border-bottom: 1px solid #cdd9cd; text-align: left; }
+.battle-report-table caption { text-align: left; font-weight: bold; padding: 8px 0; }
+.battle-mail-report button, .replay-dialog button { min-height: 44px; padding: 8px 16px; }
+.replay-dialog .battle-field { height: 65dvh; }
+.replay-dialog .battle-header { flex-wrap: wrap; }
+
+.world-mode .world-battle.panel { display: block; z-index: 11; }
+.world-battle .world-battle-health { width: auto; margin-top: 10px; background: transparent; }
+.world-battle-health summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; }
+.world-fighter button { min-height: 44px; text-align: left; }
+.world-fighter button[aria-pressed=true] { outline: 2px solid #c19d39; }
+
+@media (min-width: 700px) {
+  .world-battle.panel { left: var(--edge-left); right: auto; margin-inline: 0; width: 340px; }
+}
+@media (max-width: 699px) {
+  .world-battle.panel { max-height: 44dvh; }
+}

@@ -84,9 +84,12 @@ export function stepBattle(previous: Battle): Battle {
     enemies.sort((a, b) => edgeDistance(origin, a) - edgeDistance(origin, b) || a.id.localeCompare(b.id));
     const target = enemies.find(e => e.id === fighter.targetId && edgeDistance(origin, e) <= fighter.stats.range) ?? enemies[0];
     const center = centers[fighter.side];
-    if (!target || Math.hypot(target.x - center.x, target.z - center.z) - target.stats.radius > activeBattleSettings.awarenessRadius) { fighter.state = 'holding'; fighter.targetId = null; continue; }
-    fighter.targetId = target.id;
+    if (!target || (Math.hypot(target.x - center.x, target.z - center.z) - target.stats.radius > activeBattleSettings.awarenessRadius && !previous.fighters.some(f => f.side === fighter.side && f.hp < f.maxHp))) { fighter.state = 'holding'; fighter.targetId = null; continue; }
+    const alerted = previous.fighters.some(f => f.side === fighter.side && (f.hp < f.maxHp || f.state === 'approaching' || f.state === 'charging' || f.state === 'attacking'));
+    const engaged = Math.hypot(target.x - center.x, target.z - center.z) - target.stats.radius <= activeBattleSettings.engagementRadius;
     fighter.facing = Math.atan2(target.x - fighter.x, target.z - fighter.z);
+    if (fighter.side === 'enemy' && !alerted && !engaged) { fighter.state = 'holding'; fighter.targetId = null; continue; }
+    fighter.targetId = target.id;
     const distance = edgeDistance(origin, target);
     if (distance <= fighter.stats.range + 0.001) {
       fighter.state = 'attacking';

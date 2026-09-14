@@ -22,6 +22,8 @@ export type ResettableModule = {
  */
 export const RESETTABLE_MODULES: readonly ResettableModule[] = [
   { id: 'battle', storageKeys: [BATTLE_SAVE_KEY, BATTLE_TRANSACTION_KEY] },
+  // Mail history and recorded replays share the battle journal; neither keeps module caches.
+  { id: 'battle-replays', storageKeys: [BATTLE_SAVE_KEY, BATTLE_TRANSACTION_KEY] },
   { id: 'buildings', storageKeys: ['axie-conquest-base-v1', 'axie-conquest-base-v2'] },
   { id: 'world', storageKeys: [WORLD_SAVE_KEY] },
   { id: 'units', storageKeys: [UNITS_SAVE_KEY] },

@@ -7,9 +7,9 @@ import MilitaryPanel from './military-panel';
 import TrainingDialog from './training-dialog';
 import MailDialog from './mail-dialog';
 import DeveloperPanel from './developer-panel';
-import BattleArena from './battle-arena';
-import { Battle } from '@/game/battle';
-import { BATTLE_SAVE_KEY, BattleSession, BattleReport, createBattleSession, restoreBattleSave, recoverBattleTransaction, commitBattleOutcome } from '@/game/battle-save';
+import { activateCommanderSkill, Battle, stepBattle } from '@/game/battle';
+import { BATTLE_SAVE_KEY, BattleSession, BattleReport, createBattleSession, restoreBattleSave, readBattleReports, recoverBattleTransaction, commitBattleOutcome } from '@/game/battle-save';
+import { beginReplay, recordReplay } from '@/game/battle-replay';
 import { createMobGroup, DEFAULT_GENERATION, GenerationSettings, getWorldObjectActions, restoreWorld, SpawnableMobGroup, WORLD_SAVE_KEY, WorldAction, WorldObject } from '@/game/world';
 import type { BaseView } from '@/game/scene';
 import { DEPLOYED_AXIES_SAVE_KEY, restoreDeployedAxieIds } from '@/game/town-deployment';
@@ -29,7 +29,9 @@ export default function Home() {
   const [battleSession, setBattleSession] = useState<BattleSession | null>(null);
   const battleRef = useRef<BattleSession | null>(null);
   const [battleReport, setBattleReport] = useState<BattleReport | null>(null);
+  const [battleReports, setBattleReports] = useState<BattleReport[]>([]);
   const [battleError, setBattleError] = useState('');
+  const [selectedFighterId, setSelectedFighterId] = useState<string | null>(null);
   const [loadError, setLoadError] = useState('');
   const canvas = useRef<HTMLCanvasElement>(null);
   const view = useRef<BaseView | null>(null);
@@ -69,6 +71,7 @@ export default function Home() {
   const [now, setNow] = useState(Date.now);
   useEffect(() => { const timer = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(timer); }, []);
   useEffect(() => { if (ready) view.current?.setUnits(units, selectedUnitId); }, [units, selectedUnitId, ready]);
+  useEffect(() => { if (ready) view.current?.setBattle(battleSession, selectedFighterId ?? battleSession?.battle.leaderId ?? null); }, [battleSession, selectedFighterId, ready]);
   useEffect(() => { if (ready) view.current?.setSelectedTarget(target?.id ?? null); }, [target, ready]);
   useEffect(() => { if (!ready) return; setUnits(current => { const next = current.map(u => settleUnit(u, now)).filter(u => u.status !== 'home'); return next.length !== current.length || next.some((u, i) => u !== current[i]) ? next : current; }); }, [now, ready]);
   useEffect(() => { if (!ready) return; try { localStorage.setItem(UNITS_SAVE_KEY, JSON.stringify(units)); } catch { setMessage('Browser storage unavailable; units last this session.'); } }, [units, ready]);
@@ -86,7 +89,7 @@ export default function Home() {
       catch { restoreActiveBattleSettings(null); }
       try { recoverBattleTransaction(localStorage); }
       catch (error) { setLoadError(`Cannot recover the last battle save: ${(error as Error).message}`); return; }
-      view.current = createBase(canvas.current, { change: setBuildings, preview: setCell, unitSelect: id => { setSelectedUnitId(id); setTarget(null); setRouteAction(null); setSelectedAction(null); }, target: next => { setTarget(next); setRouteAction(next ? 'choose' : null); setSelectedAction(null); setFormationIndex(null); if (next?.id) setSelectedUnitId(null); if (next) { setSelected(null); setDeveloper(false); setMilitary(false); setTraining(false); setHeroes(false); setInventory(false); setCatalog(false); } }, viewMode: mode => { setWorldView(mode === 'world'); if (mode !== 'world') { setSelectedUnitId(null); setTarget(null); setRouteAction(null); setSelectedAction(null); } }, select: building => { setSelected(building); if (building) { setDeveloper(false); setMilitary(false); setTraining(false); setHeroes(false); setInventory(false); } }, message: setMessage, troops: setTroops });
+      view.current = createBase(canvas.current, { fighterSelect: setSelectedFighterId, change: setBuildings, preview: setCell, unitSelect: id => { setSelectedUnitId(id); setTarget(null); setRouteAction(null); setSelectedAction(null); }, target: next => { setTarget(next); setRouteAction(next ? 'choose' : null); setSelectedAction(null); setFormationIndex(null); if (next?.id) setSelectedUnitId(null); if (next) { setSelected(null); setDeveloper(false); setMilitary(false); setTraining(false); setHeroes(false); setInventory(false); setCatalog(false); } }, viewMode: mode => { setWorldView(mode === 'world'); if (mode !== 'world') { setSelectedUnitId(null); setTarget(null); setRouteAction(null); setSelectedAction(null); } }, select: building => { setSelected(building); if (building) { setDeveloper(false); setMilitary(false); setTraining(false); setHeroes(false); setInventory(false); } }, message: setMessage, troops: setTroops });
       let initialObjects: WorldObject[];
       let savedObjects: WorldObject[] | null = null;
       try { savedObjects = restoreWorld(localStorage.getItem(WORLD_SAVE_KEY)); } catch { savedObjects = null; }
@@ -101,6 +104,7 @@ export default function Home() {
         const available = createMilitaryService(localStorage, CAPITAL_CITY_ID).getTroops();
         const savedBattle = restoreBattleSave(localStorage.getItem(BATTLE_SAVE_KEY), available);
         setBattleReport(savedBattle.report);
+        setBattleReports(readBattleReports(localStorage.getItem(BATTLE_SAVE_KEY)));
         battleRef.current = savedBattle.active; setBattleSession(savedBattle.active);
         const raw = localStorage.getItem(UNITS_SAVE_KEY);
         setUnits(raw === null ? migrateMarches(localStorage.getItem('axie-conquest-routes-v1'), CAPITAL_CITY_ID, available, unitStats.marchSpeed, Date.now()) : restoreUnits(raw, available, Date.now()));
@@ -127,18 +131,50 @@ export default function Home() {
     }
     const session = createBattleSession(attacker, enemy);
     try {
-      localStorage.setItem(BATTLE_SAVE_KEY, JSON.stringify({ active: session, report: battleReport }));
+      localStorage.setItem(BATTLE_SAVE_KEY, JSON.stringify({ active: session, report: battleReport, reports: battleReports }));
       battleRef.current = session; setBattleSession(session);
+      setSelectedUnitId(attacker.id); setTarget(null); setRouteAction(null);
     } catch { setBattleError('Battle could not start because browser storage is unavailable. Free storage and retry.'); }
   }, [units, worldObjects, ready, battleError, battleReport]);
-  function updateBattle(battle: Battle) {
+  useEffect(() => {
+    if (!battleSession || battleError) return;
+    const timer = window.setInterval(() => {
+      const session = battleRef.current;
+      if (!session || session.battle.result || document.hidden) return;
+      const stepped = stepBattle(session.battle), skilled = activateCommanderSkill(stepped);
+      updateBattle(skilled === stepped ? stepped : { ...skilled, events: [...stepped.events, ...skilled.events] });
+    }, 100);
+    return () => window.clearInterval(timer);
+  }, [battleSession?.army.id, battleError]);
+  useEffect(() => {
+    const flush = () => {
+      if (!battleRef.current) return;
+      try { localStorage.setItem(BATTLE_SAVE_KEY, JSON.stringify({ active: battleRef.current, report: battleReport, reports: battleReports })); }
+      catch { setBattleError('Battle paused: progress could not be saved. Free browser storage and retry.'); }
+    };
+    const hidden = () => { if (document.hidden) flush(); };
+    window.addEventListener('pagehide', flush); document.addEventListener('visibilitychange', hidden);
+    return () => { window.removeEventListener('pagehide', flush); document.removeEventListener('visibilitychange', hidden); };
+  }, [battleReport, battleReports]);
+  useEffect(() => {
+    if (!battleSession || !ready) return;
+    // Preserve the world camera on combat start; focus only when restoring from city view.
+    if (!worldView) { view.current?.setWorldView(true); setWorldView(true); view.current?.focusBattle(); }
+  }, [battleSession?.target.id, ready]);
+  useEffect(() => {
+    if (battleSession?.battle.result && !battleError) finishBattle();
+  }, [battleSession?.battle.result, battleError]);
+  function updateBattle(battle: Battle, forceSave = false) {
     const session = battleRef.current;
     if (!session) return;
-    const next = { ...session, battle };
+    const next = { ...session, battle, replay: recordReplay(session.replay ?? beginReplay(session.battle), battle) };
+    battleRef.current = next;
+    view.current?.setBattle(next, null);
     try {
-      localStorage.setItem(BATTLE_SAVE_KEY, JSON.stringify({ active: next, report: battleReport }));
-      battleRef.current = next; setBattleSession(next); setBattleError('');
-    } catch { setBattleError('Battle paused: progress could not be saved. Free browser storage and retry.'); }
+      if (forceSave || battle.result || battle.tick % 20 === 0) localStorage.setItem(BATTLE_SAVE_KEY, JSON.stringify({ active: next, report: battleReport, reports: battleReports }));
+      if (forceSave || battle.result || battle.tick % 2 === 0) setBattleSession(next);
+      setBattleError('');
+    } catch { setBattleSession(next); setBattleError('Battle paused: progress could not be saved. Free browser storage and retry.'); }
   }
   function finishBattle() {
     const session = battleRef.current;
@@ -146,9 +182,11 @@ export default function Home() {
     try {
       const outcome = commitBattleOutcome(localStorage, session, units, troops, formations, worldObjects, Date.now());
       battleRef.current = null; setBattleSession(null); setBattleError('');
+      setSelectedFighterId(null); setSelectedUnitId(session.army.id); setTarget(null); setRouteAction(null);
       setTroops(outcome.troops); setUnits(outcome.units); setFormations(outcome.formations); setWorldObjects(outcome.objects); setBattleReport(outcome.report);
+      setBattleReports(outcome.reports);
       view.current?.loadWorld(outcome.objects); view.current?.refreshMilitary();
-      setMessage(`${outcome.report.result}: ${outcome.report.losses.infantry} infantry and ${outcome.report.losses.archer} archers lost. Survivors returning home.`);
+      setMessage(`${outcome.report.result}: ${outcome.report.losses.infantry} infantry and ${outcome.report.losses.archer} archers lost. ${outcome.report.result === 'victory' ? 'Formation ready for orders.' : 'Survivors returning home.'}`);
     } catch { setBattleError('Battle outcome could not be fully saved. Retry to complete recovery; progress is kept in the battle journal.'); }
   }
   const size = getBuildingDimensions(buildingKind, moving?.rotation);
@@ -246,6 +284,7 @@ export default function Home() {
       if (index !== null) {
         const active = units.find(unit => unit.kind === 'army' && unit.cityId === selectedCity.id && unit.formationIndex === index);
         if (active) {
+          if (active.id === battleRef.current?.army.id) throw new Error('This formation is fighting. Use Retreat in the battle controls.');
           const redirected = action === 'march'
             ? commandUnit(active, 'move', dispatchedAt, target)
             : commandWorldAction(active, action, object!, dispatchedAt);
@@ -292,6 +331,7 @@ export default function Home() {
   function issueCommand(kind: 'move' | 'hold' | 'return') {
     const unit = units.find(u => u.id === selectedUnitId);
     if (!unit) return;
+    if (unit.id === battleRef.current?.army.id) { setMessage('This formation is fighting. Use Retreat in the battle controls.'); return; }
     try {
       const next = commandUnit(unit, kind, Date.now(), target ?? undefined);
       setUnits(current => current.map(u => u.id === next.id ? next : u));
@@ -313,8 +353,8 @@ export default function Home() {
     <aside className="chapter"><span className="eyebrow">CHAPTER 01 / ROOTS OF A KINGDOM</span><h1>A home worth<br />growing.</h1><p>Raise your first farm.<br />Bring life back to Lunacia.</p><div className="objective"><span className={farms ? 'complete' : ''}>{farms ? '✓' : '○'}</span><div>Plant the foundations<small>{farms ? 'First farm established' : 'Build your first farm'}</small></div></div></aside>
     <div className="map-controls"><button aria-label="Zoom in" onClick={() => view.current?.zoom(0.85)}>+</button><button aria-label="Zoom out" onClick={() => view.current?.zoom(1.18)}>−</button><button aria-label="Center on main hall" onClick={() => view.current?.home()}>⌂</button></div>
     <aside className="march-list" aria-label="World units"><strong>World units</strong>{units.map(unit => { const position = unitPosition(unit, now); const activity = unit.order?.activity ?? unit.activity; return <button key={unit.id} aria-pressed={selectedUnitId === unit.id} aria-label={`Focus camera on ${unit.name} at ${position.x.toFixed(1)}, ${position.z.toFixed(1)}`} onClick={() => { setSelectedUnitId(unit.id); setTarget(null); setRouteAction(null); setSelectedAction(null); if (!worldView) { view.current?.setWorldView(true); setWorldView(true); } view.current?.focusCoordinate(position); }}><strong>{unit.name}</strong><small>{activity ? `${activity.action} · ${activity.targetLabel}` : settleUnit(unit, now).status} {unit.order ? `· ${formatDuration(unit.order.arrivesAt - now)}` : ''}</small><span className="unit-coordinate">⌖ {position.x.toFixed(1)}, {position.z.toFixed(1)} · View unit</span></button>; })}{!units.length && <small>No units deployed</small>}</aside>
-    {worldView && selectedUnit && <section className="selection world-action panel" aria-label="Selected unit"><button className="close" aria-label="Deselect unit" onClick={() => setSelectedUnitId(null)}>&times;</button><span className="eyebrow">{selectedUnit.kind} · {settleUnit(selectedUnit, now).status}</span><h2>{selectedUnit.name}</h2><p>Position {selectedPosition!.x.toFixed(1)}, {selectedPosition!.z.toFixed(1)} · {selectedUnit.members.reduce((n, m) => n + m.count, 0)} members</p>{(selectedUnit.order?.activity ?? selectedUnit.activity) ? <p>{(selectedUnit.order?.activity ?? selectedUnit.activity)!.action} · {(selectedUnit.order?.activity ?? selectedUnit.activity)!.targetLabel}{selectedUnit.order ? ` · ${formatDuration(selectedUnit.order.arrivesAt - now)}` : ' · Arrived'}</p> : <p>{target ? `Move to ${target.x.toFixed(1)}, ${target.z.toFixed(1)}` : 'Tap empty ground to choose a destination.'}</p>}<div className="placement-actions"><button className="primary" disabled={!target || !!target.id} onClick={() => issueCommand('move')}>Move</button><button className="secondary" disabled={!selectedUnit.order && !selectedUnit.activity} onClick={() => issueCommand('hold')}>Hold</button><button className="secondary" disabled={selectedUnit.status === 'returning'} onClick={() => issueCommand('return')}>Return to base</button></div></section>}
-    {battleSession && <BattleArena battle={battleSession.battle} title={`Battle ? ${battleSession.target.kind}`} onChange={updateBattle} onClose={finishBattle} error={battleError} onRetry={() => { if (battleSession.battle.result) finishBattle(); else updateBattle(battleSession.battle); }} />}
+    {worldView && selectedUnit && selectedUnit.id !== battleSession?.army.id && <section className="selection world-action panel" aria-label="Selected unit"><button className="close" aria-label="Deselect unit" onClick={() => setSelectedUnitId(null)}>&times;</button><span className="eyebrow">{selectedUnit.kind} · {settleUnit(selectedUnit, now).status}</span><h2>{selectedUnit.name}</h2><p>Position {selectedPosition!.x.toFixed(1)}, {selectedPosition!.z.toFixed(1)} · {selectedUnit.members.reduce((n, m) => n + m.count, 0)} members</p>{(selectedUnit.order?.activity ?? selectedUnit.activity) ? <p>{(selectedUnit.order?.activity ?? selectedUnit.activity)!.action} · {(selectedUnit.order?.activity ?? selectedUnit.activity)!.targetLabel}{selectedUnit.order ? ` · ${formatDuration(selectedUnit.order.arrivesAt - now)}` : ' · Arrived'}</p> : <p>{target ? `Move to ${target.x.toFixed(1)}, ${target.z.toFixed(1)}` : 'Tap empty ground to choose a destination.'}</p>}<div className="placement-actions"><button className="primary" disabled={!target || !!target.id} onClick={() => issueCommand('move')}>Move</button><button className="secondary" disabled={!selectedUnit.order && !selectedUnit.activity} onClick={() => issueCommand('hold')}>Hold</button><button className="secondary" disabled={selectedUnit.status === 'returning'} onClick={() => issueCommand('return')}>Return to base</button></div></section>}
+    {battleSession && worldView && <section className="world-fight-status panel" aria-label="World battle"><strong>{battleError ? 'Battle paused' : 'Fighting'}</strong><span> {battleSession.target.kind} · {(battleSession.battle.tick / 10).toFixed(1)}s</span><small>A battle log will arrive in Mail when the fight ends.</small>{battleError && <p role="alert">{battleError}<button onClick={() => battleRef.current?.battle.result ? finishBattle() : battleRef.current && updateBattle(battleRef.current.battle, true)}>Retry save</button></p>}</section>}
     {battleError && !battleSession && <section className="selection panel" role="alert"><p>{battleError}</p><button className="primary" onClick={() => setBattleError('')}>Retry battle</button></section>}
     {loadError && <section className="selection panel" role="alert"><p>{loadError}</p><button className="primary" onClick={() => window.location.reload()}>Retry reload</button></section>}
     {!ready && !loadError && <div className="loading">Preparing your settlement…</div>}
@@ -340,7 +380,7 @@ export default function Home() {
     {heroes && !placing && !selected && <HeroesPanel onClose={() => setHeroes(false)} onCoordinate={() => { setHeroes(false); view.current?.home(); }} />}
     {training && <TrainingDialog buildings={buildings} troops={troops} ready={ready} onTrain={kind => { view.current?.train(kind); }} onClose={() => setTraining(false)} />}
     {developer && <DeveloperPanel settings={generation} onSettings={setGeneration} objects={worldObjects} status={generationStatus} ready={ready} mobSpawnEnabled={mobSpawnEnabled} onMobSpawnEnabled={setMobSpawnEnabled} mobGroup={mobGroup} onMobGroup={setMobGroup} onClose={() => setDeveloper(false)} onRegenerate={regenerate} onRemove={() => { view.current?.removeWorld(); try { localStorage.setItem(WORLD_SAVE_KEY, '[]'); } catch { /* Keep the removal in memory when storage is unavailable. */ } setWorldObjects([]); setGenerationStatus('All generated objects removed.'); }} />}
-    {mail && <MailDialog battleReport={battleReport} onClose={() => setMail(false)} />}
+    {mail && <MailDialog battleReports={battleReports} onClose={() => setMail(false)} />}
     <footer className="bottom-bar"><div className="status" role="status"><span className="status-dot" />{message}<small>DRAG TO PAN · PINCH / SCROLL TO ZOOM</small></div><div className="hud-actions"><button className="build-toggle" onClick={toggleDeveloper} aria-expanded={developer}><span>Developer</span></button><button className="build-toggle" onClick={toggleHeroes} aria-expanded={heroes}><span>Axies</span></button><button className="build-toggle" onClick={toggleTraining} aria-expanded={training}><span>Train</span></button><button className="build-toggle" onClick={toggleMail} aria-haspopup="dialog" aria-expanded={mail}><span>Mail</span></button><button className="build-toggle" onClick={toggleMilitary} aria-expanded={military}><span>Military</span></button><button className="build-toggle" onClick={() => { setDeveloper(false); setHeroes(false); setMilitary(false); setTraining(false); if (placing) cancel(); else { setSelected(null); setCatalog(selected ? true : !catalog); } }} aria-expanded={(catalog && !selected) || placing}>▦ <span>{placing ? (moving ? 'Cancel move' : 'Cancel build') : 'Build'}</span></button></div></footer>
   </main>;
 }

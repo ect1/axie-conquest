@@ -47,7 +47,10 @@ export function commandWorldAction(unit: WorldUnit, action: WorldAction, object:
   if (!option?.enabled) throw new Error(option?.reason || `${action} is unavailable for this target.`);
   if (action === 'scout' ? unit.kind !== 'scout' : unit.kind !== 'army') throw new Error(`${action === 'scout' ? 'A scout' : 'An army formation'} is required.`);
   const position = unitPosition(unit, now);
-  const destination = { x: object.x, z: object.z };
+  // Stop the march outside the defenders so live combat continues the same approach.
+  const distance = Math.hypot(object.x - position.x, object.z - position.z);
+  const standOff = action === 'attack' ? Math.min(16, distance) : 0;
+  const destination = distance > 0 ? { x: object.x - (object.x - position.x) / distance * standOff, z: object.z - (object.z - position.z) / distance * standOff } : { ...position };
   const route = createRoute(destination, position);
   const activity: UnitActivity = { action, targetId: object.id, targetLabel: object.kind === 'garrison' ? 'Garrison' : object.kind === 'boss' ? 'Boss mob' : object.kind[0].toUpperCase() + object.kind.slice(1) };
   const { activity: _activity, ...idleUnit } = unit;

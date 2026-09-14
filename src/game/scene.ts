@@ -1,3 +1,6 @@
+import { fighterWorldPosition } from './battle-world';
+import { createWorldFight } from './world-fight';
+import type { BattleSession } from './battle-save';
 import { WorldUnit } from './units';
 import { showMarches } from './march-scene';
 import { activeBattleSettings } from './battle-settings';
@@ -10,8 +13,8 @@ import { createMilitaryService, getTrainingMessage } from './military-service';
 import { CAPITAL_CITY_ID } from './cities';
 import { Coordinate, WorldTarget } from './routes';
 
-type Events = { troops: (troops: Troops) => void; change: (b: Building[]) => void; preview: (c: Cell | null) => void; select: (b: Building | null) => void; unitSelect: (id: string) => void; target: (target: WorldTarget | null) => void; message: (s: string) => void; viewMode: (mode: 'base' | 'world') => void };
-export type BaseView = { refreshMilitary: () => void; setUnits: (orders: WorldUnit[], selectedId: string | null) => void; setSelectedTarget: (id: string | null) => void; focusCoordinate: (coordinate: Coordinate) => void; regenerateWorld: (settings: GenerationSettings) => WorldObject[]; loadWorld: (objects: WorldObject[]) => void; removeWorld: () => void; train: (kind: TroopKind) => boolean; rotate: (id: string) => boolean; move: (id: string) => boolean; remove: (id: string) => boolean; begin: (kind: BuildableKind) => void; cancel: () => void; confirm: () => boolean; setGridVisible: (visible: boolean) => void; setWorldView: (enabled: boolean) => void; setRoute: (route: { origin: Coordinate; destination: Coordinate } | null) => void; zoom: (factor: number) => void; home: () => void; dispose: () => void };
+type Events = { fighterSelect?: (id: string) => void; troops: (troops: Troops) => void; change: (b: Building[]) => void; preview: (c: Cell | null) => void; select: (b: Building | null) => void; unitSelect: (id: string) => void; target: (target: WorldTarget | null) => void; message: (s: string) => void; viewMode: (mode: 'base' | 'world') => void };
+export type BaseView = { focusBattle: () => void; setBattle: (session: BattleSession | null, selectedId: string | null) => void; refreshMilitary: () => void; setUnits: (orders: WorldUnit[], selectedId: string | null) => void; setSelectedTarget: (id: string | null) => void; focusCoordinate: (coordinate: Coordinate) => void; regenerateWorld: (settings: GenerationSettings) => WorldObject[]; loadWorld: (objects: WorldObject[]) => void; removeWorld: () => void; train: (kind: TroopKind) => boolean; rotate: (id: string) => boolean; move: (id: string) => boolean; remove: (id: string) => boolean; begin: (kind: BuildableKind) => void; cancel: () => void; confirm: () => boolean; setGridVisible: (visible: boolean) => void; setWorldView: (enabled: boolean) => void; setRoute: (route: { origin: Coordinate; destination: Coordinate } | null) => void; zoom: (factor: number) => void; home: () => void; dispose: () => void };
 const SAVE_KEY = 'axie-conquest-base-v2';
 const HALF_WIDTH = GRID_WIDTH / 2;
 const HALF_DEPTH = GRID_DEPTH / 2;
@@ -21,7 +24,16 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
   engine.setHardwareScalingLevel(Math.max(1, window.devicePixelRatio / 1.5));
   const scene = new Scene(engine);
   let clearMarches = () => {};
-  function setUnits(orders: WorldUnit[], selectedId: string | null) { clearMarches(); clearMarches = showMarches(scene, orders, selectedId, () => overviewActive); }
+  let liveBattle: BattleSession | null = null;
+  const worldFight = createWorldFight(scene);
+  let worldPinned = false;
+  let marchOrders: WorldUnit[] | null = null, marchSelection: string | null = null;
+  function setUnits(orders: WorldUnit[], selectedId: string | null) {
+    marchSelection = selectedId;
+    if (marchOrders === orders) return;
+    marchOrders = orders;
+    clearMarches(); clearMarches = showMarches(scene, orders, () => marchSelection, () => overviewActive, () => liveBattle);
+  }
   scene.clearColor = Color4.FromHexString('#91aaa2ff');
   // Keep building fronts pointing southeast on screen.
   const camera = new ArcRotateCamera('isometric', -5 * Math.PI / 6, 0.66, 43, new Vector3(0, 0, 0), scene);
@@ -137,7 +149,7 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
   const WORLD_OVERVIEW_RADIUS = 58;
   let overviewActive = false;
   function updateOverview() {
-    const overview = camera.radius >= WORLD_OVERVIEW_RADIUS || Math.hypot(camera.target.x, camera.target.z) > 24;
+    const overview = worldPinned || camera.radius >= WORLD_OVERVIEW_RADIUS || Math.hypot(camera.target.x, camera.target.z) > 24;
     overviewRoot.setEnabled(overview);
     perimeter.setEnabled(!overview);
     buildingRoots.forEach(root => root.setEnabled(!overview));
@@ -430,6 +442,7 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
   let moved = false;
   function zoom(factor: number) { camera.radius = Math.max(12, Math.min(85, camera.radius * factor)); updateOverview(); }
   function home() {
+    worldPinned = false;
     const hall = buildings.find(b => b.kind === 'hall')!;
     camera.target.set(hall.x - HALF_WIDTH + FOOTPRINT / 2, 0, hall.z - HALF_DEPTH + FOOTPRINT / 2);
     camera.radius = 43;
@@ -473,7 +486,8 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
     }
     else {
       const rect = canvas.getBoundingClientRect();
-      const hit = scene.pick(e.clientX - rect.left, e.clientY - rect.top, mesh => mesh.isEnabled() && mesh.isPickable && (!!mesh.metadata?.buildingId || !!mesh.metadata?.mapObject || !!mesh.metadata?.unitId));
+      const hit = scene.pick(e.clientX - rect.left, e.clientY - rect.top, mesh => mesh.isEnabled() && mesh.isPickable && (!!mesh.metadata?.fighterId || !!mesh.metadata?.buildingId || !!mesh.metadata?.mapObject || !!mesh.metadata?.unitId));
+      if (typeof hit?.pickedMesh?.metadata?.fighterId === 'string') { events.fighterSelect?.(hit.pickedMesh.metadata.fighterId); return; }
       if (typeof hit?.pickedMesh?.metadata?.unitId === 'string') {
         events.unitSelect(hit.pickedMesh.metadata.unitId);
         return;
@@ -498,7 +512,7 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
   canvas.addEventListener('pointerup', up); canvas.addEventListener('pointercancel', up);
   canvas.addEventListener('wheel', wheel, { passive: false });
   const resize = () => engine.resize(); window.addEventListener('resize', resize);
-  engine.runRenderLoop(() => { if (lastWorldBattleSettings !== activeBattleSettings) { lastWorldBattleSettings = activeBattleSettings; refreshWorldCombatDebugs(); } updateOverview(); scene.render(); });
+  engine.runRenderLoop(() => { if (lastWorldBattleSettings !== activeBattleSettings) { lastWorldBattleSettings = activeBattleSettings; refreshWorldCombatDebugs(); } updateOverview(); worldFight.update(liveBattle, overviewActive); scene.render(); });
   function persist(message: string) {
     try { localStorage.setItem(SAVE_KEY, JSON.stringify(buildings)); events.message(message); }
     catch { events.message(`${message} Browser storage unavailable; progress lasts this session.`); }
@@ -523,11 +537,23 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
     },
     setGridVisible(visible) { refreshGrid(); gridRoot.setEnabled(!camera.radius || camera.radius < WORLD_OVERVIEW_RADIUS ? (visible || placing) : false); },
     setWorldView(enabled) {
+      worldPinned = enabled;
       if (enabled) { cancel(); camera.target.set(0, 0, 0); camera.radius = 72; }
       else home();
       updateOverview();
     },
     setRoute,
+    focusBattle() {
+      if (!liveBattle) return;
+      worldPinned = true;
+      const center = fighterWorldPosition(liveBattle, { x: 0, z: 0 });
+      camera.target.set(center.x, -5, center.z);
+      camera.radius = Math.min(85, Math.max(48, 40 / engine.getAspectRatio(camera)));
+      updateOverview();
+    },
+    setBattle(session) {
+      liveBattle = session;
+    },
     setUnits,
     setSelectedTarget,
     focusCoordinate(coordinate) {
@@ -590,7 +616,7 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
       canvas.removeEventListener('pointerdown', down); canvas.removeEventListener('pointermove', move);
       canvas.removeEventListener('pointerup', up); canvas.removeEventListener('pointercancel', up);
       canvas.removeEventListener('wheel', wheel); window.removeEventListener('resize', resize);
-      clearMarches(); scene.dispose(); engine.dispose();
+      worldFight.dispose(); clearMarches(); scene.dispose(); engine.dispose();
     },
   };
 }

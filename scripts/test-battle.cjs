@@ -55,6 +55,24 @@ assert.equal(step.fighters[0].z, 0, 'archers hold shooting distance');
 assert.ok(step.fighters[1].hp < enemy.hp);
 step = b.stepBattle({ ...duel, fighters: [melee, { ...enemy, z: 50 }] });
 assert.equal(step.fighters[0].state, 'holding', 'awareness does not reach distant enemies');
+// Awareness faces the enemy without advancing; Level 1 starts interception.
+const watch = b.stepBattle({ ...duel, fighters: [melee, { ...enemy, z: 14 }] });
+assert.equal(watch.fighters[1].state, 'holding');
+assert.equal(watch.fighters[1].z, 14);
+assert.equal(watch.fighters[1].facing, Math.PI);
+assert.ok(watch.fighters[0].z > 0, 'ordered attacker continues its approach');
+assert.equal(b.stepBattle(duel).fighters[1].state, 'charging', 'Level 1 wakes defenders');
+const hurt = b.stepBattle({ ...duel, fighters: [melee, { ...enemy, z: 14, hp: 90 }] });
+assert.equal(hurt.fighters[1].state, 'approaching', 'damage provokes retaliation beyond Level 1');
+assert.ok(hurt.fighters[1].z < 14);
+const distantHit = b.stepBattle({ ...duel, fighters: [melee, { ...enemy, z: 20, hp: 90 }] });
+assert.equal(distantHit.fighters[1].state, 'approaching', 'damage wakes defenders beyond awareness');
+const leashed = b.stepBattle({ ...duel, fighters: [{ ...melee, z: -40 }, { ...enemy, hp: 90 }] });
+assert.equal(leashed.fighters[1].state, 'holding', 'retaliation respects camp leash');
+const rangedDefender = { ...enemy, stats: { ...b.TROOP_COMBAT_STATS.archer }, troopKind: 'archer', hp: 90 };
+const rangedStep = b.stepBattle({ ...duel, fighters: [melee, rangedDefender] });
+assert.equal(rangedStep.fighters[1].state, 'attacking');
+assert.equal(rangedStep.fighters[1].z, rangedDefender.z, 'defender archers stop at bow range');
 const lethal = { ...melee, hp: 1, stats: { ...melee.stats, attack: 1000, range: 2 } };
 step = b.stepBattle({ ...duel, fighters: [lethal, { ...lethal, side: 'enemy', id: 'enemy:test', z: 1 }] });
 assert.equal(step.result, 'draw', 'simultaneous lethal attacks have no ordering advantage');
@@ -115,6 +133,26 @@ for (let failAt = 2; failAt <= 6; failAt++) {
   assert.deepEqual([...interrupted.data].sort(), [...storage.data].sort(), `recovery after write ${failAt}`);
   save.recoverBattleTransaction(interrupted);
   assert.equal(interrupted.getItem('unrelated'), 'keep');
+}
+const win = { ...session, battle: { ...session.battle, result: 'victory', fighters: session.battle.fighters.map(f => f.side === 'enemy' ? { ...f, hp: 0, state: 'defeated', targetId: null } : f) } };
+const won = save.commitBattleOutcome(storageFor(), win, [attacking], troops, [formation], [target], 10000);
+assert.equal(won.units[0].id, attacking.id);
+assert.equal(won.units[0].status, 'holding', 'victorious formation stays deployed');
+assert.equal(won.units[0].order, null);
+assert.equal(won.units[0].activity, undefined, 'finished attack cannot restart');
+assert.equal(u.commandUnit(won.units[0], 'move', 10001, { x: 55, z: 25 }).status, 'moving', 'survivors accept the next order');
+assert.equal(u.restoreUnits(JSON.stringify(won.units), won.troops, 10001)[0].status, 'holding', 'victorious survivors remain commandable after reload');
+const projection = load('src/game/battle-world.ts');
+for (const point of [{ x: 24, z: 0 }, { x: 40, z: -16 }, { x: 40, z: 0 }, { x: 45, z: 5 }]) {
+  const march = { ...attacking, position: point };
+  const fight = save.createBattleSession(march, target);
+  const angle = projection.battleWorldTransform(fight).angle;
+  for (const fighter of fight.battle.fighters.filter(f => f.side === 'player')) {
+    const member = march.members.find(m => m.id === fighter.memberId);
+    const actual = projection.fighterWorldPosition(fight, fighter);
+    const expected = { x: point.x + member.offset.x * Math.cos(angle) + member.offset.z * Math.sin(angle), z: point.z - member.offset.x * Math.sin(angle) + member.offset.z * Math.cos(angle) };
+    assert.ok(Math.hypot(actual.x - expected.x, actual.z - expected.z) < 1e-9, 'combat begins at the actual formation position');
+  }
 }
 const denied = storageFor(1);
 assert.throws(() => save.commitBattleOutcome(denied, completed, [attacking], troops, [formation], [target], 10000), /Interrupted/);
