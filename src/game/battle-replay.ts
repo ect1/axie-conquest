@@ -1,3 +1,4 @@
+import { restoreAxieRoster } from './axie-roster';
 import { Battle, Fighter, MAX_BATTLE_TICKS } from './battle';
 
 const STATES: Fighter['state'][] = ['holding', 'approaching', 'charging', 'attacking', 'retreating', 'defeated'];
@@ -44,6 +45,9 @@ export function restoreReplay(value: unknown): BattleReplay | undefined {
       tick = f.tick;
     }
     if (!validEvents(r.pending)) return;
-    return r;
+    return { ...r, initial: { ...initial, fighters: initial.fighters.map(f => {
+      const appearance = restoreAxieRoster(JSON.stringify({ version: 1, syncedAt: 0, axies: [f.appearance] }))?.axies[0];
+      return { ...f, appearance: appearance?.id === f.heroId ? appearance : undefined };
+    }) } };
   } catch { return; }
 }

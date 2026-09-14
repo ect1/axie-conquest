@@ -102,7 +102,7 @@ export function restoreUnits(raw: string | null, troops: Troops, now: number): W
       if (!u || !['army', 'scout'].includes(u.kind) || !['holding', 'moving', 'returning', 'home'].includes(u.status) || ![u.id, u.ownerId, u.cityId, u.name].every(v => typeof v === 'string' && v.length > 0) || result.some(v => v.id === u.id)) continue;
       if (!validPoint(u.home) || !validPoint(u.position) || !Number.isFinite(u.speed) || u.speed <= 0 || !Array.isArray(u.members) || !u.members.length) continue;
       if (u.formationIndex !== undefined && (!Number.isSafeInteger(u.formationIndex) || u.formationIndex < 0)) continue;
-      if (u.members.some(m => !m || typeof m.id !== 'string' || !validPoint(m.offset) || !Number.isSafeInteger(m.count) || m.count <= 0 || (m.heroId ? m.count !== 1 || !!m.troopKind || !STARTER_HEROES.some(h => h.id === m.heroId) : !['infantry', 'archer', 'scout'].includes(m.troopKind!)))) continue;
+      if (u.members.some(m => !m || typeof m.id !== 'string' || !validPoint(m.offset) || !Number.isSafeInteger(m.count) || m.count <= 0 || (m.heroId ? m.count !== 1 || !!m.troopKind || !(typeof m.heroId === 'string' && (/^[1-9][0-9]{0,19}$/.test(m.heroId) || STARTER_HEROES.some(h => h.id === m.heroId))) : !['infantry', 'archer', 'scout'].includes(m.troopKind!)))) continue;
       if (new Set(u.members.map(m => m.id)).size !== u.members.length || (u.kind === 'army' && !u.members.some(m => m.heroId))) continue;
       if (u.members.some(m => m.healthRatio !== undefined && (!Number.isFinite(m.healthRatio) || m.healthRatio < 0 || m.healthRatio > 1))) continue;
       if (u.leaderId != null && !u.members.some(m => m.heroId === u.leaderId)) continue;

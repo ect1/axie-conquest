@@ -8,6 +8,7 @@ export default function BattleReplayViewer({ replay, onClose }: { replay: Battle
   const dialog = useRef<HTMLDialogElement>(null), canvas = useRef<HTMLCanvasElement>(null);
   const [ready, setReady] = useState(false), [finished, setFinished] = useState(false), [error, setError] = useState('');
   const [run, setRun] = useState(0);
+  const [modelError, setModelError] = useState('');
   const current = useRef(replayBattleAt(replay, 0));
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null;
@@ -19,7 +20,7 @@ export default function BattleReplayViewer({ replay, onClose }: { replay: Battle
     let scene: ReturnType<typeof import('@/game/battle-scene').createBattleScene> | undefined;
     import('@/game/battle-scene').then(({ createBattleScene }) => {
       if (disposed || !canvas.current) return;
-      scene = createBattleScene(canvas.current, () => ({ battle: current.current, selected: null, overlays: DEFAULT_BATTLE_OVERLAYS, all: false }), () => {}, () => { if (!disposed) setReady(true); }, true);
+      scene = createBattleScene(canvas.current, () => ({ battle: current.current, selected: null, overlays: DEFAULT_BATTLE_OVERLAYS, all: false }), () => {}, () => { if (!disposed) setReady(true); }, true, setModelError);
     }).catch(() => setError('The replay could not load. Close it and open the report again to retry.'));
     return () => { disposed = true; scene?.dispose(); };
   }, []);
@@ -43,6 +44,6 @@ export default function BattleReplayViewer({ replay, onClose }: { replay: Battle
   return <dialog ref={dialog} className="battle-dialog replay-dialog" aria-label="Battle replay" onCancel={event => { event.preventDefault(); onClose(); }}>
     <header className="battle-header"><div><span className="eyebrow">BATTLE RECORDING</span><h2>{finished ? `Battle ended: ${replay.result}` : 'Watching battle'}</h2></div><button className="secondary" onClick={onClose}>Close replay</button></header>
     <div className="battle-field"><canvas ref={canvas} aria-label="Recorded battle playing automatically" />{!ready && !error && <p className="battle-loading" role="status">Preparing replay...</p>}</div>
-    <div className="battle-controls">{error ? <p role="alert">{error}</p> : <p>{finished ? 'The recording has finished.' : 'Playing the recorded fight.'}{replay.frames[0].tick > 0 ? ` Recording starts at ${(replay.frames[0].tick / 10).toFixed(1)}s.` : ''}</p>}{finished && !error && <button className="primary" onClick={() => setRun(value => value + 1)}>Watch Again</button>}</div>
+    <div className="battle-controls">{modelError && <p role="alert">Some Axie models could not load. {modelError}</p>}{error ? <p role="alert">{error}</p> : <p>{finished ? 'The recording has finished.' : 'Playing the recorded fight.'}{replay.frames[0].tick > 0 ? ` Recording starts at ${(replay.frames[0].tick / 10).toFixed(1)}s.` : ''}</p>}{finished && !error && <button className="primary" onClick={() => setRun(value => value + 1)}>Watch Again</button>}</div>
   </dialog>;
 }

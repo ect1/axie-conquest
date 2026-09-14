@@ -1,25 +1,10 @@
+import { createBattleAppearanceResolver } from './axie/battle-appearance';
 import { Color3, Mesh, MeshBuilder, Scene, StandardMaterial, TransformNode, Vector3 } from '@babylonjs/core';
-import { Battle, formationCenter } from './battle';
+import { Battle, Fighter, formationCenter } from './battle';
 import { activeBattleSettings } from './battle-settings';
 import { AXIE_CLASSES, STARTER_HEROES } from './heroes';
 import { BATTLE_OVERLAYS, BattleOverlays } from './battle-debug';
-import { BabylonAxieMixer, type BabylonAxieInstance, type BabylonAxiePlan } from './axie/babylon-mixer';
-
-type AxieLookupPayload = {
-  readonly data?: { readonly axies?: { readonly results?: readonly { readonly newGenes?: string; readonly genes?: string }[] } };
-};
-
-async function loadBattleAxiePlan(): Promise<BabylonAxiePlan> {
-  const lookupResponse = await fetch('/api/axies?size=1');
-  if (!lookupResponse.ok) throw new Error(`Axie lookup failed with HTTP ${lookupResponse.status}.`);
-  const lookup = await lookupResponse.json() as AxieLookupPayload;
-  const result = lookup.data?.axies?.results?.[0];
-  const genes = result?.newGenes ?? result?.genes;
-  if (!genes) throw new Error('The Axie lookup did not return genes.');
-  const planResponse = await fetch(`/api/axies/decode?genes=${encodeURIComponent(genes)}`);
-  if (!planResponse.ok) throw new Error(`Axie plan lookup failed with HTTP ${planResponse.status}.`);
-  return planResponse.json() as Promise<BabylonAxiePlan>;
-}
+import { BabylonAxieMixer, type BabylonAxieInstance } from './axie/babylon-mixer';
 
 /** Shared fighter presentation for the practice arena and the world map. */
 export function createBattleRenderer(scene: Scene) {
@@ -31,23 +16,31 @@ export function createBattleRenderer(scene: Scene) {
   const models = new Map<string, { body: TransformNode; fallback: Mesh; bar: Mesh; back: Mesh; nose: Mesh; avatar?: BabylonAxieInstance }>();
   const rings: Mesh[] = [];
   let lastBattle: Battle | null = null, lastOptions = '';
-  let battleAxiePlan: Promise<BabylonAxiePlan> | undefined;
+  const controller = new AbortController();
+  const plan = createBattleAppearanceResolver(controller.signal);
+  let loading = 0;
+  const errors: string[] = [];
   let disposed = false;
-  const plan = () => {
-    battleAxiePlan ??= loadBattleAxiePlan();
-    return battleAxiePlan;
-  };
-  const loadAvatar = async (fighterId: string, model: { body: TransformNode; fallback: Mesh; nose: Mesh; avatar?: BabylonAxieInstance }) => {
+  const loadAvatar = async (fighter: Fighter, model: { body: TransformNode; fallback: Mesh; nose: Mesh; avatar?: BabylonAxieInstance }) => {
+    loading++;
+    const fighterId = fighter.id;
     try {
-      const avatar = await axieMixer.create(await plan());
+      const avatar = await axieMixer.create(await plan(fighter));
       if (disposed || models.get(fighterId) !== model) { avatar.dispose(); return; }
       avatar.root.parent = model.body;
+      // GLB import converts authored -Z forward to battle +Z. Body feet are already at y=0.
+      avatar.root.position.y = -0.55;
+      const current = lastBattle?.fighters.find(f => f.id === fighter.id) ?? fighter;
+      avatar.update(current.state, (lastBattle?.tick ?? 0) / 10);
       model.avatar = avatar;
       model.fallback.setEnabled(false);
       model.nose.setEnabled(false);
       console.info('[axie-babylon] battle avatar attached', { fighterId, body: avatar.bodyId, parts: avatar.attachedPartCount });
     } catch (error) {
+      if (!disposed) errors.push(`Axie #${fighter.heroId}: ${error instanceof Error ? error.message : 'Model failed to load.'}`);
       console.warn('[axie-babylon] battle avatar kept fallback', { fighterId, error });
+    } finally {
+      loading--;
     }
   };
   function ring(x: number, z: number, radius: number, color: string) {
@@ -71,8 +64,9 @@ export function createBattleRenderer(scene: Scene) {
           const bar = MeshBuilder.CreateBox('health', { width: 1.3, height: 0.1, depth: 0.12 }, scene); bar.parent = root; bar.material = healthMat; bar.isPickable = false;
           const back = MeshBuilder.CreateBox('health background', { width: 1.3, height: 0.12, depth: 0.14 }, scene); back.parent = root; back.material = emptyMat; back.isPickable = false;
           model = { body, fallback, bar, back, nose }; models.set(fighter.id, model);
-          if (hero) void loadAvatar(fighter.id, model);
+          if (fighter.heroId) void loadAvatar(fighter, model);
         }
+        model.avatar?.update(fighter.state, battle.tick / 10);
         model.body.position.set(fighter.x, fighter.hp > 0 ? 0.55 : 0.15, fighter.z); model.body.rotation.y = fighter.facing;
         model.body.scaling.y = fighter.hp > 0 ? 1 : 0.3; model.body.setEnabled(fighter.hp > 0);
         model.back.position.set(fighter.x, 1.4, fighter.z);
@@ -99,5 +93,5 @@ export function createBattleRenderer(scene: Scene) {
       }
     }
   }
-  return { root, models, update, dispose: () => { disposed = true; axieMixer.dispose(); root.dispose(); materials.forEach(material => material.dispose()); } };
+  return { root, models, update, isReady: () => loading === 0, errors, dispose: () => { disposed = true; controller.abort(); models.forEach(model => model.avatar?.dispose()); axieMixer.dispose(); root.dispose(); materials.forEach(material => material.dispose()); } };
 }

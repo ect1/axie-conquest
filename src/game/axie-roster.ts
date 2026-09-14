@@ -1,7 +1,7 @@
 export const AXIE_ROSTER_SAVE_KEY = 'axie-conquest-axie-roster-v1';
 
 export type ApiAxiePart = { id: string; name: string; type: string };
-export type ApiAxie = { id: string; name: string; class: string; image?: string; parts: ApiAxiePart[] };
+export type ApiAxie = { id: string; name: string; class: string; image?: string; newGenes?: string; parts: ApiAxiePart[] };
 export type AxieRosterCache = { version: 1; syncedAt: number; axies: ApiAxie[] };
 
 function string(value: unknown) { return typeof value === 'string' ? value.trim() : ''; }
@@ -28,7 +28,8 @@ export function restoreAxieRoster(value: string | null): AxieRosterCache | null 
         return partId && partName && type ? [{ id: partId, name: partName, type }] : [];
       });
       const image = imageUrl(axie.image);
-      return [{ id, name, class: axieClass, ...(image ? { image } : {}), parts }];
+      const newGenes = typeof axie.newGenes === 'string' && /^(?:0x)?[0-9a-f]{1,128}$/i.test(axie.newGenes) ? axie.newGenes : undefined;
+      return [{ id, name, class: axieClass, ...(image ? { image } : {}), ...(newGenes ? { newGenes } : {}), parts }];
     });
     return { version: 1, syncedAt: saved.syncedAt as number, axies };
   } catch { return null; }

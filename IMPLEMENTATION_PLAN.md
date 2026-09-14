@@ -12,3 +12,11 @@
 - [x] Store completed battle details in Mail and allow passive replay with Watch Again.
 - [x] Register battle reports and replay data with the shared reset workflow.
 - [x] Verify placement, world generation, marching, battle outcomes, persistence, and reset regressions.
+
+- [x] Connect replay fighters to their Axie 3D models.
+  - [x] Preserve roster genes and snapshot each assigned Axie's appearance in battle recordings.
+  - [x] Resolve models by fighter Axie ID, including legacy reports, and provide deterministic starter previews.
+  - [x] Accept roster Axie IDs when restoring deployed armies and active battles.
+  - [x] Attach socket-local parts, ground imported bodies, and sample idle/run/attack skeletal clips from replay time.
+  - [x] Wait for model loading before replay starts and display model-loading failures.
+  - [x] Cover real GLB assembly, animation, renderer loading, save restoration, and reset with regression checks.

@@ -23,8 +23,8 @@ type PartType = typeof PART_ORDER[number];
 type DecodedPart = { type: PartType; skin: number; class: string; variant: number; level: number; assetId: string };
 type LodAsset = { url?: string; sceneNode?: string };
 type PartRig = { type?: string; attachNode?: string; lods?: LodAsset[] };
-type BodyAsset = { id?: string; lods?: LodAsset[]; attachNodes?: Record<string, string> };
-type PartAsset = { rigs?: PartRig[] };
+type BodyAsset = { id?: string; lods?: LodAsset[]; animations?: { lite?: { url?: string } }; attachNodes?: Record<string, string> };
+type PartAsset = { descriptor?: Omit<DecodedPart, 'assetId'>; rigs?: PartRig[] };
 type AssetManifest = { assets?: { bodies?: Record<string, BodyAsset>; parts?: Record<string, PartAsset> }; creator?: { colorVariants?: Array<{ index?: number; primary1?: string; primary2?: string }> } };
 
 class BitReader {
@@ -93,6 +93,10 @@ function loadManifest() {
 
 export async function buildAxiePlan(genes: string) {
   const decoded = decodeGenes(genes);
+  return assemblePlan(decoded);
+}
+
+async function assemblePlan(decoded: ReturnType<typeof decodeGenes>) {
   const manifest = await loadManifest();
   const bodies = manifest.assets?.bodies ?? {};
   const parts = manifest.assets?.parts ?? {};
@@ -103,6 +107,7 @@ export async function buildAxiePlan(genes: string) {
     palette: palette ? { primary: palette.primary1, secondary: palette.primary2 } : null,
     body: {
       id: decoded.body,
+      animationUrl: bodyAsset?.animations?.lite?.url,
       assetAvailable: !!bodyAsset,
       lod: bodyAsset?.lods?.[0]?.url && bodyAsset.lods[0].sceneNode
         ? { url: bodyAsset.lods[0].url, sceneNode: bodyAsset.lods[0].sceneNode }
@@ -123,4 +128,19 @@ export async function buildAxiePlan(genes: string) {
       };
     }),
   };
+}
+
+/** Deterministic preview for fictional starter heroes; never substitutes a roster identity. */
+export async function buildStarterAxiePlan(className: string) {
+  const classes = Object.values(CLASS_BY_CODE);
+  const canonical = className.toLowerCase() === 'aqua' ? 'Aquatic' : classes.find(c => c.toLowerCase() === className.toLowerCase());
+  if (!canonical) throw new Error('Unknown starter class.');
+  const manifest = await loadManifest();
+  const parts = PART_ORDER.map(type => {
+    const entries = Object.entries(manifest.assets?.parts ?? {}).filter(([, asset]) => asset.descriptor?.type === type && asset.descriptor.skin === 0 && asset.descriptor.level === 1);
+    const entry = entries.find(([, asset]) => asset.descriptor?.class === canonical) ?? entries[0];
+    if (!entry?.[1].descriptor) throw new Error(`No starter ${type} asset.`);
+    return { ...entry[1].descriptor, assetId: entry[0] };
+  });
+  return assemblePlan({ genes: '', body: 'normal', colorVariant: COLOR_VARIANTS[`${canonical}:0`], parts });
 }

@@ -1,3 +1,4 @@
+import { ApiAxie } from './axie-roster';
 import { STARTER_HEROES } from './heroes';
 import { UnitMember, WorldUnit, createArmy } from './units';
 import { createEmptyFormation } from './offense-formations';
@@ -14,6 +15,7 @@ export const TROOP_COMBAT_STATS: Record<'infantry' | 'archer' | 'scout', CombatS
   scout: { health: 70, attack: 5, defense: 10, speed: 3.5, range: 0.6, interval: 1.4, radius: 0.4 },
 };
 export type Fighter = {
+  appearance?: ApiAxie;
   id: string; memberId: string; side: 'player' | 'enemy'; name: string; heroId?: string; troopKind?: UnitMember['troopKind'];
   initialCount: number; hp: number; maxHp: number; stats: CombatStats; x: number; z: number; facing: number;
   cooldown: number; targetId: string | null; state: 'holding' | 'approaching' | 'charging' | 'attacking' | 'retreating' | 'defeated';
@@ -30,14 +32,15 @@ export function formationCenter(battle: Battle, side: Fighter['side']) {
   const members = battle.fighters.filter(f => f.side === side && f.hp > 0);
   return members.length ? { x: members.reduce((sum, f) => sum + f.x, 0) / members.length, z: members.reduce((sum, f) => sum + f.z, 0) / members.length } : { x: 0, z: side === 'player' ? -8 : 8 };
 }
-export function createBattle(army: WorldUnit, enemyCount = 18): Battle {
+export function createBattle(army: WorldUnit, enemyCount = 18, roster: readonly ApiAxie[] = []): Battle {
   const leader = STARTER_HEROES.find(hero => hero.id === army.leaderId);
   const modifiers = leaderTalent(leader)?.modifiers ?? NO_MODIFIERS;
   const members: Fighter[] = army.members.map(member => {
     const hero = STARTER_HEROES.find(h => h.id === member.heroId);
+    const appearance = roster.find(axie => axie.id === member.heroId);
     const base: CombatStats = hero ? { health: hero.stats.health, attack: hero.stats.attack, defense: hero.stats.defense, speed: 2.5 * hero.stats.speed / 100, range: hero.class === 'bird' || hero.class === 'dawn' ? 5 : 0.8, interval: 1.3, radius: 0.5 } : TROOP_COMBAT_STATS[member.troopKind ?? 'infantry'];
     const stats = { ...base, range: base.range * activeBattleSettings.attackRangeMultiplier, radius: base.radius * activeBattleSettings.bodyRadiusMultiplier, health: base.health * modifiers.health, attack: base.attack * modifiers.attack, defense: base.defense * modifiers.defense, speed: base.speed * modifiers.speed };
-    return { id: `player:${member.id}`, memberId: member.id, side: 'player', name: hero?.name ?? member.troopKind ?? 'Squad', heroId: member.heroId, troopKind: member.troopKind, initialCount: member.count, hp: stats.health * member.count * (member.healthRatio ?? 1), maxHp: stats.health * member.count, stats, x: member.offset.x, z: -8 + member.offset.z, facing: 0, cooldown: 0, targetId: null, state: 'holding' };
+    return { id: `player:${member.id}`, memberId: member.id, side: 'player', ...(appearance ? { appearance: structuredClone(appearance) } : {}), name: appearance?.name ?? hero?.name ?? member.troopKind ?? 'Squad', heroId: member.heroId, troopKind: member.troopKind, initialCount: member.count, hp: stats.health * member.count * (member.healthRatio ?? 1), maxHp: stats.health * member.count, stats, x: member.offset.x, z: -8 + member.offset.z, facing: 0, cooldown: 0, targetId: null, state: 'holding' };
   });
   for (let index = 0; index < 3; index++) {
     const kind = index === 2 ? 'archer' : 'infantry';

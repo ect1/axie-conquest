@@ -1,3 +1,4 @@
+import { ApiAxie, restoreAxieRoster } from './axie-roster';
 import { normalizeCoordinate } from './routes';
 import { BattleReplay, beginReplay, restoreReplay } from './battle-replay';
 import { fighterWorldPosition } from './battle-world';
@@ -35,8 +36,8 @@ export function readBattleReports(raw: string | null): BattleReport[] {
 }
 type StorageAccess = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
 export function enemyStrength(target: WorldObject): number { return target.kind === 'boss' ? 30 : target.kind === 'garrison' ? 18 : 12; }
-export function createBattleSession(army: WorldUnit, target: WorldObject): BattleSession {
-  const battle = createBattle(army, enemyStrength(target));
+export function createBattleSession(army: WorldUnit, target: WorldObject, roster: readonly ApiAxie[] = []): BattleSession {
+  const battle = createBattle(army, enemyStrength(target), roster);
   const distance = Math.hypot(target.x - army.position.x, target.z - army.position.z);
   for (const fighter of battle.fighters) if (fighter.side === 'player') fighter.z += 16 - distance;
   return { army: structuredClone(army), target: { ...target }, battle, startedAt: Date.now(), replay: beginReplay(battle) };
@@ -52,7 +53,8 @@ export function restoreBattleSave(raw: string | null, troops: Troops): BattleSav
     const { army, target, battle } = saved.active;
     if (!restoreUnits(JSON.stringify([army]), troops, 0).length || army.order || army.activity?.action !== 'attack' || army.activity.targetId !== target.id) return empty;
     if (!restoreWorld(JSON.stringify([target]))?.length || target.state !== 'defended' || !['boss', 'garrison', 'village'].includes(target.kind)) return empty;
-    const initial = createBattle(army, enemyStrength(target));
+    const roster = restoreAxieRoster(JSON.stringify({ version: 1, syncedAt: 0, axies: battle.fighters?.flatMap(f => f.appearance && f.appearance.id === f.heroId ? [f.appearance] : []) }))?.axies ?? [];
+    const initial = createBattle(army, enemyStrength(target), roster);
     if (battle.version !== 1 || !Number.isSafeInteger(battle.tick) || battle.tick < 0 || battle.tick > MAX_BATTLE_TICKS || typeof battle.retreating !== 'boolean' || !Number.isFinite(battle.skillCooldown) || battle.skillCooldown < 0 || battle.skillCooldown > 15 || battle.leaderId !== initial.leaderId || ![null, 'victory', 'defeat', 'retreated', 'draw'].includes(battle.result)) return empty;
     if (!Array.isArray(battle.fighters) || battle.fighters.length !== initial.fighters.length) return empty;
     for (let i = 0; i < initial.fighters.length; i++) {

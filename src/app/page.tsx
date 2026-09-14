@@ -166,13 +166,13 @@ export default function Home() {
       setUnits(current => current.map(unit => unit.id === attacker.id ? { ...unit, activity: undefined } : unit));
       setMessage('The attack target is no longer defended.'); return;
     }
-    const session = createBattleSession(attacker, enemy);
+    const session = createBattleSession(attacker, enemy, apiAxies);
     try {
       localStorage.setItem(BATTLE_SAVE_KEY, JSON.stringify({ active: session, report: battleReport, reports: battleReports }));
       battleRef.current = session; setBattleSession(session);
       setSelectedUnitId(attacker.id); setTarget(null); setRouteAction(null);
     } catch { setBattleError('Battle could not start because browser storage is unavailable. Free storage and retry.'); }
-  }, [units, worldObjects, ready, battleError, battleReport]);
+  }, [units, worldObjects, ready, battleError, battleReport, apiAxies]);
   useEffect(() => {
     if (!battleSession || battleError) return;
     const timer = window.setInterval(() => {

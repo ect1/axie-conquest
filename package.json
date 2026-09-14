@@ -2,6 +2,7 @@
   "name": "axie-conquest",
   "private": true,
   "scripts": {
+    "test:axie-models": "node scripts/test-axie-models.cjs",
     "test:battle": "node scripts/test-battle.cjs",
     "test:units": "node scripts/test-units.cjs",
     "test:reset": "node scripts/test-reset.cjs",

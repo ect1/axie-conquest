@@ -4,7 +4,7 @@ import { Battle } from './battle';
 
 import { BattleOverlays } from './battle-debug';
 
-export function createBattleScene(canvas: HTMLCanvasElement, read: () => { battle: Battle; selected: string | null; overlays: BattleOverlays; all: boolean }, select: (id: string) => void, onReady: () => void = () => {}, passive = false) {
+export function createBattleScene(canvas: HTMLCanvasElement, read: () => { battle: Battle; selected: string | null; overlays: BattleOverlays; all: boolean }, select: (id: string) => void, onReady: () => void = () => {}, passive = false, onModelError: (message: string) => void = () => {}) {
   const engine = new Engine(canvas, true);
   engine.setHardwareScalingLevel(Math.max(1, window.devicePixelRatio / 1.5));
   const scene = new Scene(engine); scene.clearColor = Color4.FromHexString('#233d37ff');
@@ -25,7 +25,7 @@ export function createBattleScene(canvas: HTMLCanvasElement, read: () => { battl
     const { battle, selected, overlays, all } = read();
     presentation.update(battle, selected, overlays, all);
     scene.render();
-    if (!ready && scene.isReady()) { ready = true; canvas.dataset.battleReady = 'true'; onReady(); }
+    if (!ready && presentation.isReady() && scene.isReady()) { ready = true; if (presentation.errors.length) onModelError(presentation.errors.join(' ')); canvas.dataset.battleReady = 'true'; onReady(); }
   }
   const pointerDown = (e: PointerEvent) => { if (!pointers.size) gestureMoved = false; pointers.set(e.pointerId, { x: e.clientX, y: e.clientY }); if (pointers.size > 1) gestureMoved = true; };
   const pointerMove = (e: PointerEvent) => { const start = pointers.get(e.pointerId); if (start && Math.hypot(e.clientX - start.x, e.clientY - start.y) > 7) gestureMoved = true; };
