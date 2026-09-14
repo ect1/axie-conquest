@@ -12,7 +12,6 @@ import { BATTLE_SAVE_KEY, BattleSession, BattleReport, createBattleSession, rest
 import { beginReplay, recordReplay } from '@/game/battle-replay';
 import { createMobGroup, DEFAULT_GENERATION, GenerationSettings, getWorldObjectActions, restoreWorld, SpawnableMobGroup, WORLD_SAVE_KEY, WorldAction, WorldObject } from '@/game/world';
 import type { BaseView } from '@/game/scene';
-import { DEPLOYED_AXIES_SAVE_KEY, restoreDeployedAxieIds } from '@/game/town-deployment';
 import CityUnitPanel from './city-unit-panel';
 import { CAPITAL_CITY_ID, CITIES_SAVE_KEY, CityState, createCapitalCity, restoreCities } from '@/game/cities';
 import { createEmptyFormations, Formation, OFFENSE_FORMATIONS_SAVE_KEY, restoreOffenseFormations } from '@/game/offense-formations';
@@ -21,8 +20,10 @@ import { WorldUnit, UNITS_SAVE_KEY, createArmy, createScout, deployUnit, command
 import { createMilitaryService } from '@/game/military-service';
 import { activeUnitGlobalStats } from '@/game/unit-stats';
 import { BATTLE_SETTINGS_SAVE_KEY, restoreActiveBattleSettings } from '@/game/battle-settings';
+import { ApiAxie, AXIE_ROSTER_SAVE_KEY, createAxieRoster, restoreAxieRoster } from '@/game/axie-roster';
 
 type InventoryTab = 'resources' | 'equipment' | 'other';
+type AxieApiResponse = { data?: { axies?: { results?: unknown } }; error?: string };
 
 export default function Home() {
   const unitStats = activeUnitGlobalStats;
@@ -37,9 +38,14 @@ export default function Home() {
   const view = useRef<BaseView | null>(null);
   const [buildings, setBuildings] = useState<Building[]>([MAIN_HALL]);
   const [heroes, setHeroes] = useState(false);
+  const [apiAxies, setApiAxies] = useState<readonly ApiAxie[]>([]);
+  const [axieSyncStatus, setAxieSyncStatus] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [axieSyncError, setAxieSyncError] = useState('');
+  const [axieSyncedAt, setAxieSyncedAt] = useState<number | null>(null);
   const [military, setMilitary] = useState(false);
   const [cityUnit, setCityUnit] = useState(false);
   const [selectedCity, setSelectedCity] = useState<CityState>(createCapitalCity);
+  const [citiesLoaded, setCitiesLoaded] = useState(false);
   const [nicknameDraft, setNicknameDraft] = useState('');
   const [training, setTraining] = useState(false);
   const [developer, setDeveloper] = useState(false);
@@ -64,23 +70,55 @@ export default function Home() {
   const [selectedAction, setSelectedAction] = useState<WorldAction | 'march' | null>(null);
   const [formationIndex, setFormationIndex] = useState<number | null>(null);
   const [formations, setFormations] = useState<Formation[]>(createEmptyFormations);
+  const [formationsLoaded, setFormationsLoaded] = useState(false);
   const [units, setUnits] = useState<WorldUnit[]>([]);
   const [selectedUnitId, setSelectedUnitId] = useState<string | null>(null);
   const [mobSpawnEnabled, setMobSpawnEnabled] = useState(false);
   const [mobGroup, setMobGroup] = useState<SpawnableMobGroup>('chimera-pack');
   const [now, setNow] = useState(Date.now);
   useEffect(() => { const timer = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(timer); }, []);
+  useEffect(() => {
+    const cached = restoreAxieRoster(localStorage.getItem(AXIE_ROSTER_SAVE_KEY));
+    if (cached) { setApiAxies(cached.axies); setAxieSyncedAt(cached.syncedAt); }
+    const controller = new AbortController();
+    fetch('/api/axies?size=30', { signal: controller.signal })
+      .then(async response => {
+        const payload = await response.json() as AxieApiResponse;
+        if (!response.ok) throw new Error(payload.error || `Axie sync failed with HTTP ${response.status}.`);
+        const roster = restoreAxieRoster(JSON.stringify({ version: 1, syncedAt: Date.now(), axies: payload.data?.axies?.results }));
+        if (!roster) throw new Error('The Axie API returned an invalid roster.');
+        const next = createAxieRoster(roster.axies);
+        localStorage.setItem(AXIE_ROSTER_SAVE_KEY, JSON.stringify(next));
+        setApiAxies(next.axies); setAxieSyncedAt(next.syncedAt); setAxieSyncStatus('ready');
+      })
+      .catch(error => {
+        if (controller.signal.aborted) return;
+        setAxieSyncError(error instanceof Error ? error.message : 'Could not sync Axies.');
+        setAxieSyncStatus('error');
+      });
+    return () => controller.abort();
+  }, []);
   useEffect(() => { if (ready) view.current?.setUnits(units, selectedUnitId); }, [units, selectedUnitId, ready]);
   useEffect(() => { if (ready) view.current?.setBattle(battleSession, selectedFighterId ?? battleSession?.battle.leaderId ?? null); }, [battleSession, selectedFighterId, ready]);
   useEffect(() => { if (ready) view.current?.setSelectedTarget(target?.id ?? null); }, [target, ready]);
   useEffect(() => { if (!ready) return; setUnits(current => { const next = current.map(u => settleUnit(u, now)).filter(u => u.status !== 'home'); return next.length !== current.length || next.some((u, i) => u !== current[i]) ? next : current; }); }, [now, ready]);
   useEffect(() => { if (!ready) return; try { localStorage.setItem(UNITS_SAVE_KEY, JSON.stringify(units)); } catch { setMessage('Browser storage unavailable; units last this session.'); } }, [units, ready]);
   useEffect(() => {
-    try { setSelectedCity(restoreCities(localStorage.getItem(CITIES_SAVE_KEY)).find(city => city.id === CAPITAL_CITY_ID) ?? createCapitalCity()); } catch { /* Keep the in-memory capital when storage is unavailable. */ }
+    try { setSelectedCity(restoreCities(localStorage.getItem(CITIES_SAVE_KEY)).find(city => city.id === CAPITAL_CITY_ID) ?? createCapitalCity()); } catch { /* Keep the in-memory capital when storage is unavailable. */ } finally { setCitiesLoaded(true); }
   }, []);
   useEffect(() => {
+    if (!citiesLoaded) return;
     try { localStorage.setItem(CITIES_SAVE_KEY, JSON.stringify([{ ...selectedCity, troops }])); } catch { /* City state remains usable for this session. */ }
-  }, [selectedCity, troops]);
+  }, [selectedCity, troops, citiesLoaded]);
+  useEffect(() => {
+    if (!citiesLoaded || !apiAxies.length || formationsLoaded) return;
+    try { setFormations(restoreOffenseFormations(localStorage.getItem(OFFENSE_FORMATIONS_SAVE_KEY), selectedCity.deployedAxieIds.filter(id => apiAxies.some(axie => axie.id === id)), troops)); } catch { /* Use empty formations when storage is unavailable. */ }
+    setFormationsLoaded(true);
+  }, [citiesLoaded, apiAxies, formationsLoaded, selectedCity.deployedAxieIds, troops]);
+  useEffect(() => {
+    if (!formationsLoaded) return;
+    try { localStorage.setItem(OFFENSE_FORMATIONS_SAVE_KEY, JSON.stringify(formations)); } catch { setMessage('Browser storage unavailable; formations last this session.'); }
+  }, [formations, formationsLoaded]);
   useEffect(() => {
     let disposed = false;
     import('@/game/scene').then(({ createBase }) => {
@@ -108,7 +146,6 @@ export default function Home() {
         battleRef.current = savedBattle.active; setBattleSession(savedBattle.active);
         const raw = localStorage.getItem(UNITS_SAVE_KEY);
         setUnits(raw === null ? migrateMarches(localStorage.getItem('axie-conquest-routes-v1'), CAPITAL_CITY_ID, available, unitStats.marchSpeed, Date.now()) : restoreUnits(raw, available, Date.now()));
-        setFormations(restoreOffenseFormations(localStorage.getItem(OFFENSE_FORMATIONS_SAVE_KEY), restoreDeployedAxieIds(localStorage.getItem(DEPLOYED_AXIES_SAVE_KEY)), available));
       } catch { /* Keep session defaults if storage is unavailable. */ }
       const requested = Object.values(DEFAULT_GENERATION.counts).reduce((sum, count) => sum + count, 0);
       setGenerationStatus(savedObjects !== null ? `${initialObjects.length} saved objects restored.` : `${initialObjects.length} / ${requested} generated.`);
@@ -255,9 +292,6 @@ export default function Home() {
     setDeveloper(current => !current);
   }
   function chooseMarch(action: WorldAction | 'march') {
-    try {
-      setFormations(restoreOffenseFormations(localStorage.getItem(OFFENSE_FORMATIONS_SAVE_KEY), restoreDeployedAxieIds(localStorage.getItem(DEPLOYED_AXIES_SAVE_KEY)), troops));
-    } catch { /* Keep current formations when storage is unavailable. */ }
     setFormationIndex(null);
     setSelectedAction(action);
     setRouteAction('formation');
@@ -365,8 +399,8 @@ export default function Home() {
     })}</div><div className="catalog-footer">Prototype construction is free <span>40 × 20 base grid</span></div></section>}
     {!selectedUnit && target && routeAction === 'choose' && <section className="selection world-action panel" aria-label="World actions"><button className="close" aria-label="Close world actions" onClick={() => { setTarget(null); setRouteAction(null); setSelectedAction(null); }}>&times;</button><span className="eyebrow">{selectedObject ? `${selectedObject.state} · ${selectedObject.kind}` : 'WORLD TARGET'}</span><h2>{target.label || 'Uncharted land'}</h2><p>Coordinate {target.x.toFixed(1)}, {target.z.toFixed(1)} · Route {createRoute(target).distance} tiles</p>{selectedObject && <div className="world-object-actions">{targetActions.map(option => <div key={option.action}><button className={option.action === 'attack' ? 'primary' : 'secondary'} disabled={!option.enabled} onClick={() => chooseWorldAction(option.action)}>{option.action[0].toUpperCase() + option.action.slice(1)}</button>{option.reason && <small>{option.reason}</small>}</div>)}</div>}{mobSpawnEnabled && !selectedObject && <div className="world-object-actions"><button className="primary" onClick={spawnMobGroup}>Spawn mob group</button><small>Developer: {mobGroup === 'chimera-pack' ? 'Chimera pack' : mobGroup}</small></div>}<button className={selectedObject ? 'secondary' : 'primary'} onClick={() => chooseMarch('march')}>March here</button><small>{selectedObject ? 'March here moves a formation into position without starting combat.' : 'Choose a formation and send it to this location.'}</small></section>}
     {!selectedUnit && target && routeAction === 'formation' && selectedAction && <section className="selection world-action panel" aria-label="World actions"><button className="close" aria-label="Close world actions" onClick={() => { setRouteAction('choose'); setFormationIndex(null); }}>&times;</button><span className="eyebrow">{selectedAction === 'march' ? `MARCH · ${target.label || 'DESTINATION'}` : `${selectedAction.toUpperCase()} · ${target.label}`}</span><h2>Choose formation</h2><p>At-home and deployed formations can take this order.</p>{formations.map((formation, index) => { const active = units.find(unit => unit.kind === 'army' && unit.cityId === selectedCity.id && unit.formationIndex === index); const issue = formationIssue(index); const origin = active ? unitPosition(active, now) : { x: 0, z: 0 }; const eta = marchTravelTimeMs(createRoute(target, origin), active?.speed ?? unitStats.marchSpeed); return <button key={index} className="building-card" aria-pressed={formationIndex === index} disabled={!!issue} onClick={() => setFormationIndex(index)}><strong>Formation {index + 1}{active ? ' · Deployed' : ' · At home'}{formationIndex === index ? ' · Selected' : ''}</strong><small>{issue || `${active ? `${settleUnit(active, now).status} · ${active.members.reduce((sum, member) => sum + member.count, 0)} members` : 'Ready to deploy'} · ETA ${formatDuration(eta)}`}</small></button>; })}{!formations.some(isValidFormation) && !units.some(unit => unit.kind === 'army') && <button className="secondary" onClick={() => { setTarget(null); setRouteAction(null); setSelectedAction(null); setMilitary(true); }}>Configure formations in Military</button>}<button className="primary" disabled={formationIndex === null || !!formationIssue(formationIndex)} onClick={() => { if (formationIndex !== null) deploy(formationIndex, selectedAction); }}>{selectedAction === 'march' ? 'Send march' : selectedAction === 'attack' ? 'Send attack' : selectedAction === 'occupy' ? 'Send occupiers' : 'Send gatherers'}</button></section>}
-    {military && !placing && !selected && <MilitaryPanel troops={troops} units={units} cityId={selectedCity.id} now={now} onClose={() => setMilitary(false)} />}
-    {cityUnit && !placing && !selected && <CityUnitPanel city={{ ...selectedCity, troops }} onClose={() => setCityUnit(false)} />}
+    {military && !placing && !selected && <MilitaryPanel troops={troops} units={units} cityId={selectedCity.id} now={now} axies={apiAxies} deployedIds={selectedCity.deployedAxieIds.filter(id => apiAxies.some(axie => axie.id === id))} formations={formations} onFormationsChange={setFormations} onClose={() => setMilitary(false)} />}
+    {cityUnit && !placing && !selected && <CityUnitPanel city={{ ...selectedCity, troops }} axies={apiAxies} onClose={() => setCityUnit(false)} />}
     <button className="city-toggle build-toggle" onClick={() => { setHeroes(false); setMilitary(false); setTraining(false); setInventory(false); setSelected(null); setCatalog(false); setCityUnit(current => !current); }} aria-expanded={cityUnit}><span>City</span></button>
     <button className="inventory-toggle build-toggle" onClick={toggleInventory} aria-expanded={inventory}><span>Inventory</span></button>
     {inventory && !catalog && !placing && !selected && <section className="inventory panel" aria-label="Inventory">
@@ -376,7 +410,7 @@ export default function Home() {
       </div>
       <div className="empty-state" role="tabpanel"><span className="empty-state-icon" aria-hidden="true">▧</span><strong>No {inventoryTab} yet</strong><p>Your {inventoryTab} will appear here as you explore and rebuild Lunacia.</p></div>
     </section>}
-    {heroes && !placing && !selected && <HeroesPanel onClose={() => setHeroes(false)} onCoordinate={() => { setHeroes(false); view.current?.home(); }} />}
+    {heroes && !placing && !selected && <HeroesPanel axies={apiAxies} deployedIds={selectedCity.deployedAxieIds.filter(id => apiAxies.some(axie => axie.id === id))} status={axieSyncStatus} error={axieSyncError} syncedAt={axieSyncedAt} onDeploy={id => setSelectedCity(city => city.deployedAxieIds.includes(id) ? city : { ...city, deployedAxieIds: [...city.deployedAxieIds.filter(deployedId => apiAxies.some(axie => axie.id === deployedId)), id] })} onEnlist={id => setSelectedCity(city => ({ ...city, deployedAxieIds: city.deployedAxieIds.filter(deployedId => deployedId !== id) }))} onClose={() => setHeroes(false)} />}
     {training && <TrainingDialog buildings={buildings} troops={troops} ready={ready} onTrain={kind => { view.current?.train(kind); }} onClose={() => setTraining(false)} />}
     {developer && <DeveloperPanel settings={generation} onSettings={setGeneration} objects={worldObjects} status={generationStatus} ready={ready} mobSpawnEnabled={mobSpawnEnabled} onMobSpawnEnabled={setMobSpawnEnabled} mobGroup={mobGroup} onMobGroup={setMobGroup} onClose={() => setDeveloper(false)} onRegenerate={regenerate} onRemove={() => { view.current?.removeWorld(); try { localStorage.setItem(WORLD_SAVE_KEY, '[]'); } catch { /* Keep the removal in memory when storage is unavailable. */ } setWorldObjects([]); setGenerationStatus('All generated objects removed.'); }} />}
     {mail && <MailDialog battleReports={battleReports} onClose={() => setMail(false)} />}

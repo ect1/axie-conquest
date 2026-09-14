@@ -1,5 +1,4 @@
 import { Troops } from './base';
-import { STARTER_HEROES } from './heroes';
 
 export const OFFENSE_FORMATIONS_SAVE_KEY = 'axie-conquest-offense-formations-v1';
 export const FORMATION_ROWS = ['front', 'mid', 'back', 'rear'] as const;
@@ -42,7 +41,6 @@ export function restoreOffenseFormations(value: string | null, deployedIds: read
     const saved: unknown = JSON.parse(value || 'null');
     if (!Array.isArray(saved)) return empty;
     const deployed = new Set(deployedIds);
-    const knownHeroes = new Set(STARTER_HEROES.map(hero => hero.id));
     const usedTroops = { infantry: 0, archer: 0 };
     return empty.map((fallback, formationIndex) => {
       const source = saved[formationIndex];
@@ -55,7 +53,7 @@ export function restoreOffenseFormations(value: string | null, deployedIds: read
           const slot = savedRow[slotIndex];
           if (!slot || typeof slot !== 'object') return emptySlot;
           const heroId = (slot as Record<string, unknown>).heroId;
-          if (typeof heroId === 'string' && deployed.has(heroId) && knownHeroes.has(heroId) && !usedHeroes.has(heroId)) {
+          if (typeof heroId === 'string' && deployed.has(heroId) && !usedHeroes.has(heroId)) {
             usedHeroes.add(heroId);
             return { ...emptySlot, heroId };
           }

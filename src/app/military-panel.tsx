@@ -1,15 +1,15 @@
 "use client";
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { TROOP_DEFINITIONS, Troops } from '@/game/base';
-import { AXIE_CLASSES, AxieHero, STARTER_HEROES } from '@/game/heroes';
-import { createEmptyFormations, Formation, FormationMilitaryKind, FormationRow, FormationSlot, getFormationTroopCounts, getFormationsTroopCounts, OFFENSE_FORMATIONS_SAVE_KEY, restoreOffenseFormations } from '@/game/offense-formations';
-import { DEPLOYED_AXIES_SAVE_KEY, getDefaultDeployedAxieIds, restoreDeployedAxieIds } from '@/game/town-deployment';
+import { AXIE_CLASSES, AxieClass } from '@/game/heroes';
+import { ApiAxie } from '@/game/axie-roster';
+import { Formation, FormationMilitaryKind, FormationRow, FormationSlot, getFormationTroopCounts, getFormationsTroopCounts } from '@/game/offense-formations';
 
 import { WorldUnit, settleUnit } from '@/game/units';
 
 type Section = 'scout' | 'defense' | 'offense' | 'leader' | 'slot' | null;
-type MilitaryPanelProps = { troops: Troops; units: readonly WorldUnit[]; cityId: string; now: number; onClose: () => void };
+type MilitaryPanelProps = { troops: Troops; units: readonly WorldUnit[]; cityId: string; now: number; axies: readonly ApiAxie[]; deployedIds: readonly string[]; formations: Formation[]; onFormationsChange: React.Dispatch<React.SetStateAction<Formation[]>>; onClose: () => void };
 const emptySlot = (): FormationSlot => ({ heroId: null, military: null, militaryCount: 0 });
 const MILITARY_TYPES: FormationMilitaryKind[] = ['infantry', 'archer'];
 const MILITARY_DETAILS: Record<FormationMilitaryKind, { consumption: string; icon: string }> = {
@@ -17,23 +17,20 @@ const MILITARY_DETAILS: Record<FormationMilitaryKind, { consumption: string; ico
   archer: { consumption: '3 provisions / hr', icon: '➶' },
 };
 
-function AxieRow({ hero, assigned, unavailable, onAssign }: { hero: AxieHero; assigned: boolean; unavailable?: string; onAssign: () => void }) {
-  const style = AXIE_CLASSES[hero.class];
+function AxieRow({ hero, assigned, unavailable, onAssign }: { hero: ApiAxie; assigned: boolean; unavailable?: string; onAssign: () => void }) {
+  const style = AXIE_CLASSES[hero.class.toLowerCase() as AxieClass] ?? AXIE_CLASSES.beast;
   return <button className={`assignment-row ${assigned ? 'assigned' : ''} ${unavailable ? 'unavailable' : ''}`} onClick={onAssign} disabled={!!unavailable} aria-pressed={assigned}>
     <span className="scout-axie-mark" style={{ '--axie-color': style.color, '--axie-accent': style.accent } as React.CSSProperties}>{style.name.slice(0, 1)}</span>
     <span className="assignment-copy"><strong>{hero.name}</strong><small>{style.name} · {style.role}</small></span><span className="assignment-action">{assigned ? 'Unassign' : unavailable || 'Assign'}</span>
   </button>;
 }
 
-export default function MilitaryPanel({ troops, units, cityId, now, onClose }: MilitaryPanelProps) {
+export default function MilitaryPanel({ troops, units, cityId, now, axies, deployedIds, formations, onFormationsChange, onClose }: MilitaryPanelProps) {
   const [popup, setPopup] = useState<Section>(null);
   const [scouts, setScouts] = useState<string[]>([]);
   const [defender, setDefender] = useState<string | null>(null);
   const [defenseMilitary, setDefenseMilitary] = useState<FormationSlot>(emptySlot());
   const [template, setTemplate] = useState(0);
-  const [formations, setFormations] = useState<Formation[]>(createEmptyFormations);
-  const [deployedIds, setDeployedIds] = useState<string[]>(getDefaultDeployedAxieIds);
-  const [formationsLoaded, setFormationsLoaded] = useState(false);
   const [editingSlot, setEditingSlot] = useState<{ row: FormationRow; index: number } | null>(null);
   const [slotTab, setSlotTab] = useState<'axie' | 'military'>('axie');
   const [militaryDraft, setMilitaryDraft] = useState<FormationSlot>(emptySlot());
@@ -53,31 +50,16 @@ export default function MilitaryPanel({ troops, units, cityId, now, onClose }: M
     archer: { ...MILITARY_DETAILS.archer, available: Math.max(0, troops.archer - cityAssignedTroops.archer - defenseTroopCounts.archer), max: Math.max(0, troops.archer - cityAssignedTroops.archer - defenseTroopCounts.archer + currentEditingCount('archer')) },
   };
   const formationHeroIds = new Set([...activeFormation.front, ...activeFormation.mid, ...activeFormation.back, ...activeFormation.rear].map(slot => slot.heroId).filter(Boolean));
-  const deployedHeroes = STARTER_HEROES.filter(hero => deployedIds.includes(hero.id));
+  const deployedHeroes = axies.filter(hero => deployedIds.includes(hero.id));
   const leaderCandidates = deployedHeroes.filter(hero => formationHeroIds.has(hero.id));
   const activeHeroes = popup === 'scout' ? scouts : popup === 'defense' ? (defender ? [defender] : []) : popup === 'slot' && editingSlot ? (activeFormation[editingSlot.row][editingSlot.index].heroId ? [activeFormation[editingSlot.row][editingSlot.index].heroId!] : []) : activeFormation.leader ? [activeFormation.leader] : [];
   const allFormationHeroes = formations.flatMap(formation => [...formation.front, ...formation.mid, ...formation.back, ...formation.rear].map(slot => slot.heroId).concat(formation.leader)).filter(Boolean) as string[];
   const allOffenseHeroes = new Set([...allFormationHeroes]);
-  useEffect(() => {
-    let townIds = getDefaultDeployedAxieIds();
-    let savedFormations: string | null = null;
-    try {
-      townIds = restoreDeployedAxieIds(localStorage.getItem(DEPLOYED_AXIES_SAVE_KEY));
-      savedFormations = localStorage.getItem(OFFENSE_FORMATIONS_SAVE_KEY);
-    } catch { /* Use starter deployments and empty formations when storage is unavailable. */ }
-    setDeployedIds(townIds);
-    setFormations(restoreOffenseFormations(savedFormations, townIds, troops));
-    setFormationsLoaded(true);
-  }, []);
-  useEffect(() => {
-    if (!formationsLoaded) return;
-    try { localStorage.setItem(OFFENSE_FORMATIONS_SAVE_KEY, JSON.stringify(formations)); } catch { /* Keep formation changes for this session. */ }
-  }, [formations, formationsLoaded]);
   const toggleScout = (id: string) => setScouts(current => current.includes(id) ? current.filter(heroId => heroId !== id) : current.length < 3 ? [...current, id] : current);
   const toggleDefense = (id: string) => setDefender(current => current === id ? null : current || id);
   const assignLeader = (id: string) => {
     if (activeFormationDeployed) return;
-    setFormations(current => current.map((formation, index) => {
+    onFormationsChange(current => current.map((formation, index) => {
       if (index !== template || ![...formation.front, ...formation.mid, ...formation.back, ...formation.rear].some(slot => slot.heroId === id)) return formation;
       return { ...formation, leader: formation.leader === id ? null : id };
     }));
@@ -85,7 +67,7 @@ export default function MilitaryPanel({ troops, units, cityId, now, onClose }: M
   };
   const closePopup = () => setPopup(null);
   const openFormation = () => setPopup('offense');
-  const updateFormation = (row: FormationRow, index: number, value: Partial<FormationSlot>) => setFormations(current => current.map((formation, formationIndex) => {
+  const updateFormation = (row: FormationRow, index: number, value: Partial<FormationSlot>) => onFormationsChange(current => current.map((formation, formationIndex) => {
     if (formationIndex !== template || activeFormationDeployed) return formation;
     const next = { ...formation, [row]: formation[row].map((slot, slotIndex) => slotIndex === index ? { ...slot, ...value } : slot) };
     if (![...next.front, ...next.mid, ...next.back, ...next.rear].some(slot => slot.heroId === next.leader)) next.leader = null;
@@ -131,8 +113,8 @@ export default function MilitaryPanel({ troops, units, cityId, now, onClose }: M
         <div className="template-tabs" role="tablist" aria-label="Formations">{[0, 1, 2].map(index => <button key={index} role="tab" aria-selected={template === index} className={template === index ? 'active' : ''} onClick={() => setTemplate(index)}>Formation {index + 1}</button>)}</div>
         <div className="resource-requirement"><span>◈</span><div><strong>Requires resources</strong><small>500 provisions + 250 war supplies to prepare this march</small></div><b>Static</b></div>
         {activeFormationDeployed && <div className="military-note" role="status">This formation is outside the city. Return it to base before changing its leader or members.</div>}
-        <div className="leader-slot"><span className="formation-label">LEADER</span><strong>{activeFormation.leader ? STARTER_HEROES.find(hero => hero.id === activeFormation.leader)?.name : 'No leader assigned'}</strong><small>{activeFormationDeployed ? 'Locked while this formation is deployed' : leaderCandidates.length ? 'Choose an Axie in this formation; tap the current leader to unassign' : 'Place an Axie in a slot first'}</small><button className="secondary" disabled={activeFormationDeployed || !leaderCandidates.length} onClick={() => setPopup('leader')}>{activeFormation.leader ? 'Change leader' : 'Assign leader'}</button>{activeFormation.leader && <button className="secondary" disabled={activeFormationDeployed} onClick={() => assignLeader(activeFormation.leader!)}>Unassign leader</button>}</div>
-        <div className="formation-board">{(['front', 'mid', 'back', 'rear'] as const).map(row => <div className="formation-row" key={row}><span className="formation-label">{row === 'front' ? 'front' : row === 'rear' ? 'back' : ''}</span>{activeFormation[row].map((slot, index) => <button disabled={activeFormationDeployed} className={`formation-slot ${slot.heroId || slot.military ? 'filled' : ''} ${slot.heroId && activeFormation.leader === slot.heroId ? 'leader-slot-hex' : ''}`} key={`${row}-${index}`} onClick={() => openSlot(row, index)}><strong>{slot.heroId ? STARTER_HEROES.find(hero => hero.id === slot.heroId)?.name : slot.military ? TROOP_DEFINITIONS[slot.military].name : 'Add Axie'}</strong><small>{slot.military ? `${slot.militaryCount} assigned` : slot.heroId ? (activeFormation.leader === slot.heroId ? 'Leader' : 'Axie') : 'Add military'}</small></button>)}</div>)}</div>
+        <div className="leader-slot"><span className="formation-label">LEADER</span><strong>{activeFormation.leader ? axies.find(hero => hero.id === activeFormation.leader)?.name : 'No leader assigned'}</strong><small>{activeFormationDeployed ? 'Locked while this formation is deployed' : leaderCandidates.length ? 'Choose an Axie in this formation; tap the current leader to unassign' : 'Place an Axie in a slot first'}</small><button className="secondary" disabled={activeFormationDeployed || !leaderCandidates.length} onClick={() => setPopup('leader')}>{activeFormation.leader ? 'Change leader' : 'Assign leader'}</button>{activeFormation.leader && <button className="secondary" disabled={activeFormationDeployed} onClick={() => assignLeader(activeFormation.leader!)}>Unassign leader</button>}</div>
+        <div className="formation-board">{(['front', 'mid', 'back', 'rear'] as const).map(row => <div className="formation-row" key={row}><span className="formation-label">{row === 'front' ? 'front' : row === 'rear' ? 'back' : ''}</span>{activeFormation[row].map((slot, index) => <button disabled={activeFormationDeployed} className={`formation-slot ${slot.heroId || slot.military ? 'filled' : ''} ${slot.heroId && activeFormation.leader === slot.heroId ? 'leader-slot-hex' : ''}`} key={`${row}-${index}`} onClick={() => openSlot(row, index)}><strong>{slot.heroId ? axies.find(hero => hero.id === slot.heroId)?.name : slot.military ? TROOP_DEFINITIONS[slot.military].name : 'Add Axie'}</strong><small>{slot.military ? `${slot.militaryCount} assigned` : slot.heroId ? (activeFormation.leader === slot.heroId ? 'Leader' : 'Axie') : 'Add military'}</small></button>)}</div>)}</div>
         <small className="formation-help">Only Axies deployed in town can join. Assign Axies or trained military units to the hexes, then choose one placed Axie as leader.</small>
         <button className="primary assignment-done" onClick={closePopup}>Save formation</button>
       </> : <>

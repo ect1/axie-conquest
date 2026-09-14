@@ -45,11 +45,19 @@ assert.deepEqual(base.restoreBuildings(null), [base.MAIN_HALL]);
 assert.deepEqual(base.restoreTroops(null), base.EMPTY_TROOPS);
 const deployment = load('src/game/town-deployment.ts');
 const formations = load('src/game/offense-formations.ts');
+const roster = load('src/game/axie-roster.ts');
+const cachedRoster = roster.createAxieRoster([{ id: '123', name: 'Puffy', class: 'Plant', parts: [{ id: 'part-1', name: 'Leafy', type: 'Ears' }] }], 1234);
+assert.deepEqual(roster.restoreAxieRoster(JSON.stringify(cachedRoster)), cachedRoster, 'cached API roster restores after reload');
+assert.equal(roster.restoreAxieRoster('{"version":1,"syncedAt":0,"axies":[{}]}').axies.length, 0, 'invalid API Axies are rejected from the cache');
 assert.deepEqual(deployment.restoreDeployedAxieIds(null), deployment.getDefaultDeployedAxieIds());
 assert.deepEqual(formations.restoreOffenseFormations(null, deployment.getDefaultDeployedAxieIds(), base.EMPTY_TROOPS), formations.createEmptyFormations());
 assert.deepEqual(load('src/game/routes.ts').restoreRouteOrders(null), []);
 assert.equal(load('src/game/world.ts').restoreWorld(null), null);
 assert.deepEqual(load('src/game/cities.ts').restoreCities(null), [load('src/game/cities.ts').createCapitalCity()]);
+const cities = load('src/game/cities.ts');
+const liveCity = cities.createCapitalCity();
+liveCity.deployedAxieIds = ['8285927'];
+assert.deepEqual(cities.restoreCities(JSON.stringify([liveCity]))[0].deployedAxieIds, ['8285927'], 'live API Axie IDs survive city-save restoration');
 // Audit literal save keys in source, so an unregistered feature fails this check.
 function audit(directory) {
   for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {

@@ -1,10 +1,7 @@
-import { STARTER_HEROES } from './heroes';
-
 export const DEPLOYED_AXIES_SAVE_KEY = 'axie-conquest-deployed-axies';
-export const DEFAULT_DEPLOYED_AXIE_COUNT = 5;
 
 export function getDefaultDeployedAxieIds(): string[] {
-  return STARTER_HEROES.slice(0, DEFAULT_DEPLOYED_AXIE_COUNT).map(hero => hero.id);
+  return [];
 }
 
 export function restoreDeployedAxieIds(value: string | null): string[] {
@@ -16,3 +13,4 @@ export function restoreDeployedAxieIds(value: string | null): string[] {
     return getDefaultDeployedAxieIds();
   }
 }
+import { STARTER_HEROES } from './heroes';
