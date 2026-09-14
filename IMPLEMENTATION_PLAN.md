@@ -1,0 +1,14 @@
+# Axie Conquest implementation plan
+
+- [x] Build and persist the 20 × 40 settlement grid and supported building placement flow.
+- [x] Support fixed isometric navigation, touch selection, panning, and zoom across city and world views.
+- [x] Support deployed formations, world routes, attack orders, and range-aware battle simulation.
+- [x] Keep live battles inside the world view.
+  - [x] Keep the normal attacker formation and defender world object visible during combat.
+  - [x] March attackers to the target's exact world coordinate while keeping tactical ranges inside simulation.
+  - [x] Show one camera-facing aggregate health bar for each side and a lightweight looping clash sprite.
+  - [x] Remove live arena fighters, projectiles, combat animation transforms, and the battle status modal.
+  - [x] Throttle world health-bar updates while the simulation runs independently.
+- [x] Store completed battle details in Mail and allow passive replay with Watch Again.
+- [x] Register battle reports and replay data with the shared reset workflow.
+- [x] Verify placement, world generation, marching, battle outcomes, persistence, and reset regressions.

@@ -55,7 +55,7 @@ assert.equal(u.settleUnit(scoutMoving, 3000).status, 'holding');
 assert.deepEqual(u.restoreUnits(JSON.stringify([scoutMoving]), troops, 1000), [scoutMoving]);
 const garrison = { id: 'garrison', kind: 'garrison', x: 80, z: 0, state: 'defended', loot: { apple: 1 } };
 const attack = u.commandWorldAction(moving, 'attack', garrison, 5000);
-assert.ok(Math.abs(Math.hypot(attack.order.destination.x - garrison.x, attack.order.destination.z - garrison.z) - 16) < 1e-9, 'attack march hands off outside the camp');
+assert.deepEqual(attack.order.destination, { x: garrison.x, z: garrison.z }, 'attack march reaches the world target coordinate');
 assert.equal(attack.id, moving.id, 'redirect keeps the deployed formation');
 assert.deepEqual(attack.order.origin, { x: 50, z: 0 }, 'redirect starts at the interpolated position');
 assert.equal(attack.order.activity.action, 'attack');

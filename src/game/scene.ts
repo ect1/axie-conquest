@@ -32,7 +32,7 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
     marchSelection = selectedId;
     if (marchOrders === orders) return;
     marchOrders = orders;
-    clearMarches(); clearMarches = showMarches(scene, orders, () => marchSelection, () => overviewActive, () => liveBattle);
+    clearMarches(); clearMarches = showMarches(scene, orders, () => marchSelection, () => overviewActive);
   }
   scene.clearColor = Color4.FromHexString('#91aaa2ff');
   // Keep building fronts pointing southeast on screen.

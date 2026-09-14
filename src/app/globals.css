@@ -368,8 +368,6 @@ h2 { font: bold 19px Georgia, serif; margin: 3px 0 0; }
 .battle-dialog small { color: #c0d0ba; }
 .battle-dialog select { color: #294d43; background: #fffdf1; }
 .battle-loading { position: absolute; inset: 40% 0 auto; text-align: center; z-index: 1; pointer-events: none; }
-.world-mode .world-fight-status.panel { display: block; pointer-events: auto; max-width: 300px; z-index: 8; }
-.world-fight-status small { display: block; margin-top: 6px; }
 .battle-mail-list { display: flex; gap: 8px; overflow-x: auto; padding: 12px 0; }
 .battle-mail-list button { flex: 0 0 170px; text-align: left; min-height: 56px; padding: 8px; border-radius: 8px; }
 .battle-mail-list button[aria-pressed=true] { outline: 2px solid #528b70; }

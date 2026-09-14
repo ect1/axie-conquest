@@ -1,58 +1,71 @@
-import { Color3, MeshBuilder, Scene, StandardMaterial, TransformNode, Vector3 } from '@babylonjs/core';
+import { Color3, DynamicTexture, Mesh, MeshBuilder, Scene, StandardMaterial, TransformNode } from '@babylonjs/core';
 import type { BattleSession } from './battle-save';
-import { fighterWorldPosition } from './battle-world';
 
-/** A fixed pool created with the world: combat updates transforms and bar fill only. */
+/** Camera-facing aggregate bars and one clash sprite; live combat creates no arena fighters. */
 export function createWorldFight(scene: Scene) {
-  const root = new TransformNode('world fight effects', scene);
-  const material = (name: string, color: string) => { const m = new StandardMaterial(name, scene); m.diffuseColor = Color3.FromHexString(color); m.specularColor = Color3.Black(); return m; };
-  const red = material('defender red', '#bc685c'), dark = material('enemy health empty', '#44352e'), gold = material('fight flash', '#fff3ad');
-  gold.emissiveColor = Color3.FromHexString('#fff3ad');
-  const models = Array.from({ length: 3 }, (_, i) => {
-    const body = MeshBuilder.CreateSphere(`world defender ${i}`, { diameter: 0.8, segments: 8 }, scene);
-    body.material = red; body.parent = root; body.isPickable = false; return body;
-  });
-  const back = MeshBuilder.CreateBox('enemy formation health background', { width: 4.1, height: 0.22, depth: 0.2 }, scene);
-  const bar = MeshBuilder.CreateBox('enemy formation health', { width: 4, height: 0.18, depth: 0.18 }, scene);
-  back.material = dark; bar.material = red;
-  const sparks = Array.from({ length: 6 }, () => { const mesh = MeshBuilder.CreateSphere('fight projectile', { diameter: 0.2, segments: 4 }, scene); mesh.material = gold; return mesh; });
-  for (const mesh of [back, bar, ...sparks]) { mesh.parent = root; mesh.isPickable = false; }
+  const root = new TransformNode('world battle indicator', scene);
+  const material = (name: string, color: string) => {
+    const value = new StandardMaterial(name, scene);
+    value.diffuseColor = Color3.FromHexString(color); value.emissiveColor = value.diffuseColor;
+    value.specularColor = Color3.Black(); value.disableLighting = true; value.backFaceCulling = false;
+    return value;
+  };
+  const friendly = material('attacker health', '#6be08b');
+  const enemy = material('defender health', '#e16d61');
+  const empty = material('battle health empty', '#26332f');
+  function healthBar(name: string, fillMaterial: StandardMaterial) {
+    const back = MeshBuilder.CreatePlane(`${name} background`, { width: 4.4, height: 0.48 }, scene);
+    const fill = MeshBuilder.CreatePlane(name, { width: 4, height: 0.24 }, scene);
+    back.parent = root; fill.parent = back; back.material = empty; fill.material = fillMaterial;
+    back.billboardMode = Mesh.BILLBOARDMODE_ALL; fill.position.z = -0.02;
+    back.isPickable = false; fill.isPickable = false;
+    return { back, fill };
+  }
+  const attacker = healthBar('attacker formation health', friendly);
+  const defender = healthBar('defender formation health', enemy);
+
+  const clashTexture = new DynamicTexture('world fight sprite texture', { width: 128, height: 128 }, scene, false);
+  clashTexture.hasAlpha = true;
+  const context = clashTexture.getContext();
+  context.clearRect(0, 0, 128, 128);
+  context.fillStyle = '#fff4c7'; context.beginPath(); context.arc(64, 64, 47, 0, Math.PI * 2); context.fill();
+  context.strokeStyle = '#7a4b35'; context.lineWidth = 11;
+  context.beginPath(); context.moveTo(37, 35); context.lineTo(91, 91); context.moveTo(91, 35); context.lineTo(37, 91); context.stroke();
+  context.strokeStyle = '#f0be55'; context.lineWidth = 5;
+  context.beginPath(); context.moveTo(39, 33); context.lineTo(93, 89); context.moveTo(89, 33); context.lineTo(35, 87); context.stroke();
+  clashTexture.update();
+  const clashMaterial = new StandardMaterial('world fight sprite material', scene);
+  clashMaterial.diffuseTexture = clashTexture; clashMaterial.opacityTexture = clashTexture;
+  clashMaterial.emissiveColor = Color3.White(); clashMaterial.disableLighting = true; clashMaterial.backFaceCulling = false;
+  const clash = MeshBuilder.CreatePlane('world fight sprite', { size: 2.7 }, scene);
+  clash.parent = root; clash.material = clashMaterial; clash.billboardMode = Mesh.BILLBOARDMODE_ALL; clash.isPickable = false;
+
   root.setEnabled(false);
-  let lastSession = '', lastTick = -1, eventTime = 0;
-  let events: { from: Vector3; to: Vector3 }[] = [];
+  let lastSession = '', lastTick = -3;
   return {
     update(session: BattleSession | null, visible: boolean) {
       root.setEnabled(!!session && visible);
       if (!session || !visible) return;
-      const battle = session.battle, enemies = battle.fighters.filter(f => f.side === 'enemy');
-      const fresh = lastSession !== `${session.army.id}:${session.startedAt}`;
-      lastSession = `${session.army.id}:${session.startedAt}`;
-      models.forEach((mesh, i) => {
-        const f = enemies[i]; mesh.setEnabled(!!f && f.hp > 0);
-        if (!f) return;
-        const position = fighterWorldPosition(session, f), desired = new Vector3(position.x, 0.65, position.z);
-        mesh.position = fresh ? desired : Vector3.Lerp(mesh.position, desired, Math.min(1, scene.getEngine().getDeltaTime() / 90));
-        mesh.scaling.y = f.state === 'attacking' ? 1 + Math.sin(performance.now() / 90 + i) * 0.1 : 1;
-      });
-      const alive = enemies.filter(f => f.hp > 0), group = alive.length ? alive : enemies;
-      const center = fighterWorldPosition(session, { x: group.reduce((sum, f) => sum + f.x, 0) / group.length, z: group.reduce((sum, f) => sum + f.z, 0) / group.length });
-      const ratio = enemies.reduce((sum, f) => sum + f.hp, 0) / enemies.reduce((sum, f) => sum + f.maxHp, 0);
-      back.position.set(center.x, 2.35, center.z); bar.position.set(center.x - 2 * (1 - ratio), 2.4, center.z); bar.scaling.x = Math.max(0.001, ratio);
-      if (fresh || lastTick !== battle.tick) {
-        lastTick = battle.tick;
-        if (battle.events.length) {
-          eventTime = performance.now();
-          events = battle.events.slice(0, sparks.length).flatMap(e => {
-            const a = battle.fighters.find(f => f.id === e.from), b = battle.fighters.find(f => f.id === e.to);
-            if (!a || !b) return [];
-            const from = fighterWorldPosition(session, a), to = fighterWorldPosition(session, b);
-            return [{ from: new Vector3(from.x, 0.9, from.z), to: new Vector3(to.x, 0.9, to.z) }];
-          });
-        }
+      const pulse = 1 + Math.sin(performance.now() / 170) * 0.08;
+      clash.scaling.setAll(pulse); clash.rotation.z = Math.sin(performance.now() / 360) * 0.08;
+      const key = `${session.army.id}:${session.startedAt}`;
+      if (key === lastSession && session.battle.tick - lastTick < 3 && !session.battle.result) return;
+      lastSession = key; lastTick = session.battle.tick;
+      const players = session.battle.fighters.filter(fighter => fighter.side === 'player');
+      const enemies = session.battle.fighters.filter(fighter => fighter.side === 'enemy');
+      const ratio = (fighters: typeof players) => {
+        const maximum = fighters.reduce((sum, fighter) => sum + fighter.maxHp, 0);
+        return maximum ? fighters.reduce((sum, fighter) => sum + fighter.hp, 0) / maximum : 0;
+      };
+      root.position.set(session.target.x, 0, session.target.z); clash.position.set(0, 2, 0);
+      attacker.back.position.set(0, 4, 0); defender.back.position.set(0, 3.4, 0);
+      for (const [bar, value] of [[attacker, ratio(players)], [defender, ratio(enemies)]] as const) {
+        bar.fill.scaling.x = Math.max(0.001, value);
+        bar.fill.position.x = -2 * (1 - value);
       }
-      const progress = (performance.now() - eventTime) / 250;
-      sparks.forEach((spark, i) => { spark.setEnabled(!!events[i] && progress < 1); if (events[i]) spark.position = Vector3.Lerp(events[i].from, events[i].to, Math.min(1, progress)); });
     },
-    dispose() { root.dispose(); red.dispose(); dark.dispose(); gold.dispose(); },
+    dispose() {
+      root.dispose(); friendly.dispose(); enemy.dispose(); empty.dispose(); clashMaterial.dispose(); clashTexture.dispose();
+    },
   };
 }

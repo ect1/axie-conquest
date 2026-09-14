@@ -4,10 +4,8 @@ import { STARTER_HEROES, AXIE_CLASSES } from './heroes';
 import { activeBattleSettings } from './battle-settings';
 import { BATTLE_OVERLAYS } from './battle-debug';
 import { createBattle } from './battle';
-import type { BattleSession } from './battle-save';
-import { battleWorldTransform } from './battle-world';
 
-export function showMarches(scene: Scene, orders: WorldUnit[], selection: string | null | (() => string | null), visible: () => boolean, readBattle: () => BattleSession | null = () => null) {
+export function showMarches(scene: Scene, orders: WorldUnit[], selection: string | null | (() => string | null), visible: () => boolean) {
   const root = new TransformNode('armies', scene);
   const materials: StandardMaterial[] = [];
   let lastSettings: typeof activeBattleSettings | null = null;
@@ -49,13 +47,7 @@ export function showMarches(scene: Scene, orders: WorldUnit[], selection: string
     const debug = new TransformNode('world battle overlays', scene); debug.parent = army;
     const targetLine = MeshBuilder.CreateLines('world order target', { points: [Vector3.Zero(), Vector3.Zero()], updatable: true }, scene);
     targetLine.parent = root; targetLine.color = Color3.FromHexString(BATTLE_OVERLAYS.targets.color); targetLine.isPickable = false;
-    const health = MeshBuilder.CreateBox('formation health', { width: 4, height: 0.18, depth: 0.18 }, scene);
-    const healthBack = MeshBuilder.CreateBox('formation health background', { width: 4.1, height: 0.22, depth: 0.2 }, scene);
-    const healthMat = new StandardMaterial('formation health green', scene); healthMat.emissiveColor = Color3.FromHexString('#6be08b'); materials.push(healthMat);
-    const emptyMat = new StandardMaterial('formation health empty', scene); emptyMat.diffuseColor = Color3.FromHexString('#34463d'); materials.push(emptyMat);
-    health.material = healthMat; healthBack.material = emptyMat;
-    for (const mesh of [health, healthBack]) { mesh.parent = army; mesh.isPickable = false; mesh.setEnabled(false); }
-    return [{ order, army, units, line, debug, targetLine, health, healthBack, ring }];
+    return [{ order, army, units, line, debug, targetLine, ring }];
   });
   const observer = scene.onBeforeRenderObservable.add(() => {
     const now = Date.now();
@@ -64,7 +56,7 @@ export function showMarches(scene: Scene, orders: WorldUnit[], selection: string
     lastSettings = activeBattleSettings;
     const focus = armies.find(({ order }) => order.id === selectedId && settleUnit(order, now).status !== 'home')?.order.id
       ?? armies.find(({ order }) => settleUnit(order, now).status !== 'home')?.order.id;
-    for (const { order, army, units, line, debug, targetLine, health, healthBack, ring } of armies) {
+    for (const { order, army, units, line, debug, targetLine, ring } of armies) {
       if (changed) {
         debug.getChildren().forEach(child => child.dispose());
         const { overlays, awarenessRadius, engagementRadius } = activeBattleSettings;
@@ -97,27 +89,6 @@ export function showMarches(scene: Scene, orders: WorldUnit[], selection: string
         MeshBuilder.CreateLines('world order target', { points: [new Vector3(position.x, 0.25, position.z), new Vector3(current.order.destination.x, 0.25, current.order.destination.z)], instance: targetLine as LinesMesh });
       }
       units.forEach((unit, index) => { unit.position.y = moving ? Math.abs(Math.sin(now / 150 + index)) * 0.15 : 0; });
-      const session = readBattle();
-      const combat = session?.army.id === order.id ? session : null;
-      health.setEnabled(!!combat && visible()); healthBack.setEnabled(!!combat && visible());
-      if (combat) {
-        const origin = battleWorldTransform(combat);
-        const fighters = combat.battle.fighters.filter(f => f.side === 'player');
-        army.position.set(origin.x, 0, origin.z); army.rotation.y = origin.angle;
-        line.setEnabled(false); debug.setEnabled(false); targetLine.setEnabled(false); ring.setEnabled(false);
-        units.forEach((unit, i) => {
-          const f = fighters.find(f => f.memberId === order.members[i].id);
-          if (!f) return;
-          const desired = new Vector3(f.x, f.state === 'attacking' ? Math.sin(now / 90 + i) * 0.08 : 0, f.z);
-          unit.position = Vector3.Lerp(unit.position, desired, Math.min(1, scene.getEngine().getDeltaTime() / 90));
-          unit.rotation.y = f.facing; unit.setEnabled(f.hp > 0);
-        });
-        const alive = fighters.filter(f => f.hp > 0), members = alive.length ? alive : fighters;
-        const x = members.reduce((sum, f) => sum + f.x, 0) / members.length, z = members.reduce((sum, f) => sum + f.z, 0) / members.length;
-        const ratio = fighters.reduce((sum, f) => sum + f.hp, 0) / fighters.reduce((sum, f) => sum + f.maxHp, 0);
-        health.scaling.x = Math.max(0.001, ratio); health.position.set(x - 2 * (1 - ratio), 2.4, z);
-        healthBack.position.set(x, 2.35, z);
-      }
     }
   });
   return () => { scene.onBeforeRenderObservable.remove(observer); root.dispose(); materials.forEach(mat => mat.dispose()); };
