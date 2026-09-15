@@ -4,7 +4,6 @@ import ResetGameControl from './reset-game-control';
 import { GenerationSettings, SpawnableMobGroup, WorldObject, SPAWNABLE_MOB_GROUPS, WORLD_KINDS, WORLD_DEFINITIONS, WORLD_WIDTH, WORLD_DEPTH, DEFAULT_GENERATION } from '@/game/world';
 import { DEFAULT_UNIT_GLOBAL_STATS, setActiveUnitGlobalStats, UnitGlobalStats } from '@/game/unit-stats';
 import { BATTLE_SETTINGS_SAVE_KEY, BattleSettings, DEFAULT_BATTLE_SETTINGS, restoreActiveBattleSettings, sanitizeBattleSettings, setActiveBattleSettings } from '@/game/battle-settings';
-import type { BattleRangeSettings } from '@/game/battle-range';
 import type { ApiAxie } from '@/game/axie-roster';
 
 type Props = {
@@ -27,7 +26,7 @@ export default function DeveloperPanel({ settings, onSettings, objects, status, 
   function saveUnitStats() { try { localStorage.setItem('axie-conquest-unit-stats-v1', JSON.stringify(localStats)); } catch { /* Keep session value. */ } setActiveUnitGlobalStats(localStats); onUnitStats(localStats); }
   function applyBattleSettings() { const next = sanitizeBattleSettings(battleSettings); setBattleSettings(next); setActiveBattleSettings(next); const feedback = 'Applied. The sandbox now uses the saved board spacing.'; try { localStorage.setItem(BATTLE_SETTINGS_SAVE_KEY, JSON.stringify(next)); setApplyStatus(feedback); } catch { setApplyStatus(`${feedback} Browser save failed; changes last only for this session.`); } }
   function saveBoardLayout(layout: { hexGap: number; teamGap: number; columns: number; rowsPerTeam: number }) { const next = sanitizeBattleSettings({ ...battleSettings, boardHexGap: layout.hexGap, boardTeamGap: layout.teamGap, boardColumns: layout.columns, boardRows: layout.rowsPerTeam }); setBattleSettings(next); setActiveBattleSettings(next); try { localStorage.setItem(BATTLE_SETTINGS_SAVE_KEY, JSON.stringify(next)); setApplyStatus('Board layout saved.'); } catch { setApplyStatus('Board layout applied, but browser save failed.'); } }
-  function saveRange(range: BattleRangeSettings) { const next = sanitizeBattleSettings({ ...battleSettings, ...range }); setBattleSettings(next); setActiveBattleSettings(next); try { localStorage.setItem(BATTLE_SETTINGS_SAVE_KEY, JSON.stringify(next)); setApplyStatus('Directional range saved.'); } catch { setApplyStatus('Directional range applied, but browser save failed.'); } }
+  function saveRange(range: BattleSettings) { const next = sanitizeBattleSettings({ ...battleSettings, ...range }); setBattleSettings(next); setActiveBattleSettings(next); try { localStorage.setItem(BATTLE_SETTINGS_SAVE_KEY, JSON.stringify(next)); setApplyStatus('Battle sandbox settings saved.'); } catch { setApplyStatus('Battle sandbox settings applied, but browser save failed.'); } }
   return <section className="developer panel" aria-label="Developer">
     <div className="catalog-heading"><div><span className="eyebrow">WORLD GENERATION</span><h2>Developer</h2></div><button className="close" aria-label="Close developer tab" onClick={onClose}>&times;</button></div>
     <p>Populate the full {WORLD_WIDTH} × {WORLD_DEPTH} map. Attack defended sites to fight chimeras. Gathering and loot collection are still unavailable.</p>

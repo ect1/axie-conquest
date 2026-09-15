@@ -7,6 +7,7 @@ import { leaderTalent, NO_MODIFIERS } from './battle-modifiers';
 import { activeBattleSettings } from './battle-settings';
 import { teamFacing, teamStartingCenter } from './battle-layout';
 import { level0CanAttack, level1CanDetect } from './battle-range';
+import { baseCombatStats } from './sandbox-battle';
 
 export const BATTLE_STEP = 0.1;
 export const MAX_BATTLE_TICKS = 3000;
@@ -43,14 +44,17 @@ export function createBattle(army: WorldUnit, enemyCount = 18, roster: readonly 
   const members: Fighter[] = army.members.map(member => {
     const hero = STARTER_HEROES.find(h => h.id === member.heroId);
     const appearance = roster.find(axie => axie.id === member.heroId);
-    const base: CombatStats = hero ? { health: hero.stats.health, attack: hero.stats.attack, defense: hero.stats.defense, speed: 2.5 * hero.stats.speed / 100, range: hero.class === 'bird' || hero.class === 'dawn' ? 5 : 0.8, interval: 1.3, radius: 0.5 } : TROOP_COMBAT_STATS[member.troopKind ?? 'infantry'];
+    const troopKind = member.troopKind ?? 'infantry';
+    const profile = hero ? baseCombatStats(activeBattleSettings, 'axie') : troopKind === 'infantry' ? baseCombatStats(activeBattleSettings, 'soldier') : troopKind === 'archer' ? baseCombatStats(activeBattleSettings, 'archer') : TROOP_COMBAT_STATS.scout;
+    const attackInterval = 'attackSpeed' in profile ? 1 / profile.attackSpeed : profile.interval;
+    const base: CombatStats = hero ? { ...profile, speed: profile.speed * hero.stats.speed / 100, range: hero.class === 'bird' || hero.class === 'dawn' ? 5 : 0.8, interval: attackInterval, radius: 0.5 } : { ...TROOP_COMBAT_STATS[troopKind], health: profile.health, attack: profile.attack, defense: profile.defense, speed: profile.speed, interval: attackInterval };
     const stats = { ...base, range: base.range * activeBattleSettings.attackRangeMultiplier, radius: base.radius * activeBattleSettings.bodyRadiusMultiplier, health: base.health * modifiers.health, attack: base.attack * modifiers.attack, defense: base.defense * modifiers.defense, speed: base.speed * modifiers.speed };
     return { id: `player:${member.id}`, memberId: member.id, side: 'player', ...(appearance ? { appearance: structuredClone(appearance) } : {}), name: appearance?.name ?? hero?.name ?? member.troopKind ?? 'Squad', heroId: member.heroId, troopKind: member.troopKind, initialCount: member.count, hp: stats.health * member.count * (member.healthRatio ?? 1), maxHp: stats.health * member.count, stats, x: playerCenter.x + member.offset.x - playerOffsetCenter.x, z: playerCenter.z + member.offset.z - playerOffsetCenter.z, facing: teamFacing('player'), cooldown: 0, targetId: null, state: 'holding' };
   });
   const enemyOffsets = [{ x: -2, z: -1 }, { x: 0, z: -1 }, { x: 2, z: 2 }];
   for (let index = 0; index < 3; index++) {
     const kind = index === 2 ? 'archer' : 'infantry';
-    const base = TROOP_COMBAT_STATS[kind], stats = { ...base, range: base.range * activeBattleSettings.attackRangeMultiplier, radius: base.radius * activeBattleSettings.bodyRadiusMultiplier };
+    const baseline = TROOP_COMBAT_STATS[kind], chimera = baseCombatStats(activeBattleSettings, 'chimera'), base = { ...baseline, health: chimera.health, attack: chimera.attack, defense: chimera.defense, speed: chimera.speed, interval: 1 / chimera.attackSpeed }, stats = { ...base, range: base.range * activeBattleSettings.attackRangeMultiplier, radius: base.radius * activeBattleSettings.bodyRadiusMultiplier };
     const offset = enemyOffsets[index];
     members.push({ id: `enemy:${index}`, memberId: `${index}`, side: 'enemy', name: kind === 'archer' ? 'Chimera archers' : 'Chimera guards', troopKind: kind, initialCount: enemyCount, hp: stats.health * enemyCount, maxHp: stats.health * enemyCount, stats, x: enemyCenter.x + offset.x, z: enemyCenter.z + offset.z, facing: teamFacing('enemy'), cooldown: 0, targetId: null, state: 'holding' });
   }

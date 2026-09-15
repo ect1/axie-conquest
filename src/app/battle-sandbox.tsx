@@ -6,23 +6,21 @@ import type {
   BattleBoardLayout,
   SandboxTroopKind,
 } from "@/game/battle-board-scene";
-import type { BattleRangeSettings } from "@/game/battle-range";
+import type { BattleSettings } from "@/game/battle-settings";
 import {
   createSandboxBattle,
-  SANDBOX_AXIE_STATS,
   SANDBOX_BATTLE_STEP,
-  SANDBOX_CHIMERA_STATS,
-  SANDBOX_TROOP_STATS,
   SandboxBattle,
+  baseCombatStats,
   stepSandboxBattle,
 } from "@/game/sandbox-battle";
 
 type Props = {
   layout: BattleBoardLayout;
-  range: BattleRangeSettings;
+  range: BattleSettings;
   activeAxies: readonly ApiAxie[];
   onSaveLayout: (layout: BattleBoardLayout) => void;
-  onSaveRange: (range: BattleRangeSettings) => void;
+  onSaveRange: (range: BattleSettings) => void;
   onClose: () => void;
 };
 type DraftAssignment = {
@@ -119,8 +117,11 @@ export default function BattleSandbox({
     return () => window.clearInterval(timer);
   }, [running, rangeDraft]);
   useEffect(() => {
-    if (battle) renderer.current?.updateUnitPositions(battle.units);
+    if (battle) renderer.current?.updateUnitPositions(battle.units, battle.events);
   }, [battle]);
+  useEffect(() => {
+    if (battle?.result) setRunning(false);
+  }, [battle?.result]);
   useEffect(() => {
     setAssignments((current) =>
       current.filter((item) =>
@@ -232,7 +233,7 @@ export default function BattleSandbox({
         ),
       });
   const setRangeNumber =
-    (key: keyof BattleRangeSettings, minimum: number, maximum: number) =>
+    (key: keyof BattleSettings, minimum: number, maximum: number) =>
     (value: number) =>
       setRangeDraft({
         ...rangeDraft,
@@ -255,11 +256,8 @@ export default function BattleSandbox({
       const slot = slots.find(
         (candidate) => candidate.id === assignment.slotId,
       )!;
-      const stats = assignment.axie
-        ? SANDBOX_AXIE_STATS
-        : assignment.troopKind
-          ? SANDBOX_TROOP_STATS
-          : SANDBOX_CHIMERA_STATS;
+      const stats = baseCombatStats(rangeDraft, assignment.axie ? "axie" : assignment.troopKind ?? "chimera");
+      const members = assignment.troopKind ? assignment.quantity ?? 1 : 1;
       return {
         id: assignment.slotId,
         side: assignment.side,
@@ -274,6 +272,8 @@ export default function BattleSandbox({
             ? rangeDraft.rangedAttackRange
             : rangeDraft.meleeAttackRange,
         ...stats,
+        health: stats.health * members,
+        attack: stats.attack * members,
       };
     });
     setBattle(createSandboxBattle(positions));
@@ -351,6 +351,7 @@ export default function BattleSandbox({
           <>
             <button
               className="secondary"
+              disabled={!!battle.result}
               onClick={() => setRunning((value) => !value)}
             >
               {running ? "Pause" : "Resume"}
@@ -367,8 +368,10 @@ export default function BattleSandbox({
             </button>
             <p role="status">
               {running
-                ? "Approach simulation running"
-                : "Approach simulation paused"}{" "}
+                ? "Battle running"
+                : battle.result
+                  ? battle.result === "victory" ? "Victory" : battle.result === "defeat" ? "Defeat" : "Draw"
+                  : "Battle paused"}{" "}
               · {(battle.tick / 10).toFixed(1)}s ·{" "}
               {battle.units.filter((unit) => unit.state === "marching").length}{" "}
               marching ·{" "}
@@ -383,11 +386,8 @@ export default function BattleSandbox({
               walking ·{" "}
               {battle.units.filter((unit) => unit.state === "charging").length}{" "}
               rushing ·{" "}
-              {battle.units.filter((unit) => unit.state === "in-range").length}{" "}
-              attack-ready. Default Axie/Chimera speed:{" "}
-              {SANDBOX_AXIE_STATS.speed}/{SANDBOX_CHIMERA_STATS.speed};
-              melee/ranged attack range: {rangeDraft.meleeAttackRange}/
-              {rangeDraft.rangedAttackRange}. Attacks are disabled.
+              {battle.units.filter((unit) => unit.state === "attacking").length}{" "}
+              attacking · Player HP {Math.ceil(battle.units.filter((unit) => unit.side === "player").reduce((total, unit) => total + unit.hp, 0))}/{Math.ceil(battle.units.filter((unit) => unit.side === "player").reduce((total, unit) => total + unit.maxHp, 0))} · Enemy HP {Math.ceil(battle.units.filter((unit) => unit.side === "enemy").reduce((total, unit) => total + unit.hp, 0))}/{Math.ceil(battle.units.filter((unit) => unit.side === "enemy").reduce((total, unit) => total + unit.maxHp, 0))}. Health, attack, and defense resolve in battle; range and movement remain approach-only.
             </p>
             <small>
               Search recommendation: keep the detection angle around 120°–180°
@@ -451,6 +451,30 @@ export default function BattleSandbox({
           Save layout
         </button>
       </div>
+      <fieldset
+        className="battle-controls battle-board-controls"
+        aria-label="Sandbox base combat stats"
+      >
+        <legend>Base combat stats · JSON configurable</legend>
+        {([
+          ["Axie", "baseAxieHealth", "baseAxieAttack", "baseAxieDefense", "baseAxieSpeed", "baseAxieAttackSpeed"],
+          ["Soldier", "baseSoldierHealth", "baseSoldierAttack", "baseSoldierDefense", "baseSoldierSpeed", "baseSoldierAttackSpeed"],
+          ["Archer", "baseArcherHealth", "baseArcherAttack", "baseArcherDefense", "baseArcherSpeed", "baseArcherAttackSpeed"],
+          ["Chimera", "baseChimeraHealth", "baseChimeraAttack", "baseChimeraDefense", "baseChimeraSpeed", "baseChimeraAttackSpeed"],
+        ] as const).map(([name, health, attack, defense, speed, attackSpeed]) => (
+          <div className="sandbox-stat-row" key={name}>
+            <strong>{name}</strong>
+            <label>Health<input type="number" min={1} max={100000} step={1} value={rangeDraft[health]} onChange={(event) => setRangeNumber(health, 1, 100000)(Number(event.target.value))} /></label>
+            <label>Attack<input type="number" min={0} max={100000} step={1} value={rangeDraft[attack]} onChange={(event) => setRangeNumber(attack, 0, 100000)(Number(event.target.value))} /></label>
+            <label>Defense<input type="number" min={0} max={100000} step={1} value={rangeDraft[defense]} onChange={(event) => setRangeNumber(defense, 0, 100000)(Number(event.target.value))} /></label>
+            <label>Speed<input type="number" min={0.1} max={100} step={0.1} value={rangeDraft[speed]} onChange={(event) => setRangeNumber(speed, 0.1, 100)(Number(event.target.value))} /></label>
+            <label>Attack speed<input type="number" min={0.1} max={10} step={0.01} value={rangeDraft[attackSpeed]} onChange={(event) => setRangeNumber(attackSpeed, 0.1, 10)(Number(event.target.value))} /></label>
+          </div>
+        ))}
+        <label>Archer projectile speed (tiles / second)<input type="number" min={0.1} max={100} step={0.1} value={rangeDraft.baseArcherProjectileSpeed} onChange={(event) => setRangeNumber("baseArcherProjectileSpeed", 0.1, 100)(Number(event.target.value))} /></label>
+        <small>Attack speed is attacks per second, so 1.0 means one attack each second. Troop quantities multiply their squad health and attack.</small>
+        <button className="secondary" onClick={() => onSaveRange(rangeDraft)}>Save combat stats</button>
+      </fieldset>
       <fieldset
         className="battle-controls battle-board-controls"
         aria-label="Directional range tuning"

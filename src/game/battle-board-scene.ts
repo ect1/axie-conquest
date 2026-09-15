@@ -1,11 +1,11 @@
-import { ArcRotateCamera, Color3, Color4, DirectionalLight, Engine, HemisphericLight, MeshBuilder, Scene, StandardMaterial, TransformNode, Vector3 } from '@babylonjs/core';
+import { ArcRotateCamera, Color3, Color4, DirectionalLight, Engine, HemisphericLight, MeshBuilder, Scene, Sprite, SpriteManager, StandardMaterial, TransformNode, Vector3 } from '@babylonjs/core';
 import { createHexGridSlots, HEX_GRID_RADIUS } from './hex-grid';
 import type { ApiAxie } from './axie-roster';
 import { createBattleAppearanceResolver } from './axie/battle-appearance';
 import { BabylonAxieMixer } from './axie/babylon-mixer';
 import type { Fighter } from './battle';
 import { BattleRangeSettings } from './battle-range';
-import type { SandboxBattleUnit } from './sandbox-battle';
+import type { SandboxBattleEvent, SandboxBattleUnit } from './sandbox-battle';
 
 export type BattleBoardLayout = { hexGap: number; teamGap: number; columns: number; rowsPerTeam: number };
 export type SandboxTroopKind = 'soldier' | 'archer';
@@ -39,6 +39,14 @@ export function createBattleBoardScene(canvas: HTMLCanvasElement, initial: Battl
   const resolveAppearance = createBattleAppearanceResolver(modelAbort.signal);
   let board: TransformNode | null = null;
   const units = new Map<string, TransformNode>();
+  const healthBars = new Map<string, { background: Sprite; fill: Sprite }>();
+  const healthSpritePath = '/assets/ui/health-bar-sprite.svg';
+  const healthBackgrounds = new SpriteManager('sandbox health backgrounds', healthSpritePath, 128, 8, scene);
+  const playerHealths = new SpriteManager('sandbox player health', healthSpritePath, 64, 8, scene);
+  const enemyHealths = new SpriteManager('sandbox enemy health', healthSpritePath, 64, 8, scene);
+  const projectileMaterial = new StandardMaterial('sandbox archer projectile', scene); projectileMaterial.diffuseColor = Color3.FromHexString('#ffd166'); projectileMaterial.emissiveColor = Color3.FromHexString('#a86416'); projectileMaterial.specularColor = Color3.Black();
+  const projectiles: { mesh: ReturnType<typeof MeshBuilder.CreateSphere>; target: Vector3; speed: number }[] = [];
+  function healthSprite(name: string, manager: SpriteManager, color: Color4) { const sprite = new Sprite(name, manager); sprite.color = color; sprite.width = 1.9; sprite.height = .22; sprite.isPickable = false; return sprite; }
   function rangeCone(parent: TransformNode, x: number, z: number, facing: number, radius: number, angle: number, color: string, name: string) {
     const half = angle * Math.PI / 360;
     const points = [new Vector3(x, .2, z), ...Array.from({ length: 25 }, (_, index) => { const theta = facing - half + half * 2 * index / 24; return new Vector3(x + Math.sin(theta) * radius, .2, z + Math.cos(theta) * radius); }), new Vector3(x, .2, z)];
@@ -49,7 +57,7 @@ export function createBattleBoardScene(canvas: HTMLCanvasElement, initial: Battl
     const mesh = MeshBuilder.CreateLines(name, { points }, scene); mesh.parent = parent; mesh.color = Color3.FromHexString(color); mesh.isPickable = false;
   }
   function rebuild(layout: BattleBoardLayout, assignments: readonly BattleBoardAssignment[] = [], range?: BattleRangeSettings, showRange = false) {
-    board?.dispose(); board = new TransformNode('hex formation board', scene); units.clear();
+    board?.dispose(); board = new TransformNode('hex formation board', scene); units.clear(); healthBars.forEach(bar => { bar.background.dispose(); bar.fill.dispose(); }); healthBars.clear();
     const neutralRows = Math.round(layout.teamGap);
     const slots = createHexGridSlots({ columns: layout.columns, hexGap: layout.hexGap * .22, bands: [{ id: 'enemy', rows: layout.rowsPerTeam }, { id: 'neutral', rows: neutralRows }, { id: 'player', rows: layout.rowsPerTeam }] });
     for (const slot of slots) {
@@ -62,6 +70,9 @@ export function createBattleBoardScene(canvas: HTMLCanvasElement, initial: Battl
       if (!assignment) continue;
       const unit = new TransformNode(`${assignment.side} ${assignment.name}`, scene); unit.parent = board; unit.position.set(slot.x, .18, slot.z);
       units.set(slot.id, unit);
+      const healthBackground = healthSprite('sandbox health background', healthBackgrounds, Color4.FromHexString('#26332fff'));
+      const healthFill = healthSprite('sandbox health fill', assignment.side === 'player' ? playerHealths : enemyHealths, Color4.FromHexString(assignment.side === 'player' ? '#6be08bff' : '#e16d61ff'));
+      healthBackground.position.set(slot.x, 2.15, slot.z); healthFill.position.set(slot.x, 2.15, slot.z); healthBars.set(slot.id, { background: healthBackground, fill: healthFill });
       // Sandbox rows grow from enemy (-Z) to player (+Z); both sides face the
       // opposing formation while the camera remains a presentation concern.
       const facing = assignment.side === 'player' ? Math.PI : 0;
@@ -90,12 +101,12 @@ export function createBattleBoardScene(canvas: HTMLCanvasElement, initial: Battl
   rebuild(initial);
   const resize = () => engine.resize(); window.addEventListener('resize', resize); const observer = new ResizeObserver(resize); observer.observe(canvas);
   let ready = false;
-  engine.runRenderLoop(() => { scene.render(); if (!ready && scene.isReady()) { ready = true; canvas.dataset.battleBoardReady = 'true'; onReady(); } });
+  engine.runRenderLoop(() => { const elapsed = engine.getDeltaTime() / 1000; for (let index = projectiles.length - 1; index >= 0; index--) { const projectile = projectiles[index], delta = projectile.target.subtract(projectile.mesh.position), distance = delta.length(), step = projectile.speed * elapsed; if (distance <= step) { projectile.mesh.dispose(); projectiles.splice(index, 1); } else projectile.mesh.position.addInPlace(delta.scale(step / distance)); } scene.render(); if (!ready && scene.isReady()) { ready = true; canvas.dataset.battleBoardReady = 'true'; onReady(); } });
   return {
     update: rebuild,
-    updateUnitPositions: (battleUnits: readonly SandboxBattleUnit[]) => battleUnits.forEach(battleUnit => { const unit = units.get(battleUnit.id); if (unit) { unit.position.x = battleUnit.x; unit.position.z = battleUnit.z; unit.rotation.y = battleUnit.facing; } }),
+    updateUnitPositions: (battleUnits: readonly SandboxBattleUnit[], events: readonly SandboxBattleEvent[] = []) => { battleUnits.forEach(battleUnit => { const unit = units.get(battleUnit.id), health = healthBars.get(battleUnit.id); if (unit) { unit.position.x = battleUnit.x; unit.position.z = battleUnit.z; unit.rotation.y = battleUnit.facing; const ratio = Math.max(0, Math.min(1, battleUnit.hp / battleUnit.maxHp)); if (health) { health.background.position.set(battleUnit.x, 2.15, battleUnit.z); health.fill.position.set(battleUnit.x - .95 * (1 - ratio), 2.15, battleUnit.z); health.fill.width = 1.9 * ratio; health.background.isVisible = health.fill.isVisible = battleUnit.hp > 0; } unit.setEnabled(battleUnit.hp > 0); } }); events.forEach(event => { if (!event.projectileSpeed) return; const from = battleUnits.find(unit => unit.id === event.from), to = battleUnits.find(unit => unit.id === event.to); if (!from || !to) return; const mesh = MeshBuilder.CreateSphere('sandbox archer arrow', { diameter: .18, segments: 6 }, scene); mesh.position.set(from.x, .95, from.z); mesh.material = projectileMaterial; mesh.isPickable = false; projectiles.push({ mesh, target: new Vector3(to.x, .95, to.z), speed: event.projectileSpeed }); }); },
     zoom: (factor: number) => { camera.radius = Math.max(camera.lowerRadiusLimit!, Math.min(camera.upperRadiusLimit!, camera.radius * factor)); },
     home: () => { camera.alpha = homeAlpha; camera.beta = homeBeta; camera.radius = homeRadius; camera.target.set(0, 0, 0); },
-    dispose: () => { observer.disconnect(); window.removeEventListener('resize', resize); modelAbort.abort(); axieMixer.dispose(); board?.dispose(); scene.dispose(); engine.dispose(); },
+    dispose: () => { observer.disconnect(); window.removeEventListener('resize', resize); modelAbort.abort(); axieMixer.dispose(); projectiles.forEach(projectile => projectile.mesh.dispose()); healthBackgrounds.dispose(); playerHealths.dispose(); enemyHealths.dispose(); board?.dispose(); scene.dispose(); engine.dispose(); },
   };
 }

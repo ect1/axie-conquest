@@ -26,13 +26,18 @@
   - [ ] Expose battle layout and detection tuning through JSON and the Developer HUD.
     - [x] Expose the empty board's hex spacing and neutral team gap.
     - [x] Expose directional range tuning in the Developer sandbox and persist it with battle settings.
+    - [x] Expose persisted JSON base health, attack, defense, movement-speed, and attack-speed profiles for Axies, soldiers, archers, and Chimeras.
+      - [x] Add a configurable archer projectile speed and visible sandbox projectile feedback.
   - [x] Render configurable hex formation slots in a Developer sandbox.
     - [x] Assign active Axies and available Chimera mobs to team-specific sandbox hexes.
     - [x] Apply assignments to preview their 3D unit models without changing player formations.
     - [x] Show the player formation at the near edge and clear all sandbox assignments and previews.
   - [ ] Verify live, sandbox, and Mail replay views.
-    - [x] Add a sandbox-only Start battle approach simulation using Level 1 acquisition and Level 0 arrival.
-    - [ ] Manually verify Start, Pause, Reset positions, and no-damage behavior in the developer sandbox.
+    - [x] Add a sandbox-only Start battle simulation using Level 1 acquisition and Level 0 arrival.
+      - [x] Resolve simultaneous health, attack, and defense damage after units arrive.
+      - [x] Show per-unit and aggregate health bars, and declare a practice result.
+      - [x] Keep range and movement speed as approach-only behavior for now.
+    - [ ] Manually verify Start, Pause, Reset positions, health depletion, and battle results in the developer sandbox.
 
 - [x] Connect replay fighters to their Axie 3D models.
   - [x] Preserve roster genes and snapshot each assigned Axie's appearance in battle recordings.

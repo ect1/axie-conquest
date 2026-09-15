@@ -13,7 +13,10 @@ export let activeBattleSettings: BattleSettings = { ...DEFAULT_BATTLE_SETTINGS }
 
 export function sanitizeBattleSettings(value: SavedBattleSettings | null | undefined): BattleSettings {
   const number = (key: keyof typeof defaults, minimum: number, maximum: number) => {
-    const candidate = value?.[key];
+    // The first sandbox prototype stored these same base profiles under
+    // `sandbox*`; retain that input solely to migrate existing local saves.
+    const legacyKey = String(key).replace(/^base/, 'sandbox');
+    const candidate = value?.[key] ?? (value as Record<string, unknown> | null | undefined)?.[legacyKey];
     return typeof candidate === 'number' && Number.isFinite(candidate) ? Math.max(minimum, Math.min(maximum, candidate)) : DEFAULT_BATTLE_SETTINGS[key];
   };
   const savedSeparation = value?.teamSeparation ?? value?.replayTeamSeparation;
@@ -34,6 +37,27 @@ export function sanitizeBattleSettings(value: SavedBattleSettings | null | undef
     boardRows: number('boardRows', 1, 12),
     attackRangeMultiplier: number('attackRangeMultiplier', 0.1, 5),
     bodyRadiusMultiplier: number('bodyRadiusMultiplier', 0.1, 5),
+    baseAxieHealth: number('baseAxieHealth', 1, 100000),
+    baseAxieAttack: number('baseAxieAttack', 0, 100000),
+    baseAxieDefense: number('baseAxieDefense', 0, 100000),
+    baseAxieSpeed: number('baseAxieSpeed', 0.1, 100),
+    baseAxieAttackSpeed: number('baseAxieAttackSpeed', 0.1, 10),
+    baseSoldierHealth: number('baseSoldierHealth', 1, 100000),
+    baseSoldierAttack: number('baseSoldierAttack', 0, 100000),
+    baseSoldierDefense: number('baseSoldierDefense', 0, 100000),
+    baseSoldierSpeed: number('baseSoldierSpeed', 0.1, 100),
+    baseSoldierAttackSpeed: number('baseSoldierAttackSpeed', 0.1, 10),
+    baseArcherHealth: number('baseArcherHealth', 1, 100000),
+    baseArcherAttack: number('baseArcherAttack', 0, 100000),
+    baseArcherDefense: number('baseArcherDefense', 0, 100000),
+    baseArcherSpeed: number('baseArcherSpeed', 0.1, 100),
+    baseArcherAttackSpeed: number('baseArcherAttackSpeed', 0.1, 10),
+    baseArcherProjectileSpeed: number('baseArcherProjectileSpeed', 0.1, 100),
+    baseChimeraHealth: number('baseChimeraHealth', 1, 100000),
+    baseChimeraAttack: number('baseChimeraAttack', 0, 100000),
+    baseChimeraDefense: number('baseChimeraDefense', 0, 100000),
+    baseChimeraSpeed: number('baseChimeraSpeed', 0.1, 100),
+    baseChimeraAttackSpeed: number('baseChimeraAttackSpeed', 0.1, 10),
     ...range,
     overlays: Object.fromEntries(Object.keys(DEFAULT_BATTLE_OVERLAYS).map(key => [key, typeof value?.overlays?.[key as keyof BattleOverlays] === 'boolean' ? value.overlays[key as keyof BattleOverlays] : DEFAULT_BATTLE_OVERLAYS[key as keyof BattleOverlays]])) as BattleOverlays,
     showAll: value?.showAll === true,

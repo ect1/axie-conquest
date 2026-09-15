@@ -1,16 +1,33 @@
 import { angleTo, angularDifference, BattleRangeSettings, isInDirectionalRange } from './battle-range';
 
 export const SANDBOX_BATTLE_STEP = .1;
-export const SANDBOX_AXIE_STATS = { speed: 2.5 };
-export const SANDBOX_CHIMERA_STATS = { speed: 2.3 };
-export const SANDBOX_TROOP_STATS = { speed: 2.4 };
+// These are deliberately simple practice values. Range and movement remain
+// board-navigation aids; this sandbox currently balances health, attack, and
+// defense only.
+const FALLBACK_COMBAT_STATS = { health: 55, attack: 6, defense: 20 };
+export type BaseCombatSettings = {
+  baseAxieHealth: number; baseAxieAttack: number; baseAxieDefense: number; baseAxieSpeed: number; baseAxieAttackSpeed: number;
+  baseSoldierHealth: number; baseSoldierAttack: number; baseSoldierDefense: number; baseSoldierSpeed: number; baseSoldierAttackSpeed: number;
+  baseArcherHealth: number; baseArcherAttack: number; baseArcherDefense: number; baseArcherSpeed: number; baseArcherAttackSpeed: number; baseArcherProjectileSpeed: number;
+  baseChimeraHealth: number; baseChimeraAttack: number; baseChimeraDefense: number; baseChimeraSpeed: number; baseChimeraAttackSpeed: number;
+};
+export type BaseCombatKind = 'axie' | 'soldier' | 'archer' | 'chimera';
+export function baseCombatStats(settings: BaseCombatSettings, kind: BaseCombatKind) {
+  const key = kind[0].toUpperCase() + kind.slice(1) as 'Axie' | 'Soldier' | 'Archer' | 'Chimera';
+  return { health: settings[`base${key}Health`], attack: settings[`base${key}Attack`], defense: settings[`base${key}Defense`], speed: settings[`base${key}Speed`], attackSpeed: settings[`base${key}AttackSpeed`], ...(kind === 'archer' ? { projectileSpeed: settings.baseArcherProjectileSpeed } : {}) };
+}
 export type SandboxMovementBounds = { minX: number; maxX: number; minZ: number; maxZ: number };
-export type SandboxBattleUnit = { id: string; side: 'player' | 'enemy'; x: number; z: number; facing: number; speed: number; attackRange: number; searchAtZ?: number; movementBounds?: SandboxMovementBounds; reachedBoardEdge?: boolean; roamTarget?: { x: number; z: number }; state: 'marching' | 'searching' | 'roaming' | 'holding' | 'approaching' | 'charging' | 'in-range'; targetId: string | null };
-export type SandboxBattle = { tick: number; units: SandboxBattleUnit[] };
+export type SandboxBattleUnit = { id: string; side: 'player' | 'enemy'; x: number; z: number; facing: number; health: number; attack: number; defense: number; attackSpeed: number; projectileSpeed?: number; hp: number; maxHp: number; cooldown: number; speed: number; attackRange: number; searchAtZ?: number; movementBounds?: SandboxMovementBounds; reachedBoardEdge?: boolean; roamTarget?: { x: number; z: number }; state: 'marching' | 'searching' | 'roaming' | 'holding' | 'approaching' | 'charging' | 'attacking' | 'defeated'; targetId: string | null };
+export type SandboxBattleSeed = Omit<SandboxBattleUnit, 'state' | 'targetId' | 'health' | 'attack' | 'defense' | 'attackSpeed' | 'hp' | 'maxHp' | 'cooldown'> & Partial<Pick<SandboxBattleUnit, 'health' | 'attack' | 'defense' | 'attackSpeed'>>;
+export type SandboxBattleEvent = { from: string; to: string; projectileSpeed?: number };
+export type SandboxBattle = { tick: number; units: SandboxBattleUnit[]; events: SandboxBattleEvent[]; result: 'victory' | 'defeat' | 'draw' | null };
+const DEFAULT_COMBAT_STATS = FALLBACK_COMBAT_STATS;
 
-/** No-damage simulation used only by the developer board sandbox. */
-export function createSandboxBattle(units: readonly Omit<SandboxBattleUnit, 'state' | 'targetId'>[]): SandboxBattle {
-  return { tick: 0, units: units.map(unit => ({ ...unit, reachedBoardEdge: false, state: 'holding', targetId: null })) };
+export function createSandboxBattle(units: readonly SandboxBattleSeed[]): SandboxBattle {
+  return { tick: 0, events: [], result: null, units: units.map(unit => {
+    const health = unit.health ?? DEFAULT_COMBAT_STATS.health;
+    return { ...unit, health, attack: unit.attack ?? DEFAULT_COMBAT_STATS.attack, defense: unit.defense ?? DEFAULT_COMBAT_STATS.defense, attackSpeed: unit.attackSpeed ?? 1, hp: health, maxHp: health, cooldown: 0, reachedBoardEdge: false, state: 'holding', targetId: null };
+  }) };
 }
 
 function roamingSeed(id: string, tick: number): number {
@@ -29,18 +46,23 @@ function nextRoamTarget(id: string, tick: number, bounds: SandboxMovementBounds)
 /**
  * Sandbox-only approach order: march forward while checking Level 0 targets,
  * Level 1 rushes, then the unit stops at its own attack range. The far board
- * edge is a movement boundary; it never disables target detection. The
+ * edge is a movement boundary; it never disables target detection. Once a
+ * unit arrives it exchanges simultaneous, defense-reduced attacks. The
  * persisted field names retain the prior live-battle schema: Level 0 uses the
  * former outer `level1Detection*` values and Level 1 uses `level0*` values.
- * Attacks intentionally never resolve here.
  */
 export function stepSandboxBattle(previous: SandboxBattle, settings: BattleRangeSettings): SandboxBattle {
-  const units = previous.units.map(unit => ({ ...unit }));
+  if (previous.result) return previous;
+  const units = previous.units.map(unit => ({ ...unit, roamTarget: unit.roamTarget && { ...unit.roamTarget } }));
+  const hits = new Map<string, number>();
+  const events: SandboxBattleEvent[] = [];
   for (const unit of units) {
     const origin = previous.units.find(candidate => candidate.id === unit.id)!;
+    if (origin.hp <= 0) { unit.state = 'defeated'; unit.targetId = null; continue; }
+    unit.cooldown = Math.max(0, origin.cooldown - SANDBOX_BATTLE_STEP);
     const hasReachedBoardEdge = origin.reachedBoardEdge || (origin.searchAtZ !== undefined && (origin.side === 'player' ? origin.z <= origin.searchAtZ : origin.z >= origin.searchAtZ));
     if (hasReachedBoardEdge) unit.reachedBoardEdge = true;
-    const enemies = previous.units.filter(candidate => candidate.side !== unit.side)
+    const enemies = previous.units.filter(candidate => candidate.side !== unit.side && candidate.hp > 0)
       .sort((a, b) => Math.hypot(origin.x - a.x, origin.z - a.z) - Math.hypot(origin.x - b.x, origin.z - b.z) || a.id.localeCompare(b.id));
     const target = enemies
       .find(candidate => isInDirectionalRange(origin, { ...candidate, radius: settings.bodyRadius }, settings.level1DetectionRange, settings.level1DetectionAngle));
@@ -71,12 +93,27 @@ export function stepSandboxBattle(previous: SandboxBattle, settings: BattleRange
     unit.targetId = target.id;
     unit.facing = Math.atan2(target.x - origin.x, target.z - origin.z);
     const attackRange = unit.attackRange;
-    if (isInDirectionalRange(origin, { ...target, radius: settings.bodyRadius }, attackRange, 360)) { unit.state = 'in-range'; continue; }
+    if (isInDirectionalRange(origin, { ...target, radius: settings.bodyRadius }, attackRange, 360)) {
+      unit.state = 'attacking';
+      if (unit.cooldown <= 0) {
+        const damage = unit.attack * 100 / (100 + Math.max(0, target.defense));
+        hits.set(target.id, (hits.get(target.id) ?? 0) + damage);
+        events.push({ from: unit.id, to: target.id, ...(unit.projectileSpeed ? { projectileSpeed: unit.projectileSpeed } : {}) });
+        unit.cooldown = 1 / unit.attackSpeed;
+      }
+      continue;
+    }
     const rush = isInDirectionalRange(origin, { ...target, radius: settings.bodyRadius }, settings.level0Range, settings.level0Angle);
     unit.state = rush ? 'charging' : 'approaching';
     const distance = Math.hypot(target.x - origin.x, target.z - origin.z);
     const move = Math.min(Math.max(0, distance - attackRange - settings.bodyRadius), unit.speed * (rush ? settings.dashSpeedMultiplier : 1) * SANDBOX_BATTLE_STEP);
     unit.x += Math.sin(unit.facing) * move; unit.z += Math.cos(unit.facing) * move;
   }
-  return { tick: previous.tick + 1, units };
+  for (const unit of units) {
+    unit.hp = Math.max(0, unit.hp - (hits.get(unit.id) ?? 0));
+    if (!unit.hp) { unit.state = 'defeated'; unit.targetId = null; }
+  }
+  const playerAlive = units.some(unit => unit.side === 'player' && unit.hp > 0);
+  const enemyAlive = units.some(unit => unit.side === 'enemy' && unit.hp > 0);
+  return { tick: previous.tick + 1, units, events, result: playerAlive && enemyAlive ? null : playerAlive ? 'victory' : enemyAlive ? 'defeat' : 'draw' };
 }
