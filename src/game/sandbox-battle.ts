@@ -1,6 +1,13 @@
 import { angleTo, angularDifference, BattleRangeSettings, isInDirectionalRange } from './battle-range';
 
 export const SANDBOX_BATTLE_STEP = .1;
+/** A brief all-around awareness check after a unit's current target is defeated. */
+export const POST_KILL_SCAN_STEPS = 5;
+/** Ranged units sweep their full awareness radius after this many movement ticks. */
+export const RANGED_MOVEMENT_SCAN_INTERVAL = 5;
+/** Melee units pause to check their surroundings when their forward order reaches its edge. */
+export const EDGE_SCAN_STEPS = 5;
+export const MELEE_ROAM_SCAN_INTERVAL = 5;
 // These are deliberately simple practice values. Range and movement remain
 // board-navigation aids; this sandbox currently balances health, attack, and
 // defense only.
@@ -17,7 +24,7 @@ export function baseCombatStats(settings: BaseCombatSettings, kind: BaseCombatKi
   return { health: settings[`base${key}Health`], attack: settings[`base${key}Attack`], defense: settings[`base${key}Defense`], speed: settings[`base${key}Speed`], attackSpeed: settings[`base${key}AttackSpeed`], ...(kind === 'archer' ? { projectileSpeed: settings.baseArcherProjectileSpeed } : {}) };
 }
 export type SandboxMovementBounds = { minX: number; maxX: number; minZ: number; maxZ: number };
-export type SandboxBattleUnit = { id: string; side: 'player' | 'enemy'; x: number; z: number; facing: number; health: number; attack: number; defense: number; attackSpeed: number; projectileSpeed?: number; hp: number; maxHp: number; cooldown: number; speed: number; attackRange: number; searchAtZ?: number; movementBounds?: SandboxMovementBounds; reachedBoardEdge?: boolean; roamTarget?: { x: number; z: number }; state: 'marching' | 'searching' | 'roaming' | 'holding' | 'approaching' | 'charging' | 'attacking' | 'defeated'; targetId: string | null };
+export type SandboxBattleUnit = { id: string; side: 'player' | 'enemy'; x: number; z: number; facing: number; health: number; attack: number; defense: number; attackSpeed: number; projectileSpeed?: number; hp: number; maxHp: number; cooldown: number; speed: number; attackRange: number; searchAtZ?: number; movementBounds?: SandboxMovementBounds; reachedBoardEdge?: boolean; roamTarget?: { x: number; z: number }; searchStepsRemaining?: number; edgeScanStepsRemaining?: number; movementStepsSinceScan?: number; roamStepsSinceScan?: number; state: 'marching' | 'searching' | 'roaming' | 'holding' | 'approaching' | 'charging' | 'attacking' | 'defeated'; targetId: string | null };
 export type SandboxBattleSeed = Omit<SandboxBattleUnit, 'state' | 'targetId' | 'health' | 'attack' | 'defense' | 'attackSpeed' | 'hp' | 'maxHp' | 'cooldown'> & Partial<Pick<SandboxBattleUnit, 'health' | 'attack' | 'defense' | 'attackSpeed'>>;
 export type SandboxBattleEvent = { from: string; to: string; projectileSpeed?: number };
 export type SandboxBattle = { tick: number; units: SandboxBattleUnit[]; events: SandboxBattleEvent[]; result: 'victory' | 'defeat' | 'draw' | null };
@@ -26,7 +33,7 @@ const DEFAULT_COMBAT_STATS = FALLBACK_COMBAT_STATS;
 export function createSandboxBattle(units: readonly SandboxBattleSeed[]): SandboxBattle {
   return { tick: 0, events: [], result: null, units: units.map(unit => {
     const health = unit.health ?? DEFAULT_COMBAT_STATS.health;
-    return { ...unit, health, attack: unit.attack ?? DEFAULT_COMBAT_STATS.attack, defense: unit.defense ?? DEFAULT_COMBAT_STATS.defense, attackSpeed: unit.attackSpeed ?? 1, hp: health, maxHp: health, cooldown: 0, reachedBoardEdge: false, state: 'holding', targetId: null };
+    return { ...unit, health, attack: unit.attack ?? DEFAULT_COMBAT_STATS.attack, defense: unit.defense ?? DEFAULT_COMBAT_STATS.defense, attackSpeed: unit.attackSpeed ?? 1, hp: health, maxHp: health, cooldown: 0, reachedBoardEdge: false, searchStepsRemaining: 0, movementStepsSinceScan: 0, state: 'holding', targetId: null };
   }) };
 }
 
@@ -64,33 +71,89 @@ export function stepSandboxBattle(previous: SandboxBattle, settings: BattleRange
     if (hasReachedBoardEdge) unit.reachedBoardEdge = true;
     const enemies = previous.units.filter(candidate => candidate.side !== unit.side && candidate.hp > 0)
       .sort((a, b) => Math.hypot(origin.x - a.x, origin.z - a.z) - Math.hypot(origin.x - b.x, origin.z - b.z) || a.id.localeCompare(b.id));
-    const target = enemies
-      .find(candidate => isInDirectionalRange(origin, { ...candidate, radius: settings.bodyRadius }, settings.level1DetectionRange, settings.level1DetectionAngle));
-    if (!target) {
-      const searchTarget = enemies.find(candidate => Math.hypot(candidate.x - origin.x, candidate.z - origin.z) <= settings.level1DetectionRange + settings.bodyRadius);
-      if (hasReachedBoardEdge && searchTarget) {
-        const desiredFacing = angleTo(origin, searchTarget), difference = angularDifference(desiredFacing, origin.facing), turn = Math.sign(difference) * Math.min(Math.abs(difference), Math.PI * SANDBOX_BATTLE_STEP * 2);
-        unit.state = 'searching'; unit.targetId = searchTarget.id; unit.facing = origin.facing + turn;
-        continue;
+    // Do not immediately resume the forward order when the unit's opponent
+    // falls. For half a second, sweep its awareness radius in every direction
+    // so a nearby flanking enemy can become its next target.
+    const formerTarget = origin.targetId ? previous.units.find(candidate => candidate.id === origin.targetId) : undefined;
+    const scanSteps = origin.searchStepsRemaining || (formerTarget?.hp === 0 ? POST_KILL_SCAN_STEPS : 0);
+    if (scanSteps > 0) {
+      const scanTarget = enemies.find(candidate => isInDirectionalRange(origin, { ...candidate, radius: settings.bodyRadius }, settings.level1DetectionRange, 360));
+      unit.state = 'searching';
+      unit.searchStepsRemaining = scanSteps - 1;
+      if (scanTarget) {
+        const desiredFacing = angleTo(origin, scanTarget), difference = angularDifference(desiredFacing, origin.facing);
+        unit.targetId = scanTarget.id;
+        unit.facing = origin.facing + Math.sign(difference) * Math.min(Math.abs(difference), Math.PI * 2 / POST_KILL_SCAN_STEPS);
+      } else {
+        unit.targetId = null;
+        unit.facing = origin.facing + Math.PI * 2 / POST_KILL_SCAN_STEPS;
       }
+      continue;
+    }
+    // Reaching the end of a forward order is not permission to wander away
+    // immediately. Melee units make a short full-circle sweep first.
+    const edgeScanSteps = origin.edgeScanStepsRemaining ?? (hasReachedBoardEdge && !origin.reachedBoardEdge ? EDGE_SCAN_STEPS : 0);
+    if (edgeScanSteps > 0) {
+      const scanTarget = enemies.find(candidate => isInDirectionalRange(origin, { ...candidate, radius: settings.bodyRadius }, settings.level1DetectionRange, 360));
+      unit.state = 'searching';
+      unit.edgeScanStepsRemaining = edgeScanSteps - 1;
+      if (scanTarget) {
+        const desiredFacing = angleTo(origin, scanTarget), difference = angularDifference(desiredFacing, origin.facing);
+        unit.targetId = scanTarget.id;
+        unit.facing = origin.facing + Math.sign(difference) * Math.min(Math.abs(difference), Math.PI * 2 / EDGE_SCAN_STEPS);
+      } else {
+        unit.targetId = null;
+        unit.facing = origin.facing + Math.PI * 2 / EDGE_SCAN_STEPS;
+      }
+      continue;
+    }
+    const directionalTarget = enemies
+      .find(candidate => isInDirectionalRange(origin, { ...candidate, radius: settings.bodyRadius }, settings.level1DetectionRange, settings.level1DetectionAngle));
+    // A hit tells a unit exactly who to look for, even when that attacker was
+    // outside its forward detection cone. This is resolved on the next fixed
+    // step after simultaneous damage has been applied.
+    const damageSource = directionalTarget ? undefined : previous.events
+      .filter(event => event.to === origin.id)
+      .map(event => previous.units.find(candidate => candidate.id === event.from))
+      .filter((candidate): candidate is SandboxBattleUnit => !!candidate && candidate.hp > 0 && candidate.side !== origin.side)
+      .sort((a, b) => Math.hypot(origin.x - a.x, origin.z - a.z) - Math.hypot(origin.x - b.x, origin.z - b.z) || a.id.localeCompare(b.id))[0];
+    const movementSteps = origin.movementStepsSinceScan ?? 0;
+    const rangedSweep = !directionalTarget && !damageSource && origin.projectileSpeed !== undefined && movementSteps + 1 >= RANGED_MOVEMENT_SCAN_INTERVAL;
+    const target = damageSource ?? directionalTarget ?? (rangedSweep
+      ? enemies.find(candidate => isInDirectionalRange(origin, { ...candidate, radius: settings.bodyRadius }, settings.level1DetectionRange, 360))
+      : undefined);
+    if (!target) {
       if (hasReachedBoardEdge) {
         const bounds = unit.movementBounds;
-        if (!bounds) { unit.state = 'holding'; unit.targetId = null; continue; }
+        if (!bounds) { unit.state = 'holding'; unit.targetId = null; unit.movementStepsSinceScan = 0; unit.roamStepsSinceScan = 0; continue; }
+        const roamSteps = origin.roamStepsSinceScan ?? 0;
+        const roamSweep = origin.projectileSpeed === undefined && roamSteps + 1 >= MELEE_ROAM_SCAN_INTERVAL;
+        const searchTarget = roamSweep ? enemies.find(candidate => isInDirectionalRange(origin, { ...candidate, radius: settings.bodyRadius }, settings.level1DetectionRange, 360)) : undefined;
+        if (searchTarget) {
+          const desiredFacing = angleTo(origin, searchTarget), difference = angularDifference(desiredFacing, origin.facing);
+          unit.state = 'searching'; unit.targetId = searchTarget.id; unit.roamStepsSinceScan = 0;
+          unit.facing = origin.facing + Math.sign(difference) * Math.min(Math.abs(difference), Math.PI * 2 / MELEE_ROAM_SCAN_INTERVAL);
+          continue;
+        }
         const oldTarget = origin.roamTarget, oldDistance = oldTarget ? Math.hypot(oldTarget.x - origin.x, oldTarget.z - origin.z) : 0;
         const targetPoint = !oldTarget || oldDistance < .2 ? nextRoamTarget(unit.id, previous.tick, bounds) : oldTarget;
         const distance = Math.hypot(targetPoint.x - origin.x, targetPoint.z - origin.z), facing = angleTo(origin, targetPoint);
         const move = Math.min(distance, unit.speed * .7 * SANDBOX_BATTLE_STEP);
-        unit.state = 'roaming'; unit.targetId = null; unit.roamTarget = targetPoint; unit.facing = facing;
+        unit.state = 'roaming'; unit.targetId = null; unit.roamTarget = targetPoint; unit.facing = facing; unit.movementStepsSinceScan = 0;
+        unit.roamStepsSinceScan = origin.projectileSpeed === undefined ? (roamSweep ? 0 : roamSteps + 1) : 0;
         unit.x = Math.max(bounds.minX, Math.min(bounds.maxX, origin.x + Math.sin(facing) * move));
         unit.z = Math.max(bounds.minZ, Math.min(bounds.maxZ, origin.z + Math.cos(facing) * move));
         continue;
       }
       const direction = origin.side === 'player' ? -1 : 1;
       unit.state = 'marching'; unit.targetId = null;
+      unit.movementStepsSinceScan = origin.projectileSpeed !== undefined ? (rangedSweep ? 0 : movementSteps + 1) : 0;
       unit.z = origin.searchAtZ === undefined ? origin.z + direction * unit.speed * SANDBOX_BATTLE_STEP : direction < 0 ? Math.max(origin.searchAtZ, origin.z - unit.speed * SANDBOX_BATTLE_STEP) : Math.min(origin.searchAtZ, origin.z + unit.speed * SANDBOX_BATTLE_STEP);
       continue;
     }
     unit.targetId = target.id;
+    unit.movementStepsSinceScan = 0;
+    unit.roamStepsSinceScan = 0;
     unit.facing = Math.atan2(target.x - origin.x, target.z - origin.z);
     const attackRange = unit.attackRange;
     if (isInDirectionalRange(origin, { ...target, radius: settings.bodyRadius }, attackRange, 360)) {

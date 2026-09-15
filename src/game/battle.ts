@@ -95,7 +95,18 @@ export function stepBattle(previous: Battle): Battle {
     const origin = previous.fighters.find(f => f.id === fighter.id)!;
     const enemies = previous.fighters.filter(f => f.side !== fighter.side && f.hp > 0 && (fighter.side === 'player' || Math.hypot(f.x, f.z - 8) <= activeBattleSettings.leashRadius));
     enemies.sort((a, b) => edgeDistance(origin, a) - edgeDistance(origin, b) || a.id.localeCompare(b.id));
-    const target = enemies.find(e => e.id === fighter.targetId && edgeDistance(origin, e) <= fighter.stats.range) ?? enemies[0];
+    const usualTarget = enemies.find(e => e.id === fighter.targetId && edgeDistance(origin, e) <= fighter.stats.range) ?? enemies[0];
+    const usualRangeTarget = usualTarget && { ...usualTarget, radius: usualTarget.stats.radius };
+    const usualDetection = usualRangeTarget && level1CanDetect(origin, usualRangeTarget, activeBattleSettings);
+    // Combat events record the source of every applied hit. A fighter that did
+    // not see an enemy in its cone still reacts to the unit that damaged it.
+    const damageSource = usualDetection ? undefined : previous.events
+      .filter(event => event.to === fighter.id && (event.kind === 'hit' || event.kind === 'skill'))
+      .map(event => previous.fighters.find(candidate => candidate.id === event.from))
+      .filter((candidate): candidate is Fighter => !!candidate && candidate.hp > 0 && candidate.side !== fighter.side)
+      .filter(candidate => fighter.side === 'player' || Math.hypot(candidate.x, candidate.z - 8) <= activeBattleSettings.leashRadius)
+      .sort((a, b) => edgeDistance(origin, a) - edgeDistance(origin, b) || a.id.localeCompare(b.id))[0];
+    const target = damageSource ?? usualTarget;
     const rangeTarget = target && { ...target, radius: target.stats.radius };
     const detected = rangeTarget && level1CanDetect(origin, rangeTarget, activeBattleSettings);
     if (!target || (!detected && !previous.fighters.some(f => f.side === fighter.side && f.hp < f.maxHp))) { fighter.state = 'holding'; fighter.targetId = null; continue; }

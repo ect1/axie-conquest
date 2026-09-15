@@ -109,12 +109,49 @@ const beforeEdge = sandboxRules.stepSandboxBattle(sandboxRules.createSandboxBatt
 assert.equal(beforeEdge.units[0].state, 'marching', 'sandbox marches until the board edge when no target is inside its cone');
 assert.equal(beforeEdge.units[0].targetId, null);
 const boardEdge = sandboxRules.stepSandboxBattle(sandboxRules.createSandboxBattle([{ id: 'player', side: 'player', x: 0, z: 1, facing: Math.PI, speed: 2, attackRange: 1, searchAtZ: 1, movementBounds: { minX: -4, maxX: 4, minZ: -4, maxZ: 4 } }, { id: 'enemy', side: 'enemy', x: 0, z: 50, facing: 0, speed: 2, attackRange: 1, searchAtZ: -50 }]), sandboxSettings);
-assert.equal(boardEdge.units[0].state, 'roaming', 'sandbox units roam inside the complete board after reaching its edge');
+assert.equal(boardEdge.units[0].state, 'searching', 'melee units sweep at the board edge before roaming');
+assert.equal(boardEdge.units[0].edgeScanStepsRemaining, sandboxRules.EDGE_SCAN_STEPS - 1, 'the edge sweep lasts a short fixed number of battle steps');
+const roamingSweep = sandboxRules.stepSandboxBattle({
+  tick: 4, events: [], result: null, units: [
+    { ...sandboxRules.createSandboxBattle([{ id: 'player', side: 'player', x: 0, z: 1, facing: Math.PI, speed: 2, attackRange: 1, searchAtZ: 1, movementBounds: { minX: -4, maxX: 4, minZ: -4, maxZ: 4 } }]).units[0], reachedBoardEdge: true, edgeScanStepsRemaining: 0, roamStepsSinceScan: sandboxRules.MELEE_ROAM_SCAN_INTERVAL - 1 },
+    { ...sandboxRules.createSandboxBattle([{ id: 'flanker', side: 'enemy', x: 4, z: 1, facing: Math.PI, speed: 2, attackRange: 1 }]).units[0] },
+  ],
+}, { ...sandboxSettings, level1DetectionAngle: 20 });
+assert.equal(roamingSweep.units[0].targetId, 'flanker', 'melee units periodically scan their full awareness radius while roaming');
+assert.equal(roamingSweep.units[0].state, 'searching', 'a roaming full-circle sweep pauses movement when it finds a target');
+const postKillScan = sandboxRules.stepSandboxBattle({
+  tick: 4, events: [], result: null, units: [
+    { ...sandboxRules.createSandboxBattle([{ id: 'player', side: 'player', x: 0, z: 0, facing: 0, speed: 2, attackRange: 1 }]).units[0], targetId: 'fallen' },
+    { ...sandboxRules.createSandboxBattle([{ id: 'fallen', side: 'enemy', x: 0, z: 1, facing: Math.PI, speed: 2, attackRange: 1 }]).units[0], hp: 0, state: 'defeated' },
+    { ...sandboxRules.createSandboxBattle([{ id: 'flanker', side: 'enemy', x: 4, z: 0, facing: Math.PI, speed: 2, attackRange: 1 }]).units[0] },
+  ],
+}, { ...sandboxSettings, level1DetectionAngle: 20 });
+assert.equal(postKillScan.units[0].state, 'searching', 'a unit scans instead of marching immediately after its target falls');
+assert.equal(postKillScan.units[0].targetId, 'flanker', 'the post-kill scan detects an enemy anywhere in its awareness radius');
+assert.equal(postKillScan.units[0].searchStepsRemaining, sandboxRules.POST_KILL_SCAN_STEPS - 1, 'the all-around scan lasts a short fixed number of battle steps');
+const rangedSweep = sandboxRules.stepSandboxBattle({
+  tick: 4, events: [], result: null, units: [
+    { ...sandboxRules.createSandboxBattle([{ id: 'archer', side: 'player', x: 0, z: 0, facing: 0, speed: 2, attackRange: 1, projectileSpeed: 12 }]).units[0], movementStepsSinceScan: sandboxRules.RANGED_MOVEMENT_SCAN_INTERVAL - 1 },
+    { ...sandboxRules.createSandboxBattle([{ id: 'flanker', side: 'enemy', x: 4, z: 0, facing: Math.PI, speed: 2, attackRange: 1 }]).units[0] },
+  ],
+}, { ...sandboxSettings, level1DetectionAngle: 20 });
+assert.equal(rangedSweep.units[0].targetId, 'flanker', 'ranged units periodically detect enemies across their full awareness radius while marching');
+assert.notEqual(rangedSweep.units[0].state, 'marching', 'a ranged full-circle sweep interrupts forward movement when it finds a target');
+const alertedByDamage = sandboxRules.stepSandboxBattle({
+  tick: 4, result: null, events: [{ from: 'attacker', to: 'player', projectileSpeed: 12 }], units: [
+    { ...sandboxRules.createSandboxBattle([{ id: 'player', side: 'player', x: 0, z: 0, facing: 0, speed: 2, attackRange: 1 }]).units[0] },
+    { ...sandboxRules.createSandboxBattle([{ id: 'attacker', side: 'enemy', x: 4, z: 0, facing: Math.PI, speed: 2, attackRange: 1 }]).units[0] },
+  ],
+}, { ...sandboxSettings, level1DetectionAngle: 20 });
+assert.equal(alertedByDamage.units[0].targetId, 'attacker', 'a damaged unit identifies its attacker outside its normal detection cone');
+assert.notEqual(alertedByDamage.units[0].state, 'marching', 'damage awareness interrupts an otherwise unaware unit movement');
 const hurt = b.stepBattle({ ...duel, fighters: [melee, { ...enemy, z: 14, hp: 90 }] });
 assert.equal(hurt.fighters[1].state, 'approaching', 'damage provokes retaliation beyond Level 1');
 assert.ok(hurt.fighters[1].z < 14);
 const distantHit = b.stepBattle({ ...duel, fighters: [melee, { ...enemy, z: 20, hp: 90 }] });
 assert.equal(distantHit.fighters[1].state, 'approaching', 'damage wakes defenders beyond awareness');
+const attackerAware = b.stepBattle({ ...duel, fighters: [{ ...melee, id: 'player:near', z: 1 }, { ...enemy, hp: 90, targetId: null, facing: 0 }, { ...enemy, id: 'player:attacker', side: 'player', x: 4, z: 5 }], events: [{ from: 'player:attacker', to: 'enemy:test', amount: 1, kind: 'hit' }] });
+assert.equal(attackerAware.fighters.find(fighter => fighter.id === 'enemy:test').targetId, 'player:attacker', 'a unit outside its detection cone reacquires the attacker that damaged it');
 const leashed = b.stepBattle({ ...duel, fighters: [{ ...melee, z: -40 }, { ...enemy, hp: 90 }] });
 assert.equal(leashed.fighters[1].state, 'holding', 'retaliation respects camp leash');
 const rangedDefender = { ...enemy, stats: { ...b.TROOP_COMBAT_STATS.archer }, troopKind: 'archer', hp: 90, facing: Math.PI };
