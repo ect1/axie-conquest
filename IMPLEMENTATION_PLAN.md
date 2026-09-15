@@ -13,6 +13,15 @@
 - [x] Register battle reports and replay data with the shared reset workflow.
 - [x] Verify placement, world generation, marching, battle outcomes, persistence, and reset regressions.
 
+- [ ] Rebuild the TFT-inspired battle scene.
+  - [x] Place north/south teams with shared configurable separation and facing.
+  - [ ] Replace formation-level radius detection with directional Level 0 and Level 1 rectangles.
+  - [ ] Expose battle layout and detection tuning through JSON and the Developer HUD.
+    - [x] Expose the empty board's hex spacing and neutral team gap.
+    - [ ] Expose directional detection rectangles after the simulation rewrite.
+  - [x] Render configurable hex formation slots in a unit-free Developer sandbox.
+  - [ ] Verify live, sandbox, and Mail replay views.
+
 - [x] Connect replay fighters to their Axie 3D models.
   - [x] Preserve roster genes and snapshot each assigned Axie's appearance in battle recordings.
   - [x] Resolve models by fighter Axie ID, including legacy reports, and provide deterministic starter previews.

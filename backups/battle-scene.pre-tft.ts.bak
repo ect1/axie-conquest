@@ -4,17 +4,25 @@ import { Battle } from './battle';
 
 import { BattleOverlays } from './battle-debug';
 
-/** Shared, fixed-isometric TFT-style tactical scene for live battles and Mail replays. */
-export function createBattleScene(canvas: HTMLCanvasElement, read: () => { battle: Battle; selected: string | null; overlays: BattleOverlays; all: boolean }, select: (id: string) => void, onReady: () => void = () => {}, passive = false, onModelError: (message: string) => void = () => {}) {
+export function createBattleScene(canvas: HTMLCanvasElement, read: () => { battle: Battle; selected: string | null; overlays: BattleOverlays; all: boolean }, select: (id: string) => void, onReady: () => void = () => {}, passive = false, onModelError: (message: string) => void = () => {}, orbitCamera = false) {
   const engine = new Engine(canvas, true);
   engine.setHardwareScalingLevel(Math.max(1, window.devicePixelRatio / 1.5));
   const scene = new Scene(engine); scene.clearColor = Color4.FromHexString('#233d37ff');
-  const homeAlpha = -Math.PI / 2, homeBeta = 0.65, homeRadius = 42;
+  // Frame the wider default opening formation in replays without requiring a manual zoom-out.
+  const homeAlpha = -Math.PI / 2, homeBeta = 0.65, homeRadius = 46;
   const camera = new ArcRotateCamera('battle camera', homeAlpha, homeBeta, homeRadius, new Vector3(0, 0, 0), scene);
-  camera.lowerAlphaLimit = camera.upperAlphaLimit = homeAlpha;
-  camera.lowerBetaLimit = camera.upperBetaLimit = homeBeta;
-  camera.panningSensibility = 80; camera.wheelDeltaPercentage = 0.02;
-  if (!passive) camera.attachControl(canvas, false, false);
+  if (orbitCamera) {
+    // Replays are an inspection view: match the Axie Inspector's drag orbit
+    // and pinch/wheel zoom without changing live battle's tactical camera.
+    camera.lowerBetaLimit = 0.35; camera.upperBetaLimit = 1.45;
+    camera.panningSensibility = 0; camera.wheelDeltaPercentage = 0.02;
+    camera.attachControl(canvas, false, false);
+  } else {
+    camera.lowerAlphaLimit = camera.upperAlphaLimit = homeAlpha;
+    camera.lowerBetaLimit = camera.upperBetaLimit = homeBeta;
+    camera.panningSensibility = 80;
+    if (!passive) camera.attachControl(canvas, false, false);
+  }
   camera.lowerRadiusLimit = 10; camera.upperRadiusLimit = 80; camera.minZ = 0.1;
   new HemisphericLight('battle sky', new Vector3(0, 1, 0), scene).intensity = 0.95;
   const ground = MeshBuilder.CreateGround('Lunacian battlefield', { width: 90, height: 90 }, scene);
@@ -49,8 +57,9 @@ export function createBattleScene(canvas: HTMLCanvasElement, read: () => { battl
   engine.runRenderLoop(render);
   return {
     zoom: (factor: number) => { camera.radius = Math.max(camera.lowerRadiusLimit!, Math.min(camera.upperRadiusLimit!, camera.radius * factor)); },
-    // The tactical board never rotates; this intentionally keeps north at the top.
-    rotate: () => {},
+    // Keep the isometric camera locked between turns, but allow deliberate
+    // quarter-turn inspection of formations and range overlays.
+    rotate: (turns = 1) => { const alpha = camera.alpha + turns * Math.PI / 2; camera.alpha = alpha; camera.lowerAlphaLimit = alpha; camera.upperAlphaLimit = alpha; },
     home: () => { camera.alpha = homeAlpha; camera.beta = homeBeta; camera.target.set(0, 0, 0); camera.radius = homeRadius; },
     dispose: () => { observer.disconnect(); window.removeEventListener('resize', resize); canvas.removeEventListener('pointerdown', pointerDown); canvas.removeEventListener('pointermove', pointerMove); canvas.removeEventListener('pointerup', pointerUp); canvas.removeEventListener('pointercancel', pointerUp); presentation.dispose(); scene.dispose(); engine.dispose(); },
   };

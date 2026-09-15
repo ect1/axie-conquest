@@ -264,6 +264,16 @@ h2 { font: bold 19px Georgia, serif; margin: 3px 0 0; }
 .hero-detail p { font-size: 12px; line-height: 1.5; margin: 8px 0; }
 .hero-detail > strong { font-size: 12px; }
 .hero-detail .hero-class { color: #657657; }
+.axie-model-inspector { margin: 8px 0 12px; }
+.axie-model-stage { position: relative; height: 230px; overflow: hidden; border: 1px solid #b6cdaa; border-radius: 14px; background: #dcebd9; }
+.axie-model-stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; }
+.axie-model-status { position: absolute; inset: 0; display: grid; place-items: center; margin: 0 !important; padding: 22px; color: #426448; font-size: 12px !important; font-weight: 700; }
+.axie-model-status.error { color: #8a443d; background: #fff4eccc; }
+.axie-model-reset { position: absolute; right: 8px; bottom: 8px; min-height: 36px; padding: 6px 9px; border: 1px solid #9eb897; border-radius: 8px; background: #fffaf0e8; color: #315f44; font-size: 10px; font-weight: 800; }
+.axie-animation-controls { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; margin-top: 7px; }
+.axie-animation-controls button { min-height: 38px; border: 1px solid #b6cdaa; border-radius: 8px; background: #edf1e1; color: #526b58; font-size: 11px; font-weight: 800; text-transform: capitalize; }
+.axie-animation-controls button.active { border-color: #315f44; background: #315f44; color: #fff6dc; }
+.axie-model-details { display: block; margin-top: 6px; color: #71806d; font-size: 9px; line-height: 1.35; }
 .level-stars { color: #d9d7c8; letter-spacing: 1px; white-space: nowrap; }
 .level-stars .filled { color: #c7952f; }
 .hero-card .level-stars { font-size: 10px; }

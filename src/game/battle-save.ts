@@ -38,8 +38,6 @@ type StorageAccess = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
 export function enemyStrength(target: WorldObject): number { return target.kind === 'boss' ? 30 : target.kind === 'garrison' ? 18 : 12; }
 export function createBattleSession(army: WorldUnit, target: WorldObject, roster: readonly ApiAxie[] = []): BattleSession {
   const battle = createBattle(army, enemyStrength(target), roster);
-  const distance = Math.hypot(target.x - army.position.x, target.z - army.position.z);
-  for (const fighter of battle.fighters) if (fighter.side === 'player') fighter.z += 16 - distance;
   return { army: structuredClone(army), target: { ...target }, battle, startedAt: Date.now(), replay: beginReplay(battle) };
 }
 export function restoreBattleSave(raw: string | null, troops: Troops): BattleSave {
@@ -55,7 +53,7 @@ export function restoreBattleSave(raw: string | null, troops: Troops): BattleSav
     if (!restoreWorld(JSON.stringify([target]))?.length || target.state !== 'defended' || !['boss', 'garrison', 'village'].includes(target.kind)) return empty;
     const roster = restoreAxieRoster(JSON.stringify({ version: 1, syncedAt: 0, axies: battle.fighters?.flatMap(f => f.appearance && f.appearance.id === f.heroId ? [f.appearance] : []) }))?.axies ?? [];
     const initial = createBattle(army, enemyStrength(target), roster);
-    if (battle.version !== 1 || !Number.isSafeInteger(battle.tick) || battle.tick < 0 || battle.tick > MAX_BATTLE_TICKS || typeof battle.retreating !== 'boolean' || !Number.isFinite(battle.skillCooldown) || battle.skillCooldown < 0 || battle.skillCooldown > 15 || battle.leaderId !== initial.leaderId || ![null, 'victory', 'defeat', 'retreated', 'draw'].includes(battle.result)) return empty;
+    if (battle.version !== 1 || (battle.layoutVersion !== undefined && battle.layoutVersion !== 2) || !Number.isSafeInteger(battle.tick) || battle.tick < 0 || battle.tick > MAX_BATTLE_TICKS || typeof battle.retreating !== 'boolean' || !Number.isFinite(battle.skillCooldown) || battle.skillCooldown < 0 || battle.skillCooldown > 15 || battle.leaderId !== initial.leaderId || ![null, 'victory', 'defeat', 'retreated', 'draw'].includes(battle.result)) return empty;
     if (!Array.isArray(battle.fighters) || battle.fighters.length !== initial.fighters.length) return empty;
     for (let i = 0; i < initial.fighters.length; i++) {
       const f = battle.fighters[i], base = initial.fighters[i];
@@ -63,9 +61,17 @@ export function restoreBattleSave(raw: string | null, troops: Troops): BattleSav
       if (![f.hp, f.x, f.z, f.facing, f.cooldown].every(Number.isFinite) || f.hp < 0 || f.hp > f.maxHp || Math.abs(f.x) > 100 || Math.abs(f.z) > 100 || f.cooldown < 0 || f.cooldown > f.stats.interval || (f.targetId !== null && !initial.fighters.some(other => other.id === f.targetId)) || !['holding', 'approaching', 'charging', 'attacking', 'retreating', 'defeated'].includes(f.state)) return empty;
     }
     if (battle.result && battle.result !== battleOutcome(battle)) return empty;
+    // Active saves created before the TFT board used a distance-based player
+    // shift. Recenter those legacy sessions once, preserving combat progress.
+    const legacyShift = 16 - Math.hypot(target.x - army.position.x, target.z - army.position.z);
+    const restoredBattle: Battle = battle.layoutVersion === 2 ? battle : {
+      ...battle,
+      layoutVersion: 2,
+      fighters: battle.fighters.map(fighter => fighter.side === 'player' ? { ...fighter, z: fighter.z - legacyShift } : fighter),
+    };
     const replay = restoreReplay(saved.active.replay);
-    const compatible = replay && replay.initial.fighters.every((f, i) => f.id === battle.fighters[i]?.id) && replay.initial.fighters.length === battle.fighters.length && replay.frames[replay.frames.length - 1].tick <= battle.tick;
-    return { active: { army, target, battle: { ...battle, events: [] }, startedAt: Number.isFinite(saved.active.startedAt) ? saved.active.startedAt : undefined, replay: compatible ? replay : beginReplay(battle) }, report: empty.report };
+    const compatible = replay && replay.initial.fighters.every((f, i) => f.id === restoredBattle.fighters[i]?.id) && replay.initial.fighters.length === restoredBattle.fighters.length && replay.frames[replay.frames.length - 1].tick <= restoredBattle.tick;
+    return { active: { army, target, battle: { ...restoredBattle, events: [] }, startedAt: Number.isFinite(saved.active.startedAt) ? saved.active.startedAt : undefined, replay: compatible ? replay : beginReplay(restoredBattle) }, report: empty.report };
   } catch { return empty; }
 }
 function allowedTransactionKey(key: string): boolean {

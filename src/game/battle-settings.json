@@ -1,7 +1,12 @@
 {
-  "awarenessRadius": 18,
+  "awarenessRadius": 20,
   "engagementRadius": 10,
   "leashRadius": 30,
+  "teamSeparation": 18,
+  "boardHexGap": 1,
+  "boardTeamGap": 1,
+  "boardColumns": 5,
+  "boardRows": 3,
   "attackRangeMultiplier": 1,
   "bodyRadiusMultiplier": 1
 }

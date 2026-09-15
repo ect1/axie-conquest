@@ -21,11 +21,28 @@ const u = load('src/game/units.ts');
 const f = load('src/game/offense-formations.ts');
 const military = load('src/game/military-service.ts');
 const world = load('src/game/world.ts');
+const replayRules = load('src/game/battle-replay.ts');
 const { STARTER_HEROES } = load('src/game/heroes.ts');
 const troops = { infantry: 100, archer: 100, scout: 0 };
 const army = b.createSandboxArmy('balanced');
 assert.equal(army.leaderId, STARTER_HEROES[0].id);
 let initial = b.createBattle(army);
+const openingPlayer = b.formationCenter(initial, 'player');
+const openingEnemy = b.formationCenter(initial, 'enemy');
+assert.equal(openingPlayer.x, 0, 'player formation opens centered on the battle axis');
+assert.equal(openingEnemy.x, 0, 'enemy formation opens centered on the battle axis');
+assert.equal(openingEnemy.z - openingPlayer.z, 18, 'opening teams honor the shared configurable separation');
+assert.ok(initial.fighters.filter(fighter => fighter.side === 'player').every(fighter => fighter.facing === 0), 'player opens south-facing north');
+assert.ok(initial.fighters.filter(fighter => fighter.side === 'enemy').every(fighter => fighter.facing === Math.PI), 'enemy opens north-facing south');
+const recording = replayRules.beginReplay(initial);
+const staged = replayRules.replayPresentationBattle(recording, initial);
+const stagedPlayer = b.formationCenter(staged, 'player'), stagedEnemy = b.formationCenter(staged, 'enemy');
+assert.ok(Math.abs(stagedPlayer.x) < 1e-9 && Math.abs(stagedEnemy.x) < 1e-9, 'replay formations align on the north-south axis');
+assert.ok(stagedPlayer.z < 0 && stagedEnemy.z > 0, 'replay stages player south and enemy north');
+assert.ok(staged.fighters.every(fighter => fighter.facing === (fighter.side === 'player' ? 0 : Math.PI)), 'opening replay formations face each other');
+const advanced = { ...initial, fighters: initial.fighters.map(fighter => fighter.side === 'player' ? { ...fighter, z: fighter.z + 1 } : fighter) };
+const stagedAdvanced = replayRules.replayPresentationBattle(recording, advanced);
+assert.notEqual(stagedAdvanced.fighters[0].z, staged.fighters[0].z, 'fixed replay transform preserves recorded movement');
 assert.equal(initial.fighters.find(f => f.troopKind === 'infantry').maxHp, 2000);
 assert.equal(b.damageAfterDefense(100, 100), 50);
 const squad = initial.fighters.find(f => f.troopKind === 'infantry');
@@ -104,6 +121,11 @@ for (let i = 0; i < 100; i++) session = { ...session, battle: b.stepBattle(sessi
 const restored = save.restoreBattleSave(JSON.stringify({ active: session, report: null }), troops).active;
 assert.ok(restored, 'valid active battle restores');
 assert.equal(JSON.stringify(run(restored.battle)), JSON.stringify(run(session.battle)), 'reload resumes exactly the same simulation');
+const legacyOffset = 16 - Math.hypot(target.x - attacking.position.x, target.z - attacking.position.z);
+const legacySession = { ...session, battle: { ...session.battle, layoutVersion: undefined, fighters: session.battle.fighters.map(fighter => fighter.side === 'player' ? { ...fighter, z: fighter.z + legacyOffset } : fighter) } };
+const migrated = save.restoreBattleSave(JSON.stringify({ active: legacySession, report: null }), troops).active;
+assert.ok(migrated, 'legacy active battle restores');
+assert.ok(migrated.battle.fighters.every((fighter, index) => Math.hypot(fighter.x - session.battle.fighters[index].x, fighter.z - session.battle.fighters[index].z) < 1e-9), 'legacy active battle keeps its current combat positions after recentering');
 for (const corrupt of [null, {}, { ...session.battle, tick: -1 }, { ...session.battle, fighters: [{ ...session.battle.fighters[0], hp: -1 }] }]) {
   assert.equal(save.restoreBattleSave(JSON.stringify({ active: { ...session, battle: corrupt } }), troops).active, null);
 }
@@ -146,6 +168,9 @@ const projection = load('src/game/battle-world.ts');
 for (const point of [{ x: 24, z: 0 }, { x: 40, z: -16 }, { x: 40, z: 0 }, { x: 45, z: 5 }]) {
   const march = { ...attacking, position: point };
   const fight = save.createBattleSession(march, target);
+  const sessionPlayer = b.formationCenter(fight.battle, 'player');
+  const sessionEnemy = b.formationCenter(fight.battle, 'enemy');
+  assert.equal(sessionEnemy.z - sessionPlayer.z, 18, 'world sessions retain the centered tactical opening');
   const angle = projection.battleWorldTransform(fight).angle;
   for (const fighter of fight.battle.fighters.filter(f => f.side === 'player')) {
     const member = march.members.find(m => m.id === fighter.memberId);

@@ -22,10 +22,12 @@ const COLOR_VARIANTS: Record<string, number> = {
 type PartType = typeof PART_ORDER[number];
 type DecodedPart = { type: PartType; skin: number; class: string; variant: number; level: number; assetId: string };
 type LodAsset = { url?: string; sceneNode?: string };
-type PartRig = { type?: string; attachNode?: string; lods?: LodAsset[] };
-type BodyAsset = { id?: string; lods?: LodAsset[]; animations?: { lite?: { url?: string } }; attachNodes?: Record<string, string> };
+type PartRig = { type?: string; attachNode?: string; lods?: LodAsset[]; materialId?: string };
+type BodyAsset = { id?: string; lods?: LodAsset[]; animations?: { lite?: { url?: string } }; attachNodes?: Record<string, string>; materialId?: string };
 type PartAsset = { descriptor?: Omit<DecodedPart, 'assetId'>; rigs?: PartRig[] };
-type AssetManifest = { assets?: { bodies?: Record<string, BodyAsset>; parts?: Record<string, PartAsset> }; creator?: { colorVariants?: Array<{ index?: number; primary1?: string; primary2?: string }> } };
+type MaterialAsset = { textures?: { _MainTex?: string } };
+type TextureAsset = { alphaSemantic?: string; variants?: { source?: string; 'unity-import'?: string } };
+type AssetManifest = { assets?: { bodies?: Record<string, BodyAsset>; parts?: Record<string, PartAsset>; materials?: Record<string, MaterialAsset>; textures?: Record<string, TextureAsset> }; creator?: { colorVariants?: Array<{ index?: number; primary1?: string; primary2?: string }> } };
 
 class BitReader {
   private offset = 0;
@@ -101,6 +103,12 @@ async function assemblePlan(decoded: ReturnType<typeof decodeGenes>) {
   const bodies = manifest.assets?.bodies ?? {};
   const parts = manifest.assets?.parts ?? {};
   const bodyAsset = bodies[decoded.body];
+  const texture = (materialId: string | undefined) => {
+    const textureId = materialId ? manifest.assets?.materials?.[materialId]?.textures?._MainTex : undefined;
+    const asset = textureId ? manifest.assets?.textures?.[textureId] : undefined;
+    const url = asset?.variants?.source ?? asset?.variants?.['unity-import'];
+    return url ? { url, alphaSemantic: asset?.alphaSemantic ?? 'none' } : undefined;
+  };
   const palette = manifest.creator?.colorVariants?.find((entry) => entry.index === decoded.colorVariant);
   return {
     ...decoded,
@@ -108,6 +116,7 @@ async function assemblePlan(decoded: ReturnType<typeof decodeGenes>) {
     body: {
       id: decoded.body,
       animationUrl: bodyAsset?.animations?.lite?.url,
+      texture: texture(bodyAsset?.materialId),
       assetAvailable: !!bodyAsset,
       lod: bodyAsset?.lods?.[0]?.url && bodyAsset.lods[0].sceneNode
         ? { url: bodyAsset.lods[0].url, sceneNode: bodyAsset.lods[0].sceneNode }
@@ -122,7 +131,7 @@ async function assemblePlan(decoded: ReturnType<typeof decodeGenes>) {
           const attachNode = bodyAsset?.attachNodes?.[rig.type ?? ''] ?? rig.attachNode;
           const lod = rig.lods?.[0];
           return attachNode && lod?.url && lod.sceneNode
-            ? [{ type: rig.type, attachNode, lod: { url: lod.url, sceneNode: lod.sceneNode } }]
+            ? [{ type: rig.type, attachNode, texture: texture(rig.materialId), lod: { url: lod.url, sceneNode: lod.sceneNode } }]
             : [];
         }),
       };

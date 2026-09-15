@@ -86,6 +86,15 @@ async function main() {
   const first = await mixer.create(plan);
   const second = await mixer.create(plan);
   assert.equal(first.attachedPartCount, plan.parts.reduce((n, part) => n + part.rigs.length, 0));
+  const allMeshes = first.root.getChildMeshes();
+  for (const part of plan.parts) for (const rig of part.rigs) {
+    const materialMarker = `:${part.assetId}:${rig.type}`;
+    assert.equal(allMeshes.filter(mesh => mesh.material?.name.endsWith(materialMarker)).length, 1, `${rig.lod.sceneNode} must render exactly once`);
+  }
+  const bodyMaterial = allMeshes.find(mesh => mesh.material?.name.endsWith(':body'))?.material;
+  assert.equal(bodyMaterial?.useAlphaFromAlbedoTexture, true, 'Axie body mask retains its cutout alpha');
+  const ordinaryPartMaterial = allMeshes.find(mesh => mesh.material?.name.includes(':S00_'))?.material;
+  assert.equal(ordinaryPartMaterial?.useAlphaFromAlbedoTexture, false, 'ordinary part color texture is not treated as transparency');
   first.root.computeWorldMatrix(true);
   for (const mesh of first.root.getChildMeshes()) mesh.computeWorldMatrix(true);
   const bounds = first.root.getHierarchyBoundingVectors();

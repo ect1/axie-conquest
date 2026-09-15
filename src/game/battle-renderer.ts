@@ -13,6 +13,7 @@ export function createBattleRenderer(scene: Scene) {
   const materials: StandardMaterial[] = [];
   const mat = (name: string, color: string) => { const m = new StandardMaterial(name, scene); m.diffuseColor = Color3.FromHexString(color); m.specularColor = Color3.Black(); materials.push(m); return m; };
   const healthMat = mat('healthy', '#b8f184'), emptyMat = mat('injured', '#4b3232');
+  const rangeMaterials = new Map<string, StandardMaterial>();
   const models = new Map<string, { body: TransformNode; fallback: Mesh; bar: Mesh; back: Mesh; nose: Mesh; avatar?: BabylonAxieInstance }>();
   const rings: Mesh[] = [];
   let lastBattle: Battle | null = null, lastOptions = '';
@@ -44,8 +45,16 @@ export function createBattleRenderer(scene: Scene) {
     }
   };
   function ring(x: number, z: number, radius: number, color: string) {
-    const points = Array.from({ length: 65 }, (_, i) => new Vector3(x + Math.sin(i * Math.PI / 32) * radius, 0.08, z + Math.cos(i * Math.PI / 32) * radius));
-    const mesh = MeshBuilder.CreateLines('range boundary', { points }, scene); mesh.color = Color3.FromHexString(color); mesh.isPickable = false; mesh.parent = root; rings.push(mesh);
+    // A thin line was easily lost against the grass at common mobile zoom.
+    // The emissive torus stays readable while keeping the circle unobtrusive.
+    let material = rangeMaterials.get(color);
+    if (!material) {
+      material = mat(`range ${color}`, color);
+      material.emissiveColor = Color3.FromHexString(color).scale(0.45);
+      rangeMaterials.set(color, material);
+    }
+    const mesh = MeshBuilder.CreateTorus('range boundary', { diameter: radius * 2, thickness: 0.075, tessellation: 64 }, scene);
+    mesh.position.set(x, 0.12, z); mesh.material = material; mesh.isPickable = false; mesh.parent = root; rings.push(mesh);
   }
   function line(a: Vector3, b: Vector3, color: string) { const mesh = MeshBuilder.CreateLines('battle feedback', { points: [a, b] }, scene); mesh.color = Color3.FromHexString(color); mesh.isPickable = false; mesh.parent = root; rings.push(mesh); }
   function update(battle: Battle, selected: string | null, overlays: BattleOverlays, all: boolean) {
@@ -74,7 +83,10 @@ export function createBattleRenderer(scene: Scene) {
         model.bar.scaling.x = Math.max(0.001, fighter.hp / fighter.maxHp);
         model.bar.setEnabled(fighter.hp > 0); model.back.setEnabled(fighter.hp > 0);
         if (fighter.id === selected) ring(fighter.x, fighter.z, fighter.stats.radius + 0.2, '#ffe36c');
-        if (!all && selected !== fighter.id || fighter.hp <= 0) continue;
+        // Once a range overlay is enabled, show it for every living combatant.
+        // This makes a paused battle immediately inspectable; `all` still
+        // controls the formation-level awareness and engagement boundaries.
+        if (fighter.hp <= 0) continue;
         if (overlays.attack) ring(fighter.x, fighter.z, fighter.stats.radius + fighter.stats.range, BATTLE_OVERLAYS.attack.color);
         if (overlays.body) ring(fighter.x, fighter.z, fighter.stats.radius, BATTLE_OVERLAYS.body.color);
         if (overlays.facing) line(new Vector3(fighter.x, 0.1, fighter.z), new Vector3(fighter.x + Math.sin(fighter.facing) * 2, 0.1, fighter.z + Math.cos(fighter.facing) * 2), BATTLE_OVERLAYS.facing.color);

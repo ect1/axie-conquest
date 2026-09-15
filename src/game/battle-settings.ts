@@ -3,18 +3,30 @@ import { BattleOverlays, DEFAULT_BATTLE_OVERLAYS } from './battle-debug';
 
 export const BATTLE_SETTINGS_SAVE_KEY = 'axie-conquest-battle-settings-v1';
 export type BattleSettings = typeof defaults & { overlays: BattleOverlays; showAll: boolean };
+type SavedBattleSettings = Partial<BattleSettings> & { replayTeamSeparation?: unknown };
 export const DEFAULT_BATTLE_SETTINGS: BattleSettings = { ...defaults, overlays: { ...DEFAULT_BATTLE_OVERLAYS }, showAll: false };
 export let activeBattleSettings: BattleSettings = { ...DEFAULT_BATTLE_SETTINGS };
 
-export function sanitizeBattleSettings(value: Partial<BattleSettings> | null | undefined): BattleSettings {
+export function sanitizeBattleSettings(value: SavedBattleSettings | null | undefined): BattleSettings {
   const number = (key: keyof typeof defaults, minimum: number, maximum: number) => {
     const candidate = value?.[key];
     return typeof candidate === 'number' && Number.isFinite(candidate) ? Math.max(minimum, Math.min(maximum, candidate)) : DEFAULT_BATTLE_SETTINGS[key];
   };
+  const savedSeparation = value?.teamSeparation ?? value?.replayTeamSeparation;
+  const teamSeparation = typeof savedSeparation === 'number' && Number.isFinite(savedSeparation)
+    ? Math.max(8, Math.min(80, savedSeparation))
+    : DEFAULT_BATTLE_SETTINGS.teamSeparation;
   return {
     awarenessRadius: number('awarenessRadius', 1, 100),
     engagementRadius: number('engagementRadius', 1, 100),
     leashRadius: number('leashRadius', 1, 200),
+    // `replayTeamSeparation` was the old replay-only setting. Retain it as a
+    // migration input, but make one shared opening separation drive all views.
+    teamSeparation,
+    boardHexGap: number('boardHexGap', 0, 3),
+    boardTeamGap: number('boardTeamGap', 0, 4),
+    boardColumns: number('boardColumns', 2, 16),
+    boardRows: number('boardRows', 1, 12),
     attackRangeMultiplier: number('attackRangeMultiplier', 0.1, 5),
     bodyRadiusMultiplier: number('bodyRadiusMultiplier', 0.1, 5),
     overlays: Object.fromEntries(Object.keys(DEFAULT_BATTLE_OVERLAYS).map(key => [key, typeof value?.overlays?.[key as keyof BattleOverlays] === 'boolean' ? value.overlays[key as keyof BattleOverlays] : DEFAULT_BATTLE_OVERLAYS[key as keyof BattleOverlays]])) as BattleOverlays,

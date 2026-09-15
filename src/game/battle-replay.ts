@@ -1,5 +1,7 @@
 import { restoreAxieRoster } from './axie-roster';
-import { Battle, Fighter, MAX_BATTLE_TICKS } from './battle';
+import { Battle, Fighter, formationCenter, MAX_BATTLE_TICKS } from './battle';
+import { activeBattleSettings } from './battle-settings';
+import { teamFacing } from './battle-layout';
 
 const STATES: Fighter['state'][] = ['holding', 'approaching', 'charging', 'attacking', 'retreating', 'defeated'];
 type RecordedUnit = [number, number, number, number, number, number];
@@ -26,6 +28,31 @@ export function replayBattleAt(replay: BattleReplay, index: number): Battle {
       const [hp, x, z, facing, state, target] = current.units[i];
       return { ...f, hp, x, z, facing, state: STATES[state], targetId: replay.initial.fighters[target]?.id ?? null };
     }) };
+}
+/**
+ * Replay-only presentation transform. The opening player/enemy centers define
+ * one fixed coordinate system for the entire recording: player south, enemy
+ * north, both centered on x=0. A fixed transform preserves recorded motion.
+ */
+export function replayPresentationBattle(replay: BattleReplay, battle: Battle): Battle {
+  const openingPlayer = formationCenter(replay.initial, 'player'), openingEnemy = formationCenter(replay.initial, 'enemy');
+  const forwardX = openingEnemy.x - openingPlayer.x, forwardZ = openingEnemy.z - openingPlayer.z;
+  const openingDistance = Math.hypot(forwardX, forwardZ);
+  if (!openingDistance) return battle;
+  const northX = forwardX / openingDistance, northZ = forwardZ / openingDistance;
+  const eastX = northZ, eastZ = -northX;
+  const centerX = (openingPlayer.x + openingEnemy.x) / 2, centerZ = (openingPlayer.z + openingEnemy.z) / 2;
+  const northScale = Math.max(1, activeBattleSettings.teamSeparation / openingDistance);
+  const openingFrame = battle.tick === replay.frames[0]?.tick;
+  return { ...battle, fighters: battle.fighters.map(fighter => {
+    const relativeX = fighter.x - centerX, relativeZ = fighter.z - centerZ;
+    const x = relativeX * eastX + relativeZ * eastZ;
+    const z = (relativeX * northX + relativeZ * northZ) * northScale;
+    const facingX = Math.sin(fighter.facing) * eastX + Math.cos(fighter.facing) * eastZ;
+    const facingZ = (Math.sin(fighter.facing) * northX + Math.cos(fighter.facing) * northZ) * northScale;
+    const facing = openingFrame ? teamFacing(fighter.side) : Math.atan2(facingX, facingZ);
+    return { ...fighter, x, z, facing };
+  }) };
 }
 /** Replay is optional: corrupt or old recordings must never prevent reading the report. */
 export function restoreReplay(value: unknown): BattleReplay | undefined {

@@ -1,18 +1,20 @@
 import { createAxieAnimation } from './animation';
 import '@babylonjs/loaders/glTF';
-import { AssetContainer, Color3, PBRMaterial, SceneLoader, TransformNode, type Node, type Scene } from '@babylonjs/core';
+import { AbstractMesh, AssetContainer, Color3, PBRMaterial, SceneLoader, Texture, TransformNode, type Node, type Scene } from '@babylonjs/core';
 
-export type AxiePartRigPlan = { readonly type: string; readonly attachNode: string; readonly lod: { readonly url: string; readonly sceneNode: string } };
+type AxieTexturePlan = { readonly url: string; readonly alphaSemantic: string };
+export type AxiePartRigPlan = { readonly type: string; readonly attachNode: string; readonly texture?: AxieTexturePlan; readonly lod: { readonly url: string; readonly sceneNode: string } };
 export type BabylonAxiePlan = {
   readonly genes: string;
   readonly palette?: { readonly primary?: string; readonly secondary?: string } | null;
-  readonly body: { readonly id: string; readonly animationUrl?: string; readonly assetAvailable: boolean; readonly lod: { readonly url: string; readonly sceneNode: string } | null };
+  readonly body: { readonly id: string; readonly animationUrl?: string; readonly texture?: AxieTexturePlan; readonly assetAvailable: boolean; readonly lod: { readonly url: string; readonly sceneNode: string } | null };
   readonly parts: readonly { readonly assetId: string; readonly rigs: readonly AxiePartRigPlan[] }[];
 };
 export type BabylonAxieInstance = { readonly root: TransformNode; readonly genes: string; readonly bodyId: string; readonly attachedPartCount: number; update(state: string, seconds: number): void; dispose(): void };
 
 function descendants(root: Node): Node[] { return [root, ...root.getDescendants(false)]; }
 function findInRoots(roots: readonly Node[], name: string) { return roots.flatMap(descendants).find((node) => node.name === name); }
+function meshesInRoots(roots: readonly Node[]) { return roots.flatMap(node => [...(node instanceof AbstractMesh ? [node] : []), ...node.getChildMeshes(false)]); }
 function paletteColor(value: string | undefined, fallback: string) {
   return Color3.FromHexString(`#${(value ?? fallback).replace(/^#/, '')}`);
 }
@@ -32,11 +34,15 @@ export class BabylonAxieMixer {
     const root = new TransformNode(`Axie:${plan.body.id}:${instanceId}`, this.scene);
     const owned: Awaited<ReturnType<BabylonAxieMixer['instantiate']>>[] = [];
     const animations: ReturnType<typeof createAxieAnimation>[] = [];
+    const materials: PBRMaterial[] = [];
     try {
       const body = await this.instantiate(plan.body.lod.url);
       owned.push(body);
       body.rootNodes.forEach((node) => node.parent = root);
       const bodyRoots = body.rootNodes;
+      const bodyMaterial = this.createMaterial(plan, instanceId, 'body', plan.body.texture, false);
+      materials.push(bodyMaterial);
+      meshesInRoots(bodyRoots).forEach(mesh => { mesh.material = bodyMaterial; mesh.receiveShadows = true; });
       let attachedPartCount = 0;
 
       for (const part of plan.parts) for (const rig of part.rigs) {
@@ -50,9 +56,18 @@ export class BabylonAxieMixer {
           partInstance.rootNodes.forEach((node) => node.dispose());
           throw new Error(`Part ${part.assetId} does not contain node ${rig.lod.sceneNode}.`);
         }
-        // Socket-local GLBs retain the Unity socket transform in the exported geometry.
-        // Moving their selected node below the body bone makes them follow that bone.
+        // A part GLB can contain multiple socket surfaces (notably left and right
+        // ears). This instance belongs to one rig, so rendering its siblings would
+        // duplicate them and move them with the wrong socket.
+        const selectedMeshes = new Set(meshesInRoots([partNode]));
+        meshesInRoots(partRoots).forEach(mesh => mesh.setEnabled(selectedMeshes.has(mesh)));
+        // The exported scene node is already baked in socket-local coordinates.
+        // Parent that selected surface directly; parenting the GLB wrapper can
+        // leave the mesh behind an uninstantiated conversion/root transform.
         partNode.parent = socket;
+        const partMaterial = this.createMaterial(plan, instanceId, `${part.assetId}:${rig.type}`, rig.texture, true);
+        materials.push(partMaterial);
+        selectedMeshes.forEach(mesh => { mesh.material = partMaterial; mesh.receiveShadows = true; });
         attachedPartCount += 1;
       }
       const clips = new Map<string, ReturnType<typeof createAxieAnimation>>();
@@ -74,12 +89,7 @@ export class BabylonAxieMixer {
         }
       }
       if (this.disposed) throw new Error('Axie scene disposed.');
-      const material = this.createFallbackMaterial(plan, instanceId);
-      root.getChildMeshes(false).forEach((mesh) => {
-        mesh.material = material;
-        mesh.receiveShadows = true;
-      });
-      root.metadata = { axieGenes: plan.genes, axieBody: plan.body.id, axieMaterial: 'pbr-fallback' };
+      root.metadata = { axieGenes: plan.genes, axieBody: plan.body.id, axieMaterial: 'textured-pbr' };
       let active: ReturnType<typeof createAxieAnimation> | undefined, beganAt = 0, previousTime = -1;
       return {
         update: (state, seconds) => {
@@ -96,12 +106,13 @@ export class BabylonAxieMixer {
         genes: plan.genes,
         bodyId: plan.body.id,
         attachedPartCount,
-        dispose: () => { animations.forEach(a => a.group.dispose()); owned.forEach(instance => instance.dispose()); root.dispose(); material.dispose(); },
+        dispose: () => { animations.forEach(a => a.group.dispose()); owned.forEach(instance => instance.dispose()); root.dispose(); materials.forEach(material => material.dispose()); },
       };
     } catch (error) {
       animations.forEach(a => a.group.dispose());
       owned.forEach(instance => instance.dispose());
       root.dispose();
+      materials.forEach(material => material.dispose());
       throw error;
     }
   }
@@ -130,12 +141,22 @@ export class BabylonAxieMixer {
     return source.instantiateModelsToScene((name) => name, false, { doNotInstantiate: true });
   }
 
-  private createFallbackMaterial(plan: BabylonAxiePlan, instanceId: number) {
-    const material = new PBRMaterial(`AxiePbrFallback:${instanceId}`, this.scene);
-    material.albedoColor = paletteColor(plan.palette?.primary, 'ffffff');
-    material.emissiveColor = paletteColor(plan.palette?.secondary, '000000').scale(0.06);
+  private createMaterial(plan: BabylonAxiePlan, instanceId: number, slot: string, texturePlan: AxieTexturePlan | undefined, retainTextureColor: boolean) {
+    const material = new PBRMaterial(`AxieMaterial:${instanceId}:${slot}`, this.scene);
+    material.albedoColor = retainTextureColor && texturePlan ? Color3.White() : paletteColor(plan.palette?.primary, 'ffffff');
+    material.emissiveColor = paletteColor(plan.palette?.secondary, '000000').scale(0.025);
     material.metallic = 0;
     material.roughness = 0.72;
+    if (texturePlan) {
+      const texture = new Texture(texturePlan.url, this.scene);
+      material.albedoTexture = texture;
+      if (texturePlan.alphaSemantic === 'axie-v4-mask') {
+        texture.hasAlpha = true;
+        material.useAlphaFromAlbedoTexture = true;
+        material.transparencyMode = PBRMaterial.PBRMATERIAL_ALPHATEST;
+        material.alphaCutOff = 0.5;
+      }
+    }
     return material;
   }
 }
