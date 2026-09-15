@@ -9,3 +9,10 @@
 .battle-board-controls label { display: grid; gap: .3rem; font-size: .8rem; font-weight: 700; }
 .battle-board-controls input { width: 8rem; }
 .battle-board-controls p { margin: 0; }
+.sandbox-formation { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; padding: 0 16px 12px; }
+.sandbox-formation > div { padding: 12px; border: 1px solid #718d78; border-radius: 8px; }
+.sandbox-formation h3, .sandbox-formation p { margin: 0 0 8px; }
+.sandbox-formation p { max-width: none; font-size: 12px; }
+.sandbox-slot-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; max-height: 240px; overflow: auto; }
+.sandbox-slot-list label { display: grid; gap: 4px; font-size: 12px; font-weight: 700; }
+@media (max-width: 600px) { .sandbox-formation { grid-template-columns: 1fr; } }

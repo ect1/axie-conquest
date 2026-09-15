@@ -6,6 +6,7 @@ import { commanderSkill } from './battle-skills';
 import { leaderTalent, NO_MODIFIERS } from './battle-modifiers';
 import { activeBattleSettings } from './battle-settings';
 import { teamFacing, teamStartingCenter } from './battle-layout';
+import { level0CanAttack, level1CanDetect } from './battle-range';
 
 export const BATTLE_STEP = 0.1;
 export const MAX_BATTLE_TICKS = 3000;
@@ -80,7 +81,6 @@ export function stepBattle(previous: Battle): Battle {
   if (previous.result) return previous;
   const battle: Battle = { ...previous, tick: previous.tick + 1, skillCooldown: Math.max(0, previous.skillCooldown - BATTLE_STEP), events: [], fighters: previous.fighters.map(f => ({ ...f })) };
   const hits = new Map<string, number>();
-  const centers = { player: formationCenter(previous, 'player'), enemy: formationCenter(previous, 'enemy') };
   for (const fighter of battle.fighters) {
     if (fighter.hp <= 0) { fighter.state = 'defeated'; fighter.targetId = null; continue; }
     fighter.cooldown = Math.max(0, fighter.cooldown - BATTLE_STEP);
@@ -92,15 +92,15 @@ export function stepBattle(previous: Battle): Battle {
     const enemies = previous.fighters.filter(f => f.side !== fighter.side && f.hp > 0 && (fighter.side === 'player' || Math.hypot(f.x, f.z - 8) <= activeBattleSettings.leashRadius));
     enemies.sort((a, b) => edgeDistance(origin, a) - edgeDistance(origin, b) || a.id.localeCompare(b.id));
     const target = enemies.find(e => e.id === fighter.targetId && edgeDistance(origin, e) <= fighter.stats.range) ?? enemies[0];
-    const center = centers[fighter.side];
-    if (!target || (Math.hypot(target.x - center.x, target.z - center.z) - target.stats.radius > activeBattleSettings.awarenessRadius && !previous.fighters.some(f => f.side === fighter.side && f.hp < f.maxHp))) { fighter.state = 'holding'; fighter.targetId = null; continue; }
+    const rangeTarget = target && { ...target, radius: target.stats.radius };
+    const detected = rangeTarget && level1CanDetect(origin, rangeTarget, activeBattleSettings);
+    if (!target || (!detected && !previous.fighters.some(f => f.side === fighter.side && f.hp < f.maxHp))) { fighter.state = 'holding'; fighter.targetId = null; continue; }
     const alerted = previous.fighters.some(f => f.side === fighter.side && (f.hp < f.maxHp || f.state === 'approaching' || f.state === 'charging' || f.state === 'attacking'));
-    const engaged = Math.hypot(target.x - center.x, target.z - center.z) - target.stats.radius <= activeBattleSettings.engagementRadius;
     fighter.facing = Math.atan2(target.x - fighter.x, target.z - fighter.z);
-    if (fighter.side === 'enemy' && !alerted && !engaged) { fighter.state = 'holding'; fighter.targetId = null; continue; }
+    if (fighter.side === 'enemy' && !alerted && !detected) { fighter.state = 'holding'; fighter.targetId = null; continue; }
     fighter.targetId = target.id;
     const distance = edgeDistance(origin, target);
-    if (distance <= fighter.stats.range + 0.001) {
+    if (level0CanAttack(origin, rangeTarget, fighter.stats.range + fighter.stats.radius, activeBattleSettings)) {
       fighter.state = 'attacking';
       if (fighter.cooldown <= 0.00001) {
         const amount = damageAfterDefense(fighter.stats.attack * livingCount(fighter), target.stats.defense);
@@ -109,9 +109,9 @@ export function stepBattle(previous: Battle): Battle {
         fighter.cooldown = fighter.stats.interval;
       }
     } else {
-      const charge = fighter.stats.range < 2 && Math.hypot(target.x - center.x, target.z - center.z) - target.stats.radius <= activeBattleSettings.engagementRadius;
+      const charge = fighter.stats.range < 2 && detected;
       fighter.state = charge ? 'charging' : 'approaching';
-      const step = Math.min(distance - fighter.stats.range, fighter.stats.speed * (charge ? 1.1 : 1) * BATTLE_STEP);
+      const step = Math.min(Math.max(0, distance - fighter.stats.range), fighter.stats.speed * (charge ? activeBattleSettings.dashSpeedMultiplier : 1) * BATTLE_STEP);
       fighter.x += Math.sin(fighter.facing) * step; fighter.z += Math.cos(fighter.facing) * step;
     }
   }

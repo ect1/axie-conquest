@@ -16,6 +16,8 @@ function load(file) {
 
 
 const b = load('src/game/battle.ts');
+const range = load('src/game/battle-range.ts');
+const sandboxRules = load('src/game/sandbox-battle.ts');
 const save = load('src/game/battle-save.ts');
 const u = load('src/game/units.ts');
 const f = load('src/game/offense-formations.ts');
@@ -72,13 +74,24 @@ assert.equal(step.fighters[0].z, 0, 'archers hold shooting distance');
 assert.ok(step.fighters[1].hp < enemy.hp);
 step = b.stepBattle({ ...duel, fighters: [melee, { ...enemy, z: 50 }] });
 assert.equal(step.fighters[0].state, 'holding', 'awareness does not reach distant enemies');
-// Awareness faces the enemy without advancing; Level 1 starts interception.
+// Level 1 is directional: a unit first needs to be facing its detected enemy.
 const watch = b.stepBattle({ ...duel, fighters: [melee, { ...enemy, z: 14 }] });
 assert.equal(watch.fighters[1].state, 'holding');
 assert.equal(watch.fighters[1].z, 14);
-assert.equal(watch.fighters[1].facing, Math.PI);
+assert.equal(watch.fighters[1].facing, 0);
 assert.ok(watch.fighters[0].z > 0, 'ordered attacker continues its approach');
-assert.equal(b.stepBattle(duel).fighters[1].state, 'charging', 'Level 1 wakes defenders');
+const facedDefender = { ...enemy, facing: Math.PI };
+assert.equal(b.stepBattle({ ...duel, fighters: [melee, facedDefender] }).fighters[1].state, 'charging', 'Level 1 dash begins when the defender detects an enemy ahead');
+assert.equal(range.level0CanAttack({ x: 0, z: 0, facing: 0 }, { x: 0, z: 4, radius: .5 }, 4, { ...range.DEFAULT_BATTLE_RANGE, level0Angle: 90 }), true, 'Level 0 accepts targets within its facing cone');
+assert.equal(range.level0CanAttack({ x: 0, z: 0, facing: 0 }, { x: 4, z: 0, radius: .5 }, 4, { ...range.DEFAULT_BATTLE_RANGE, level0Angle: 90 }), false, 'Level 0 rejects targets outside its facing cone');
+const sandboxSettings = { ...range.DEFAULT_BATTLE_RANGE, level0Range: 1, level0Angle: 180, level1DetectionRange: 10, level1DetectionAngle: 180, bodyRadius: .5, dashSpeedMultiplier: 2 };
+const sandboxOpening = sandboxRules.createSandboxBattle([{ id: 'player', side: 'player', x: 0, z: 0, facing: 0, speed: 2, attackRange: 1 }, { id: 'enemy', side: 'enemy', x: 0, z: 5, facing: Math.PI, speed: 2, attackRange: 1 }]);
+const sandboxStep = sandboxRules.stepSandboxBattle(sandboxOpening, sandboxSettings);
+assert.equal(sandboxStep.units[0].state, 'approaching', 'sandbox Level 0 detection starts a walking approach');
+assert.ok(sandboxStep.units[0].z > 0, 'sandbox approach moves toward the detected target');
+assert.equal(sandboxStep.units[0].hp, undefined, 'sandbox approach state has no health or attack resolution');
+const sandboxArrival = sandboxRules.stepSandboxBattle(sandboxRules.createSandboxBattle([{ id: 'player', side: 'player', x: 0, z: 0, facing: 0, speed: 2, attackRange: 1 }, { id: 'enemy', side: 'enemy', x: 0, z: 1, facing: Math.PI, speed: 2, attackRange: 1 }]), sandboxSettings);
+assert.equal(sandboxArrival.units[0].state, 'in-range', 'sandbox unit attack range stops an acquired unit without attacking');
 const hurt = b.stepBattle({ ...duel, fighters: [melee, { ...enemy, z: 14, hp: 90 }] });
 assert.equal(hurt.fighters[1].state, 'approaching', 'damage provokes retaliation beyond Level 1');
 assert.ok(hurt.fighters[1].z < 14);
@@ -86,12 +99,12 @@ const distantHit = b.stepBattle({ ...duel, fighters: [melee, { ...enemy, z: 20, 
 assert.equal(distantHit.fighters[1].state, 'approaching', 'damage wakes defenders beyond awareness');
 const leashed = b.stepBattle({ ...duel, fighters: [{ ...melee, z: -40 }, { ...enemy, hp: 90 }] });
 assert.equal(leashed.fighters[1].state, 'holding', 'retaliation respects camp leash');
-const rangedDefender = { ...enemy, stats: { ...b.TROOP_COMBAT_STATS.archer }, troopKind: 'archer', hp: 90 };
+const rangedDefender = { ...enemy, stats: { ...b.TROOP_COMBAT_STATS.archer }, troopKind: 'archer', hp: 90, facing: Math.PI };
 const rangedStep = b.stepBattle({ ...duel, fighters: [melee, rangedDefender] });
 assert.equal(rangedStep.fighters[1].state, 'attacking');
 assert.equal(rangedStep.fighters[1].z, rangedDefender.z, 'defender archers stop at bow range');
 const lethal = { ...melee, hp: 1, stats: { ...melee.stats, attack: 1000, range: 2 } };
-step = b.stepBattle({ ...duel, fighters: [lethal, { ...lethal, side: 'enemy', id: 'enemy:test', z: 1 }] });
+step = b.stepBattle({ ...duel, fighters: [lethal, { ...lethal, side: 'enemy', id: 'enemy:test', z: 1, facing: Math.PI }] });
 assert.equal(step.result, 'draw', 'simultaneous lethal attacks have no ordering advantage');
 assert.equal(run({ ...initial, retreating: true }).result, 'retreated');
 assert.equal(b.stepBattle({ ...duel, tick: b.MAX_BATTLE_TICKS - 1, fighters: [melee, { ...enemy, z: 50 }] }).result, 'draw');
@@ -141,7 +154,7 @@ function storageFor(failAt = Infinity) {
 const storage = storageFor();
 const outcome = save.commitBattleOutcome(storage, completed, [attacking], troops, [formation], [target], 10000);
 assert.equal(outcome.troops.infantry, troops.infantry - outcome.report.losses.infantry);
-assert.equal(outcome.units[0].status, 'returning');
+assert.equal(outcome.units[0].status, completed.battle.result === 'victory' ? 'holding' : 'returning');
 assert.equal(outcome.units[0].activity, undefined);
 assert.equal(storage.getItem(save.BATTLE_TRANSACTION_KEY), null);
 assert.ok(u.restoreUnits(JSON.stringify(outcome.units), outcome.troops, 10000).length, 'survivors restore and remain reserved');

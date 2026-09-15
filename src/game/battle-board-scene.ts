@@ -1,7 +1,14 @@
 import { ArcRotateCamera, Color3, Color4, DirectionalLight, Engine, HemisphericLight, MeshBuilder, Scene, StandardMaterial, TransformNode, Vector3 } from '@babylonjs/core';
 import { createHexGridSlots, HEX_GRID_RADIUS } from './hex-grid';
+import type { ApiAxie } from './axie-roster';
+import { createBattleAppearanceResolver } from './axie/battle-appearance';
+import { BabylonAxieMixer } from './axie/babylon-mixer';
+import type { Fighter } from './battle';
+import { BattleRangeSettings } from './battle-range';
+import type { SandboxBattleUnit } from './sandbox-battle';
 
 export type BattleBoardLayout = { hexGap: number; teamGap: number; columns: number; rowsPerTeam: number };
+export type BattleBoardAssignment = { slotId: string; side: 'player' | 'enemy'; name: string; axie?: ApiAxie; mob?: 'chimera-pack' };
 
 
 /** A fixed-isometric 3D terrain board. The formation slots are thin meshes resting over the ground. */
@@ -10,7 +17,9 @@ export function createBattleBoardScene(canvas: HTMLCanvasElement, initial: Battl
   engine.setHardwareScalingLevel(Math.max(1, window.devicePixelRatio / 1.5));
   const scene = new Scene(engine);
   scene.clearColor = Color4.FromHexString('#18382fff');
-  const homeAlpha = -Math.PI / 2, homeBeta = .72, homeRadius = 38;
+  // View the fixed north/south board from the player's south edge, without
+  // changing its shared coordinates or team-band semantics.
+  const homeAlpha = Math.PI / 2, homeBeta = .72, homeRadius = 38;
   const camera = new ArcRotateCamera('battle board camera', homeAlpha, homeBeta, homeRadius, new Vector3(0, 0, 0), scene);
   camera.lowerAlphaLimit = camera.upperAlphaLimit = homeAlpha;
   camera.lowerBetaLimit = camera.upperBetaLimit = homeBeta;
@@ -24,9 +33,22 @@ export function createBattleBoardScene(canvas: HTMLCanvasElement, initial: Battl
   const playerFill = new StandardMaterial('player hex fill', scene); playerFill.diffuseColor = Color3.FromHexString('#397f72'); playerFill.emissiveColor = Color3.FromHexString('#075d55'); playerFill.alpha = .45;
   const enemyFill = new StandardMaterial('enemy hex fill', scene); enemyFill.diffuseColor = Color3.FromHexString('#985949'); enemyFill.emissiveColor = Color3.FromHexString('#703227'); enemyFill.alpha = .45;
   const neutralFill = new StandardMaterial('neutral hex fill', scene); neutralFill.diffuseColor = Color3.FromHexString('#727b79'); neutralFill.emissiveColor = Color3.FromHexString('#35413f'); neutralFill.alpha = .52;
+  const modelAbort = new AbortController();
+  const axieMixer = new BabylonAxieMixer(scene);
+  const resolveAppearance = createBattleAppearanceResolver(modelAbort.signal);
   let board: TransformNode | null = null;
-  function rebuild(layout: BattleBoardLayout) {
-    board?.dispose(); board = new TransformNode('hex formation board', scene);
+  const units = new Map<string, TransformNode>();
+  function rangeCone(parent: TransformNode, x: number, z: number, facing: number, radius: number, angle: number, color: string, name: string) {
+    const half = angle * Math.PI / 360;
+    const points = [new Vector3(x, .2, z), ...Array.from({ length: 25 }, (_, index) => { const theta = facing - half + half * 2 * index / 24; return new Vector3(x + Math.sin(theta) * radius, .2, z + Math.cos(theta) * radius); }), new Vector3(x, .2, z)];
+    const mesh = MeshBuilder.CreateLines(name, { points }, scene); mesh.parent = parent; mesh.color = Color3.FromHexString(color); mesh.isPickable = false;
+  }
+  function bodyRing(parent: TransformNode, x: number, z: number, radius: number, color = '#ffffff', name = 'body range') {
+    const points = Array.from({ length: 33 }, (_, index) => { const theta = index * Math.PI * 2 / 32; return new Vector3(x + Math.sin(theta) * radius, .21, z + Math.cos(theta) * radius); });
+    const mesh = MeshBuilder.CreateLines(name, { points }, scene); mesh.parent = parent; mesh.color = Color3.FromHexString(color); mesh.isPickable = false;
+  }
+  function rebuild(layout: BattleBoardLayout, assignments: readonly BattleBoardAssignment[] = [], range?: BattleRangeSettings, showRange = false) {
+    board?.dispose(); board = new TransformNode('hex formation board', scene); units.clear();
     const neutralRows = Math.round(layout.teamGap);
     const slots = createHexGridSlots({ columns: layout.columns, hexGap: layout.hexGap * .22, bands: [{ id: 'enemy', rows: layout.rowsPerTeam }, { id: 'neutral', rows: neutralRows }, { id: 'player', rows: layout.rowsPerTeam }] });
     for (const slot of slots) {
@@ -35,6 +57,29 @@ export function createBattleBoardScene(canvas: HTMLCanvasElement, initial: Battl
       const points = Array.from({ length: 7 }, (_, corner) => { const angle = Math.PI / 6 + corner * Math.PI / 3; return new Vector3(slot.x + Math.cos(angle) * HEX_GRID_RADIUS, .15, slot.z + Math.sin(angle) * HEX_GRID_RADIUS); });
       const edge = MeshBuilder.CreateLines('hex slot edge', { points }, scene);
       edge.parent = board; edge.color = Color3.FromHexString(slot.band === 'player' ? '#36f0d8' : slot.band === 'enemy' ? '#ff907d' : '#a7b0ae'); edge.isPickable = false;
+      const assignment = assignments.find(item => item.slotId === slot.id && item.side === slot.band);
+      if (!assignment) continue;
+      const unit = new TransformNode(`${assignment.side} ${assignment.name}`, scene); unit.parent = board; unit.position.set(slot.x, .18, slot.z);
+      units.set(slot.id, unit);
+      // Sandbox rows grow from enemy (-Z) to player (+Z); both sides face the
+      // opposing formation while the camera remains a presentation concern.
+      const facing = assignment.side === 'player' ? Math.PI : 0;
+      unit.rotation.y = facing;
+      if (showRange && range) { bodyRing(unit, 0, 0, range.bodyRadius); bodyRing(unit, 0, 0, range.meleeAttackRange, '#6ee7ff', 'base melee attack range'); bodyRing(unit, 0, 0, range.rangedAttackRange, '#bd8cff', 'base ranged attack range'); rangeCone(unit, 0, 0, 0, range.level0Range, range.level0Angle, '#ff6262', 'level 1 rush cone'); rangeCone(unit, 0, 0, 0, range.level1DetectionRange, range.level1DetectionAngle, '#ffac46', 'level 0 detection cone'); }
+      const color = assignment.side === 'player' ? '#83cbe0' : '#bb685b';
+      const material = new StandardMaterial(`sandbox unit ${slot.id}`, scene); material.diffuseColor = Color3.FromHexString(color); material.emissiveColor = Color3.FromHexString(color).scale(.18); material.specularColor = Color3.Black();
+      const body = MeshBuilder.CreateSphere('sandbox unit body', { diameter: assignment.side === 'player' ? 1.35 : 1.5, segments: 12 }, scene); body.parent = unit; body.position.y = .62; body.material = material; body.isPickable = false;
+      const fallback: TransformNode[] = [body];
+      if (assignment.axie) {
+        for (const side of [-1, 1]) { const ear = MeshBuilder.CreateCylinder('sandbox Axie ear', { height: .52, diameterBottom: .28, diameterTop: 0, tessellation: 6 }, scene); ear.parent = unit; ear.position.set(side * .32, 1.34, 0); ear.material = material; ear.isPickable = false; fallback.push(ear); }
+        const horn = MeshBuilder.CreateCylinder('sandbox Axie horn', { height: .38, diameterBottom: .2, diameterTop: 0, tessellation: 6 }, scene); horn.parent = unit; horn.position.set(0, 1.42, .2); horn.rotation.x = Math.PI / 5; horn.material = material; horn.isPickable = false; fallback.push(horn);
+        void resolveAppearance({ id: `sandbox:${assignment.axie.id}`, memberId: assignment.axie.id, side: assignment.side, name: assignment.axie.name, heroId: assignment.axie.id, appearance: assignment.axie, initialCount: 1, hp: 1, maxHp: 1, stats: { health: 1, attack: 1, defense: 1, speed: 1, range: 1, interval: 1, radius: .5 }, x: slot.x, z: slot.z, facing, cooldown: 0, targetId: null, state: 'holding' } satisfies Fighter).then(plan => axieMixer.create(plan)).then(avatar => {
+          if (unit.isDisposed()) { avatar.dispose(); return; }
+          avatar.root.parent = unit; avatar.root.position.y = -.55; avatar.update('holding', 0); fallback.forEach(mesh => mesh.setEnabled(false));
+        }).catch(() => { /* Keep the readable local fallback if assets are unavailable. */ });
+      } else {
+        for (const side of [-1, 1]) { const horn = MeshBuilder.CreateCylinder('sandbox Chimera horn', { height: .65, diameterBottom: .22, diameterTop: 0, tessellation: 6 }, scene); horn.parent = unit; horn.position.set(side * .38, 1.26, .05); horn.rotation.z = side * .55; horn.material = material; horn.isPickable = false; }
+      }
     }
   }
   rebuild(initial);
@@ -43,8 +88,9 @@ export function createBattleBoardScene(canvas: HTMLCanvasElement, initial: Battl
   engine.runRenderLoop(() => { scene.render(); if (!ready && scene.isReady()) { ready = true; canvas.dataset.battleBoardReady = 'true'; onReady(); } });
   return {
     update: rebuild,
+    updateUnitPositions: (battleUnits: readonly SandboxBattleUnit[]) => battleUnits.forEach(battleUnit => { const unit = units.get(battleUnit.id); if (unit) { unit.position.x = battleUnit.x; unit.position.z = battleUnit.z; unit.rotation.y = battleUnit.facing; } }),
     zoom: (factor: number) => { camera.radius = Math.max(camera.lowerRadiusLimit!, Math.min(camera.upperRadiusLimit!, camera.radius * factor)); },
     home: () => { camera.alpha = homeAlpha; camera.beta = homeBeta; camera.radius = homeRadius; camera.target.set(0, 0, 0); },
-    dispose: () => { observer.disconnect(); window.removeEventListener('resize', resize); board?.dispose(); scene.dispose(); engine.dispose(); },
+    dispose: () => { observer.disconnect(); window.removeEventListener('resize', resize); modelAbort.abort(); axieMixer.dispose(); board?.dispose(); scene.dispose(); engine.dispose(); },
   };
 }

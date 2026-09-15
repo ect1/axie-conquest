@@ -1,10 +1,11 @@
 import defaults from './battle-settings.json';
 import { BattleOverlays, DEFAULT_BATTLE_OVERLAYS } from './battle-debug';
+import { BattleRangeSettings, DEFAULT_BATTLE_RANGE, sanitizeBattleRange } from './battle-range';
 
 export const BATTLE_SETTINGS_SAVE_KEY = 'axie-conquest-battle-settings-v1';
-export type BattleSettings = typeof defaults & { overlays: BattleOverlays; showAll: boolean };
+export type BattleSettings = typeof defaults & BattleRangeSettings & { overlays: BattleOverlays; showAll: boolean };
 type SavedBattleSettings = Partial<BattleSettings> & { replayTeamSeparation?: unknown };
-export const DEFAULT_BATTLE_SETTINGS: BattleSettings = { ...defaults, overlays: { ...DEFAULT_BATTLE_OVERLAYS }, showAll: false };
+export const DEFAULT_BATTLE_SETTINGS: BattleSettings = { ...defaults, ...DEFAULT_BATTLE_RANGE, overlays: { ...DEFAULT_BATTLE_OVERLAYS }, showAll: false };
 export let activeBattleSettings: BattleSettings = { ...DEFAULT_BATTLE_SETTINGS };
 
 export function sanitizeBattleSettings(value: SavedBattleSettings | null | undefined): BattleSettings {
@@ -16,6 +17,7 @@ export function sanitizeBattleSettings(value: SavedBattleSettings | null | undef
   const teamSeparation = typeof savedSeparation === 'number' && Number.isFinite(savedSeparation)
     ? Math.max(8, Math.min(80, savedSeparation))
     : DEFAULT_BATTLE_SETTINGS.teamSeparation;
+  const range = sanitizeBattleRange(value);
   return {
     awarenessRadius: number('awarenessRadius', 1, 100),
     engagementRadius: number('engagementRadius', 1, 100),
@@ -29,6 +31,7 @@ export function sanitizeBattleSettings(value: SavedBattleSettings | null | undef
     boardRows: number('boardRows', 1, 12),
     attackRangeMultiplier: number('attackRangeMultiplier', 0.1, 5),
     bodyRadiusMultiplier: number('bodyRadiusMultiplier', 0.1, 5),
+    ...range,
     overlays: Object.fromEntries(Object.keys(DEFAULT_BATTLE_OVERLAYS).map(key => [key, typeof value?.overlays?.[key as keyof BattleOverlays] === 'boolean' ? value.overlays[key as keyof BattleOverlays] : DEFAULT_BATTLE_OVERLAYS[key as keyof BattleOverlays]])) as BattleOverlays,
     showAll: value?.showAll === true,
   };

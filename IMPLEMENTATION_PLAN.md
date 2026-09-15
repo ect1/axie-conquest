@@ -19,12 +19,20 @@
     - [x] Use shared grid coordinates for marching member offsets and battle deployment.
     - [x] Reject legacy formation saves; reset restores the new empty grid.
   - [x] Place north/south teams with shared configurable separation and facing.
-  - [ ] Replace formation-level radius detection with directional Level 0 and Level 1 rectangles.
+  - [x] Replace formation-level radius detection with directional Level 0 attack cones and Level 1 detection/dash cones.
+    - [x] Add a pure, JSON-defaulted directional range module with validation.
+    - [x] Use Level 1 detection to start approach/dash and Level 0 to gate basic attacks.
+    - [x] Preview attack, detection, and body ranges behind a sandbox Show range checkbox.
   - [ ] Expose battle layout and detection tuning through JSON and the Developer HUD.
     - [x] Expose the empty board's hex spacing and neutral team gap.
-    - [ ] Expose directional detection rectangles after the simulation rewrite.
-  - [x] Render configurable hex formation slots in a unit-free Developer sandbox.
+    - [x] Expose directional range tuning in the Developer sandbox and persist it with battle settings.
+  - [x] Render configurable hex formation slots in a Developer sandbox.
+    - [x] Assign active Axies and available Chimera mobs to team-specific sandbox hexes.
+    - [x] Apply assignments to preview their 3D unit models without changing player formations.
+    - [x] Show the player formation at the near edge and clear all sandbox assignments and previews.
   - [ ] Verify live, sandbox, and Mail replay views.
+    - [x] Add a sandbox-only Start battle approach simulation using Level 1 acquisition and Level 0 arrival.
+    - [ ] Manually verify Start, Pause, Reset positions, and no-damage behavior in the developer sandbox.
 
 - [x] Connect replay fighters to their Axie 3D models.
   - [x] Preserve roster genes and snapshot each assigned Axie's appearance in battle recordings.

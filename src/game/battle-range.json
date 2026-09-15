@@ -1,0 +1,10 @@
+{
+  "level0Range": 5,
+  "level0Angle": 110,
+  "bodyRadius": 0.5,
+  "level1DetectionRange": 20,
+  "level1DetectionAngle": 160,
+  "dashSpeedMultiplier": 1.1,
+  "meleeAttackRange": 1.2,
+  "rangedAttackRange": 6
+}
