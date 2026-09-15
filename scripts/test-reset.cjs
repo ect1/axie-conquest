@@ -19,6 +19,7 @@ const battleSettings = load('src/game/battle-settings.ts');
 const data = new Map(RESETTABLE_MODULES.flatMap(module => module.storageKeys.map(key => [key, 'saved'])));
 data.set('axie-conquest-city-everleaf-haven-troops-v1', 'saved');
 data.set('axie-conquest-city-new-outpost-troops-v1', 'saved');
+data.set('axie-conquest-offense-formations-v1', 'saved');
 data.set('other-app-save', 'preserve');
 data.set('axie-conquest-city-unrelated', 'preserve');
 const storage = { get length() { return data.size; }, key: index => [...data.keys()][index] ?? null, removeItem: key => data.delete(key) };

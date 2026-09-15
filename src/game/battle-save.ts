@@ -7,7 +7,7 @@ import { Troops } from './base';
 import { WorldUnit, UNITS_SAVE_KEY, restoreUnits, commandUnit } from './units';
 import { WORLD_SAVE_KEY, WorldObject, restoreWorld } from './world';
 import { getMilitarySaveKey } from './military-service';
-import { Formation, FORMATION_ROWS, OFFENSE_FORMATIONS_SAVE_KEY } from './offense-formations';
+import { Formation, OFFENSE_FORMATIONS_SAVE_KEY, serializeOffenseFormations } from './offense-formations';
 
 export const BATTLE_SAVE_KEY = 'axie-conquest-battle-v1';
 export const BATTLE_TRANSACTION_KEY = 'axie-conquest-battle-transaction-v1';
@@ -108,8 +108,8 @@ export function commitBattleOutcome(storage: StorageAccess, session: BattleSessi
   const nextFormations = formations.map((formation, index) => {
     if (index !== session.army.formationIndex) return formation;
     const next = structuredClone(formation);
-    for (const row of FORMATION_ROWS) next[row] = next[row].map((slot, column) => {
-      const fighter = players.find(f => f.memberId === `${row}-${column}`);
+    next.assignments = next.assignments.map(slot => {
+      const fighter = players.find(f => f.memberId === `hex-${slot.row}-${slot.column}`);
       if (!fighter?.troopKind) return slot;
       const count = livingCount(fighter);
       return { ...slot, military: count ? slot.military : null, militaryCount: count };
@@ -132,7 +132,7 @@ export function commitBattleOutcome(storage: StorageAccess, session: BattleSessi
   while (reports.length > 1 && JSON.stringify(reports).length > 900_000) reports.pop();
   if (JSON.stringify(reports).length > 900_000) report.replay = undefined;
   const save: BattleSave = { active: null, report, reports };
-  const entries = [[getMilitarySaveKey(session.army.cityId), JSON.stringify(nextTroops)], [UNITS_SAVE_KEY, JSON.stringify(nextUnits)], [OFFENSE_FORMATIONS_SAVE_KEY, JSON.stringify(nextFormations)], [WORLD_SAVE_KEY, JSON.stringify(nextObjects)], [BATTLE_SAVE_KEY, JSON.stringify(save)]];
+  const entries = [[getMilitarySaveKey(session.army.cityId), JSON.stringify(nextTroops)], [UNITS_SAVE_KEY, JSON.stringify(nextUnits)], [OFFENSE_FORMATIONS_SAVE_KEY, serializeOffenseFormations(nextFormations)], [WORLD_SAVE_KEY, JSON.stringify(nextObjects)], [BATTLE_SAVE_KEY, JSON.stringify(save)]];
   storage.setItem(BATTLE_TRANSACTION_KEY, JSON.stringify(entries));
   recoverBattleTransaction(storage);
   return { troops: nextTroops, units: nextUnits, formations: nextFormations, objects: nextObjects, report, reports };

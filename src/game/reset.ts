@@ -2,7 +2,7 @@ import { UNITS_SAVE_KEY } from './units';
 import { BATTLE_SAVE_KEY, BATTLE_TRANSACTION_KEY } from './battle-save';
 import { CITIES_SAVE_KEY } from './cities';
 import { MILITARY_SAVE_KEY } from './military-service';
-import { OFFENSE_FORMATIONS_SAVE_KEY } from './offense-formations';
+import { LEGACY_OFFENSE_FORMATIONS_SAVE_KEY, OFFENSE_FORMATIONS_SAVE_KEY } from './offense-formations';
 import { ROUTES_SAVE_KEY } from './routes';
 import { DEPLOYED_AXIES_SAVE_KEY } from './town-deployment';
 import { DEFAULT_UNIT_GLOBAL_STATS, setActiveUnitGlobalStats } from './unit-stats';
@@ -29,7 +29,7 @@ export const RESETTABLE_MODULES: readonly ResettableModule[] = [
   { id: 'routes', storageKeys: [ROUTES_SAVE_KEY] },
   { id: 'cities', storageKeys: [CITIES_SAVE_KEY] },
   { id: 'military', storageKeys: [MILITARY_SAVE_KEY], matchesStorageKey: key => /^axie-conquest-city-.+-troops-v1$/.test(key) },
-  { id: 'formations', storageKeys: [OFFENSE_FORMATIONS_SAVE_KEY] },
+  { id: 'formations', storageKeys: [OFFENSE_FORMATIONS_SAVE_KEY, LEGACY_OFFENSE_FORMATIONS_SAVE_KEY] },
   { id: 'deployments', storageKeys: [DEPLOYED_AXIES_SAVE_KEY] },
   { id: 'axie-roster', storageKeys: [AXIE_ROSTER_SAVE_KEY] },
   { id: 'unit-stats', storageKeys: ['axie-conquest-unit-stats-v1'], reset: () => setActiveUnitGlobalStats({ ...DEFAULT_UNIT_GLOBAL_STATS }) },

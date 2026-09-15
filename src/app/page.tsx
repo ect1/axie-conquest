@@ -14,12 +14,12 @@ import { createMobGroup, DEFAULT_GENERATION, GenerationSettings, getWorldObjectA
 import type { BaseView } from '@/game/scene';
 import CityUnitPanel from './city-unit-panel';
 import { CAPITAL_CITY_ID, CITIES_SAVE_KEY, CityState, createCapitalCity, restoreCities } from '@/game/cities';
-import { createEmptyFormations, Formation, OFFENSE_FORMATIONS_SAVE_KEY, restoreOffenseFormations } from '@/game/offense-formations';
+import { createEmptyFormations, Formation, OFFENSE_FORMATIONS_SAVE_KEY, restoreOffenseFormations, serializeOffenseFormations } from '@/game/offense-formations';
+import { BATTLE_SETTINGS_SAVE_KEY, restoreActiveBattleSettings } from '@/game/battle-settings';
 import { createRoute, formatDuration, isValidFormation, marchTravelTimeMs, WorldTarget } from '@/game/routes';
 import { WorldUnit, UNITS_SAVE_KEY, createArmy, createScout, deployUnit, commandUnit, commandWorldAction, deploymentError, restoreUnits, migrateMarches, settleUnit, unitPosition } from '@/game/units';
 import { createMilitaryService } from '@/game/military-service';
 import { activeUnitGlobalStats } from '@/game/unit-stats';
-import { BATTLE_SETTINGS_SAVE_KEY, restoreActiveBattleSettings } from '@/game/battle-settings';
 import { ApiAxie, AXIE_ROSTER_SAVE_KEY, createAxieRoster, restoreAxieRoster } from '@/game/axie-roster';
 
 type InventoryTab = 'resources' | 'equipment' | 'other';
@@ -112,12 +112,12 @@ export default function Home() {
   }, [selectedCity, troops, citiesLoaded]);
   useEffect(() => {
     if (!citiesLoaded || !apiAxies.length || formationsLoaded) return;
-    try { setFormations(restoreOffenseFormations(localStorage.getItem(OFFENSE_FORMATIONS_SAVE_KEY), selectedCity.deployedAxieIds.filter(id => apiAxies.some(axie => axie.id === id)), troops)); } catch { /* Use empty formations when storage is unavailable. */ }
+    try { const board = restoreActiveBattleSettings(localStorage.getItem(BATTLE_SETTINGS_SAVE_KEY)); setFormations(restoreOffenseFormations(localStorage.getItem(OFFENSE_FORMATIONS_SAVE_KEY), selectedCity.deployedAxieIds.filter(id => apiAxies.some(axie => axie.id === id)), troops, { columns: board.boardColumns, rows: board.boardRows })); } catch { /* Use empty formations when storage is unavailable. */ }
     setFormationsLoaded(true);
   }, [citiesLoaded, apiAxies, formationsLoaded, selectedCity.deployedAxieIds, troops]);
   useEffect(() => {
     if (!formationsLoaded) return;
-    try { localStorage.setItem(OFFENSE_FORMATIONS_SAVE_KEY, JSON.stringify(formations)); } catch { setMessage('Browser storage unavailable; formations last this session.'); }
+    try { localStorage.setItem(OFFENSE_FORMATIONS_SAVE_KEY, serializeOffenseFormations(formations)); } catch { setMessage('Browser storage unavailable; formations last this session.'); }
   }, [formations, formationsLoaded]);
   useEffect(() => {
     let disposed = false;

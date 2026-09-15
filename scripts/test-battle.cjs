@@ -131,9 +131,9 @@ for (const corrupt of [null, {}, { ...session.battle, tick: -1 }, { ...session.b
 }
 const completed = { ...session, battle: run(session.battle) };
 const formation = f.createEmptyFormation();
-formation.front[1].heroId = STARTER_HEROES[0].id; formation.leader = STARTER_HEROES[0].id;
-formation.front[0] = { heroId: null, military: 'infantry', militaryCount: 20 };
-formation.rear[2] = { heroId: null, military: 'archer', militaryCount: 20 };
+formation.assignments.push({ row: 0, column: 1, heroId: STARTER_HEROES[0].id, military: null, militaryCount: 0 }); formation.leader = STARTER_HEROES[0].id;
+formation.assignments.push({ row: 0, column: 0, heroId: null, military: 'infantry', militaryCount: 20 });
+formation.assignments.push({ row: 2, column: 2, heroId: null, military: 'archer', militaryCount: 20 });
 function storageFor(failAt = Infinity) {
   const data = new Map([['unrelated', 'keep']]); let writes = 0;
   return { data, getItem: key => data.get(key) ?? null, setItem(key, value) { if (++writes === failAt) throw Error('Interrupted'); data.set(key, value); }, removeItem: key => data.delete(key), get length() { return data.size; }, key: i => [...data.keys()][i] ?? null };

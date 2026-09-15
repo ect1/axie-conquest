@@ -57,10 +57,10 @@ export function createBattle(army: WorldUnit, enemyCount = 18, roster: readonly 
 }
 export function createSandboxArmy(kind: 'balanced' | 'infantry' | 'archer'): WorldUnit {
   const formation = createEmptyFormation();
-  formation.front[1].heroId = STARTER_HEROES[0].id;
+  formation.assignments.push({ row: 0, column: 1, heroId: STARTER_HEROES[0].id, military: null, militaryCount: 0 });
   formation.leader = STARTER_HEROES[0].id;
-  formation.front[0] = { heroId: null, military: kind === 'archer' ? 'archer' : 'infantry', militaryCount: 20 };
-  formation.rear[2] = { heroId: null, military: kind === 'infantry' ? 'infantry' : 'archer', militaryCount: 20 };
+  formation.assignments.push({ row: 0, column: 0, heroId: null, military: kind === 'archer' ? 'archer' : 'infantry', militaryCount: 20 });
+  formation.assignments.push({ row: 2, column: 2, heroId: null, military: kind === 'infantry' ? 'infantry' : 'archer', militaryCount: 20 });
   return createArmy(formation, 0, 'sandbox', 'Practice', 3, 'sandbox');
 }
 export function battleOutcome(battle: Battle): Battle['result'] {

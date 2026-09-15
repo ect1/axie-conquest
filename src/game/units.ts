@@ -1,5 +1,5 @@
 import { Troops, TroopKind } from './base';
-import { Formation, FORMATION_ROWS, FORMATION_ROW_SIZES } from './offense-formations';
+import { Formation } from './offense-formations';
 import { STARTER_HEROES } from './heroes';
 import { Coordinate, createRoute, marchTravelTimeMs, normalizeCoordinate, restoreRouteOrders } from './routes';
 import { WorldAction, WorldObject, getWorldObjectActions } from './world';
@@ -55,11 +55,15 @@ export function commandWorldAction(unit: WorldUnit, action: WorldAction, object:
   return settleUnit({ ...idleUnit, position, status: 'moving', order: { kind: 'move', origin: position, destination, startedAt: now, arrivesAt: now + (route.distance === 0 ? 0 : marchTravelTimeMs(route, unit.speed)), activity } }, now);
 }
 export function formationMembers(formation: Formation): UnitMember[] {
-  return FORMATION_ROWS.flatMap((row, rowIndex) => formation[row].flatMap((slot, column): UnitMember[] => {
-    const offset = { x: (column - (FORMATION_ROW_SIZES[row] - 1) / 2) * 1.15, z: (1.5 - rowIndex) * 1.25 };
-    if (slot.heroId) return [{ id: `${row}-${column}`, heroId: slot.heroId, count: 1, offset }];
-    return slot.military && slot.militaryCount > 0 ? [{ id: `${row}-${column}`, troopKind: slot.military, count: slot.militaryCount, offset }] : [];
-  }));
+  const slots = formation.assignments;
+  const centerColumn = slots.length ? (Math.min(...slots.map(slot => slot.column)) + Math.max(...slots.map(slot => slot.column))) / 2 : 0;
+  const centerRow = slots.length ? (Math.min(...slots.map(slot => slot.row)) + Math.max(...slots.map(slot => slot.row))) / 2 : 0;
+  return slots.flatMap<UnitMember>(slot => {
+    const offset = { x: (slot.column - centerColumn) * 1.15 + (slot.row % 2 ? .575 : 0), z: (centerRow - slot.row) * 1.25 };
+    const id = `hex-${slot.row}-${slot.column}`;
+    if (slot.heroId) return [{ id, heroId: slot.heroId, count: 1, offset }];
+    return slot.military && slot.militaryCount > 0 ? [{ id, troopKind: slot.military, count: slot.militaryCount, offset }] : [];
+  });
 }
 export function deploymentError(candidate: WorldUnit, units: readonly WorldUnit[], troops: Troops, now: number): string | null {
   const active = units.map(u => settleUnit(u, now)).filter(u => u.status !== 'home');

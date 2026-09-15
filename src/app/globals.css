@@ -198,6 +198,15 @@ h2 { font: bold 19px Georgia, serif; margin: 3px 0 0; }
 .formation-slot strong, .formation-slot small { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .formation-slot strong { font-size: 9px; }
 .formation-slot small { margin-top: 3px; font-size: 8px; color: #71806d; }
+.shared-team-board { position: relative; max-height: 380px; overflow: auto; padding: 32px 16px 42px; overscroll-behavior: contain; }
+.shared-team-board .formation-row { width: calc(var(--formation-columns) * 82px); height: 95px; aspect-ratio: auto; justify-content: flex-start; }
+.shared-team-board .formation-row + .formation-row { margin-top: -24px; }
+.shared-team-board .formation-row.hex-row-shifted { margin-left: 41px; }
+.shared-team-board .formation-slot { flex: 0 0 82px; height: 95px; }
+.shared-team-board .reserved-formation-slot { --hex-fill: #edf0e9; --hex-edge: #bdc8b9; cursor: default; }
+.formation-edge-label { position: absolute; z-index: 3; left: 50%; transform: translateX(-50%); padding: 3px 8px; border-radius: 99px; background: #e6eadc; color: #5e745d; font-size: 9px; font-weight: 800; letter-spacing: .8px; text-transform: uppercase; pointer-events: none; }
+.formation-edge-front { top: 6px; }
+.formation-edge-back { bottom: 7px; }
 .slot-military-options { display: flex; align-items: center; gap: 5px; margin-bottom: 8px; }
 .slot-military-options button { min-height: 34px; padding: 5px 8px; border: 1px solid #c7d5b5; border-radius: 8px; background: #edf1e1; color: #52704d; font-size: 9px; font-weight: 700; }
 .slot-military-options button.active { border-color: #5e8c5d; background: #315f44; color: #fff6dc; }
