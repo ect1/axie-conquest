@@ -92,6 +92,9 @@ assert.ok(sandboxStep.units[0].z > 0, 'sandbox approach moves toward the detecte
 assert.equal(sandboxStep.units[0].hp, undefined, 'sandbox approach state has no health or attack resolution');
 const sandboxArrival = sandboxRules.stepSandboxBattle(sandboxRules.createSandboxBattle([{ id: 'player', side: 'player', x: 0, z: 0, facing: 0, speed: 2, attackRange: 1 }, { id: 'enemy', side: 'enemy', x: 0, z: 1, facing: Math.PI, speed: 2, attackRange: 1 }]), sandboxSettings);
 assert.equal(sandboxArrival.units[0].state, 'in-range', 'sandbox unit attack range stops an acquired unit without attacking');
+const narrowSearch = sandboxRules.stepSandboxBattle(sandboxRules.createSandboxBattle([{ id: 'player', side: 'player', x: 0, z: 0, facing: 0, speed: 2, attackRange: 1 }, { id: 'enemy', side: 'enemy', x: 4, z: 0, facing: Math.PI, speed: 2, attackRange: 1 }]), { ...sandboxSettings, level1DetectionAngle: 20 });
+assert.equal(narrowSearch.units[0].state, 'searching', 'sandbox turns toward a nearby enemy outside a narrow detection cone');
+assert.equal(narrowSearch.units[0].targetId, 'enemy');
 const hurt = b.stepBattle({ ...duel, fighters: [melee, { ...enemy, z: 14, hp: 90 }] });
 assert.equal(hurt.fighters[1].state, 'approaching', 'damage provokes retaliation beyond Level 1');
 assert.ok(hurt.fighters[1].z < 14);

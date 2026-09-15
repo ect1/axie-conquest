@@ -5,6 +5,9 @@
 .battle-side-label.enemy { top: 9%; }
 .battle-side-label.player { bottom: 9%; }
 .battle-sandbox-dialog .battle-controls { min-height: auto; }
+.range-color-legend { display: flex; flex-wrap: wrap; gap: .4rem .8rem; margin: .4rem 0; font-size: .78rem; }
+.range-color-legend span { display: inline-flex; align-items: center; gap: .28rem; }
+.range-color-legend i { width: .72rem; height: .72rem; border-radius: 50%; border: 1px solid #1c2930; display: inline-block; }
 .battle-board-controls { display: flex; flex-wrap: wrap; gap: .75rem 1rem; align-items: end; }
 .battle-board-controls label { display: grid; gap: .3rem; font-size: .8rem; font-weight: 700; }
 .battle-board-controls input { width: 8rem; }
