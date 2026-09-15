@@ -8,7 +8,8 @@ import { BattleRangeSettings } from './battle-range';
 import type { SandboxBattleUnit } from './sandbox-battle';
 
 export type BattleBoardLayout = { hexGap: number; teamGap: number; columns: number; rowsPerTeam: number };
-export type BattleBoardAssignment = { slotId: string; side: 'player' | 'enemy'; name: string; axie?: ApiAxie; mob?: 'chimera-pack' };
+export type SandboxTroopKind = 'soldier' | 'archer';
+export type BattleBoardAssignment = { slotId: string; side: 'player' | 'enemy'; name: string; axie?: ApiAxie; mob?: 'chimera-pack'; troopKind?: SandboxTroopKind; quantity?: number };
 
 
 /** A fixed-isometric 3D terrain board. The formation slots are thin meshes resting over the ground. */
@@ -65,7 +66,7 @@ export function createBattleBoardScene(canvas: HTMLCanvasElement, initial: Battl
       // opposing formation while the camera remains a presentation concern.
       const facing = assignment.side === 'player' ? Math.PI : 0;
       unit.rotation.y = facing;
-      if (showRange && range) { bodyRing(unit, 0, 0, range.bodyRadius); bodyRing(unit, 0, 0, range.meleeAttackRange, '#6ee7ff', 'base melee attack range'); bodyRing(unit, 0, 0, range.rangedAttackRange, '#bd8cff', 'base ranged attack range'); rangeCone(unit, 0, 0, 0, range.level0Range, range.level0Angle, '#ff6262', 'level 1 rush cone'); rangeCone(unit, 0, 0, 0, range.level1DetectionRange, range.level1DetectionAngle, '#ffac46', 'level 0 detection cone'); }
+      if (showRange && range) { const isArcher = assignment.troopKind === 'archer'; bodyRing(unit, 0, 0, range.bodyRadius); bodyRing(unit, 0, 0, isArcher ? range.rangedAttackRange : range.meleeAttackRange, isArcher ? '#bd8cff' : '#6ee7ff', isArcher ? 'ranged attack range' : 'melee attack range'); rangeCone(unit, 0, 0, 0, range.level0Range, range.level0Angle, '#ff6262', 'level 1 rush cone'); rangeCone(unit, 0, 0, 0, range.level1DetectionRange, range.level1DetectionAngle, '#ffac46', 'level 0 detection cone'); }
       const color = assignment.side === 'player' ? '#83cbe0' : '#bb685b';
       const material = new StandardMaterial(`sandbox unit ${slot.id}`, scene); material.diffuseColor = Color3.FromHexString(color); material.emissiveColor = Color3.FromHexString(color).scale(.18); material.specularColor = Color3.Black();
       const body = MeshBuilder.CreateSphere('sandbox unit body', { diameter: assignment.side === 'player' ? 1.35 : 1.5, segments: 12 }, scene); body.parent = unit; body.position.y = .62; body.material = material; body.isPickable = false;
@@ -77,6 +78,10 @@ export function createBattleBoardScene(canvas: HTMLCanvasElement, initial: Battl
           if (unit.isDisposed()) { avatar.dispose(); return; }
           avatar.root.parent = unit; avatar.root.position.y = -.55; avatar.update('holding', 0); fallback.forEach(mesh => mesh.setEnabled(false));
         }).catch(() => { /* Keep the readable local fallback if assets are unavailable. */ });
+      } else if (assignment.troopKind) {
+        const cap = MeshBuilder.CreateCylinder('sandbox troop cap', { height: .18, diameter: .78, tessellation: 12 }, scene); cap.parent = unit; cap.position.y = 1.22; cap.material = material; cap.isPickable = false;
+        if (assignment.troopKind === 'archer') { const bow = MeshBuilder.CreateTorus('sandbox archer bow', { diameter: .92, thickness: .07, tessellation: 16 }, scene); bow.parent = unit; bow.position.set(.48, .72, 0); bow.rotation.x = Math.PI / 2; bow.material = material; bow.isPickable = false; }
+        else { const shield = MeshBuilder.CreateCylinder('sandbox soldier shield', { height: .12, diameter: .58, tessellation: 12 }, scene); shield.parent = unit; shield.position.set(0, .7, .62); shield.rotation.x = Math.PI / 2; shield.material = material; shield.isPickable = false; }
       } else {
         for (const side of [-1, 1]) { const horn = MeshBuilder.CreateCylinder('sandbox Chimera horn', { height: .65, diameterBottom: .22, diameterTop: 0, tessellation: 6 }, scene); horn.parent = unit; horn.position.set(side * .38, 1.26, .05); horn.rotation.z = side * .55; horn.material = material; horn.isPickable = false; }
       }

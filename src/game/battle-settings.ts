@@ -5,7 +5,10 @@ import { BattleRangeSettings, DEFAULT_BATTLE_RANGE, sanitizeBattleRange } from '
 export const BATTLE_SETTINGS_SAVE_KEY = 'axie-conquest-battle-settings-v1';
 export type BattleSettings = typeof defaults & BattleRangeSettings & { overlays: BattleOverlays; showAll: boolean };
 type SavedBattleSettings = Partial<BattleSettings> & { replayTeamSeparation?: unknown };
-export const DEFAULT_BATTLE_SETTINGS: BattleSettings = { ...defaults, ...DEFAULT_BATTLE_RANGE, overlays: { ...DEFAULT_BATTLE_OVERLAYS }, showAll: false };
+// `battle-settings.json` is the canonical combined battle configuration. Keep
+// range defaults as a fallback for fields it does not provide, rather than
+// letting the legacy range file overwrite its sandbox/live-battle values.
+export const DEFAULT_BATTLE_SETTINGS: BattleSettings = { ...DEFAULT_BATTLE_RANGE, ...defaults, overlays: { ...DEFAULT_BATTLE_OVERLAYS }, showAll: false };
 export let activeBattleSettings: BattleSettings = { ...DEFAULT_BATTLE_SETTINGS };
 
 export function sanitizeBattleSettings(value: SavedBattleSettings | null | undefined): BattleSettings {

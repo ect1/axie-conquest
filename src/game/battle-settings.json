@@ -9,12 +9,12 @@
   "boardRows": 3,
   "attackRangeMultiplier": 1,
   "bodyRadiusMultiplier": 1,
-  "level0Range": 10,
+  "level0Range": 12,
   "level0Angle": 360,
   "bodyRadius": 0.5,
   "level1DetectionRange": 20,
-  "level1DetectionAngle": 160,
-  "dashSpeedMultiplier": 1.1,
+  "level1DetectionAngle": 16,
+  "dashSpeedMultiplier": 3,
   "meleeAttackRange": 1.2,
-  "rangedAttackRange": 6
+  "rangedAttackRange": 20
 }
