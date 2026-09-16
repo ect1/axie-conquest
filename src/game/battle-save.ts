@@ -58,7 +58,7 @@ export function restoreBattleSave(raw: string | null, troops: Troops): BattleSav
     for (let i = 0; i < initial.fighters.length; i++) {
       const f = battle.fighters[i], base = initial.fighters[i];
       if (!f || f.id !== base.id || f.name !== base.name || f.side !== base.side || f.memberId !== base.memberId || f.heroId !== base.heroId || f.troopKind !== base.troopKind || f.initialCount !== base.initialCount || f.maxHp !== base.maxHp || JSON.stringify(f.stats) !== JSON.stringify(base.stats)) return empty;
-      if (![f.hp, f.x, f.z, f.facing, f.cooldown].every(Number.isFinite) || f.hp < 0 || f.hp > f.maxHp || Math.abs(f.x) > 100 || Math.abs(f.z) > 100 || f.cooldown < 0 || f.cooldown > f.stats.interval || (f.targetId !== null && !initial.fighters.some(other => other.id === f.targetId)) || !['holding', 'approaching', 'charging', 'attacking', 'retreating', 'defeated'].includes(f.state)) return empty;
+      if (![f.hp, f.x, f.z, f.facing, f.cooldown].every(Number.isFinite) || f.hp < 0 || f.hp > f.maxHp || Math.abs(f.x) > 100 || Math.abs(f.z) > 100 || f.cooldown < 0 || f.cooldown > f.stats.interval || (f.targetId !== null && !initial.fighters.some(other => other.id === f.targetId)) || !['holding', 'approaching', 'charging', 'attacking', 'retreating', 'defeated', 'marching', 'searching', 'roaming'].includes(f.state)) return empty;
     }
     if (battle.result && battle.result !== battleOutcome(battle)) return empty;
     // Active saves created before the TFT board used a distance-based player
