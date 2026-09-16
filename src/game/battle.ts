@@ -6,16 +6,18 @@ import { commanderSkill } from './battle-skills';
 import { leaderTalent, NO_MODIFIERS } from './battle-modifiers';
 import { activeBattleSettings } from './battle-settings';
 import { teamFacing, teamStartingCenter } from './battle-layout';
-import { level0CanAttack, level1CanDetect } from './battle-range';
+import { isInDirectionalRange, level0CanAttack, level1CanDetect } from './battle-range';
 import { baseCombatStats } from './sandbox-battle';
+
+import defaults from './battle-settings.json';
 
 export const BATTLE_STEP = 0.1;
 export const MAX_BATTLE_TICKS = 3000;
 export type CombatStats = { health: number; attack: number; defense: number; speed: number; range: number; interval: number; radius: number; projectileSpeed?: number };
 export const TROOP_COMBAT_STATS: Record<'infantry' | 'archer' | 'scout', CombatStats> = {
-  infantry: { health: 100, attack: 12, defense: 35, speed: 2.5, range: 0.65, interval: 1.2, radius: 0.45 },
-  archer: { health: 65, attack: 14, defense: 10, speed: 2.3, range: 6, interval: 1.6, radius: 0.4, projectileSpeed: 12 },
-  scout: { health: 70, attack: 5, defense: 10, speed: 3.5, range: 0.6, interval: 1.4, radius: 0.4 },
+  infantry: { health: defaults.baseSoldierHealth, attack: defaults.baseSoldierAttack, defense: defaults.baseSoldierDefense, speed: defaults.baseSoldierSpeed, range: defaults.meleeAttackRange, interval: 1 / defaults.baseSoldierAttackSpeed, radius: defaults.bodyRadius },
+  archer: { health: defaults.baseArcherHealth, attack: defaults.baseArcherAttack, defense: defaults.baseArcherDefense, speed: defaults.baseArcherSpeed, range: defaults.rangedAttackRange, interval: 1 / defaults.baseArcherAttackSpeed, radius: defaults.bodyRadius, projectileSpeed: defaults.baseArcherProjectileSpeed },
+  scout: { health: 70, attack: 5, defense: 10, speed: 3.5, range: defaults.meleeAttackRange, interval: 1.4, radius: defaults.bodyRadius },
 };
 export type FighterState = 'holding' | 'approaching' | 'charging' | 'attacking' | 'retreating' | 'defeated' | 'marching' | 'searching' | 'roaming';
 export type Fighter = {
@@ -57,15 +59,23 @@ export function createBattle(army: WorldUnit, enemyCount = 18, roster: readonly 
     const troopKind = member.troopKind ?? 'infantry';
     const profile = hero ? baseCombatStats(activeBattleSettings, 'axie') : troopKind === 'infantry' ? baseCombatStats(activeBattleSettings, 'soldier') : troopKind === 'archer' ? baseCombatStats(activeBattleSettings, 'archer') : TROOP_COMBAT_STATS.scout;
     const attackInterval = 'attackSpeed' in profile ? 1 / profile.attackSpeed : profile.interval;
-    const projectileSpeed = 'projectileSpeed' in profile ? profile.projectileSpeed : troopKind === 'archer' ? 12 : undefined;
-    const base: CombatStats = hero ? { ...profile, speed: profile.speed * hero.stats.speed / 100, range: hero.class === 'bird' || hero.class === 'dawn' ? 5 : 0.8, interval: attackInterval, radius: 0.5, ...(hero.class === 'bird' || hero.class === 'dawn' ? { projectileSpeed: 12 } : {}) } : { ...TROOP_COMBAT_STATS[troopKind], health: profile.health, attack: profile.attack, defense: profile.defense, speed: profile.speed, interval: attackInterval, ...(projectileSpeed ? { projectileSpeed } : {}) };
+    const projectileSpeed = 'projectileSpeed' in profile ? profile.projectileSpeed : troopKind === 'archer' ? activeBattleSettings.baseArcherProjectileSpeed : undefined;
+    const isRanged = hero ? (hero.class === 'bird' || hero.class === 'dawn') : troopKind === 'archer';
+    const attackRange = isRanged ? activeBattleSettings.rangedAttackRange : activeBattleSettings.meleeAttackRange;
+    const base: CombatStats = hero
+      ? { ...profile, speed: profile.speed * hero.stats.speed / 100, range: attackRange, interval: attackInterval, radius: activeBattleSettings.bodyRadius, ...(isRanged ? { projectileSpeed: activeBattleSettings.baseArcherProjectileSpeed } : {}) }
+      : { ...TROOP_COMBAT_STATS[troopKind], health: profile.health, attack: profile.attack, defense: profile.defense, speed: profile.speed, interval: attackInterval, range: attackRange, radius: activeBattleSettings.bodyRadius, ...(projectileSpeed ? { projectileSpeed } : {}) };
     const stats = { ...base, range: base.range * activeBattleSettings.attackRangeMultiplier, radius: base.radius * activeBattleSettings.bodyRadiusMultiplier, health: base.health * modifiers.health, attack: base.attack * modifiers.attack, defense: base.defense * modifiers.defense, speed: base.speed * modifiers.speed, ...(base.projectileSpeed ? { projectileSpeed: base.projectileSpeed } : {}) };
     return { id: `player:${member.id}`, memberId: member.id, side: 'player', ...(appearance ? { appearance: structuredClone(appearance) } : {}), name: appearance?.name ?? hero?.name ?? member.troopKind ?? 'Squad', heroId: member.heroId, troopKind: member.troopKind, initialCount: member.count, hp: stats.health * member.count * (member.healthRatio ?? 1), maxHp: stats.health * member.count, stats, x: playerCenter.x + member.offset.x - playerOffsetCenter.x, z: playerCenter.z + member.offset.z - playerOffsetCenter.z, facing: teamFacing('player'), cooldown: 0, targetId: null, state: 'holding' };
   });
   const enemyOffsets = [{ x: -2, z: -1 }, { x: 0, z: -1 }, { x: 2, z: 2 }];
   for (let index = 0; index < 3; index++) {
     const kind = index === 2 ? 'archer' : 'infantry';
-    const baseline = TROOP_COMBAT_STATS[kind], chimera = baseCombatStats(activeBattleSettings, 'chimera'), base = { ...baseline, health: chimera.health, attack: chimera.attack, defense: chimera.defense, speed: chimera.speed, interval: 1 / chimera.attackSpeed, ...(kind === 'archer' ? { projectileSpeed: 12 } : {}) }, stats = { ...base, range: base.range * activeBattleSettings.attackRangeMultiplier, radius: base.radius * activeBattleSettings.bodyRadiusMultiplier, ...(kind === 'archer' ? { projectileSpeed: 12 } : {}) };
+    const isRanged = kind === 'archer';
+    const attackRange = isRanged ? activeBattleSettings.rangedAttackRange : activeBattleSettings.meleeAttackRange;
+    const baseline = TROOP_COMBAT_STATS[kind], chimera = baseCombatStats(activeBattleSettings, 'chimera');
+    const base = { ...baseline, health: chimera.health, attack: chimera.attack, defense: chimera.defense, speed: chimera.speed, interval: 1 / chimera.attackSpeed, range: attackRange, radius: activeBattleSettings.bodyRadius, ...(isRanged ? { projectileSpeed: activeBattleSettings.baseArcherProjectileSpeed } : {}) };
+    const stats = { ...base, range: base.range * activeBattleSettings.attackRangeMultiplier, radius: base.radius * activeBattleSettings.bodyRadiusMultiplier, ...(isRanged ? { projectileSpeed: activeBattleSettings.baseArcherProjectileSpeed } : {}) };
     const offset = enemyOffsets[index];
     members.push({ id: `enemy:${index}`, memberId: `${index}`, side: 'enemy', name: kind === 'archer' ? 'Chimera archers' : 'Chimera guards', troopKind: kind, initialCount: enemyCount, hp: stats.health * enemyCount, maxHp: stats.health * enemyCount, stats, x: enemyCenter.x + offset.x, z: enemyCenter.z + offset.z, facing: teamFacing('enemy'), cooldown: 0, targetId: null, state: 'holding' });
   }
@@ -135,7 +145,8 @@ export function stepBattle(previous: Battle): Battle {
         fighter.cooldown = fighter.stats.interval;
       }
     } else {
-      const charge = fighter.stats.range < 2 && detected;
+      const rush = isInDirectionalRange(origin, rangeTarget, activeBattleSettings.level0Range, activeBattleSettings.level0Angle);
+      const charge = (rush || fighter.stats.range < 2) && detected;
       fighter.state = charge ? 'charging' : 'approaching';
       const step = Math.min(Math.max(0, distance - fighter.stats.range), fighter.stats.speed * (charge ? activeBattleSettings.dashSpeedMultiplier : 1) * BATTLE_STEP);
       fighter.x += Math.sin(fighter.facing) * step; fighter.z += Math.cos(fighter.facing) * step;

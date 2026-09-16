@@ -251,28 +251,34 @@ export function createBattleBoardScene(
     overlayMeshes.length = 0;
 
     for (const fighter of battle.fighters) {
+      // Align Battle coordinate convention (player: -Z, enemy: +Z) with
+      // the Sandbox hex board convention (player: +Z south/bottom, enemy: -Z north/top).
+      const bx = -fighter.x;
+      const bz = -fighter.z;
+      const bFacing = fighter.facing + Math.PI;
+
       const record = ensureUnitNode({
         id: fighter.id,
         side: fighter.side,
         name: fighter.name,
-        x: fighter.x,
-        z: fighter.z,
-        facing: fighter.facing,
+        x: bx,
+        z: bz,
+        facing: bFacing,
         heroId: fighter.heroId,
         appearance: fighter.appearance,
         troopKind: fighter.troopKind,
       });
 
-      record.root.position.x = fighter.x;
-      record.root.position.z = fighter.z;
-      record.root.rotation.y = fighter.facing;
+      record.root.position.x = bx;
+      record.root.position.z = bz;
+      record.root.rotation.y = bFacing;
       record.avatar?.update(fighter.state, battle.tick / 10);
 
       const health = healthBars.get(fighter.id);
       const ratio = Math.max(0, Math.min(1, fighter.hp / fighter.maxHp));
       if (health) {
-        health.background.position.set(fighter.x, 2.15, fighter.z);
-        health.fill.position.set(fighter.x - 0.95 * (1 - ratio), 2.15, fighter.z);
+        health.background.position.set(bx, 2.15, bz);
+        health.fill.position.set(bx - 0.95 * (1 - ratio), 2.15, bz);
         health.fill.width = 1.9 * ratio;
         health.background.isVisible = health.fill.isVisible = fighter.hp > 0;
       }
@@ -284,28 +290,28 @@ export function createBattleBoardScene(
           selectionRingMesh.material = selectionMaterial;
           selectionRingMesh.isPickable = false;
         }
-        selectionRingMesh.position.set(fighter.x, 0.14, fighter.z);
+        selectionRingMesh.position.set(bx, 0.14, bz);
         selectionRingMesh.setEnabled(true);
       }
 
       if (overlays && fighter.hp > 0) {
         if (overlays.attack) {
-          const ring = bodyRing(scene.activeCamera ? board ?? scene.rootNodes[0] as TransformNode : record.root, fighter.x, fighter.z, fighter.stats.radius + fighter.stats.range, BATTLE_OVERLAYS.attack.color);
+          const ring = bodyRing(scene.activeCamera ? board ?? scene.rootNodes[0] as TransformNode : record.root, bx, bz, fighter.stats.radius + fighter.stats.range, BATTLE_OVERLAYS.attack.color);
           overlayMeshes.push(ring);
         }
         if (overlays.body) {
-          const ring = bodyRing(scene.activeCamera ? board ?? scene.rootNodes[0] as TransformNode : record.root, fighter.x, fighter.z, fighter.stats.radius, BATTLE_OVERLAYS.body.color);
+          const ring = bodyRing(scene.activeCamera ? board ?? scene.rootNodes[0] as TransformNode : record.root, bx, bz, fighter.stats.radius, BATTLE_OVERLAYS.body.color);
           overlayMeshes.push(ring);
         }
         if (overlays.facing) {
-          const line = MeshBuilder.CreateLines('facing line', { points: [new Vector3(fighter.x, 0.2, fighter.z), new Vector3(fighter.x + Math.sin(fighter.facing) * 2, 0.2, fighter.z + Math.cos(fighter.facing) * 2)] }, scene);
+          const line = MeshBuilder.CreateLines('facing line', { points: [new Vector3(bx, 0.2, bz), new Vector3(bx + Math.sin(bFacing) * 2, 0.2, bz + Math.cos(bFacing) * 2)] }, scene);
           line.color = Color3.FromHexString(BATTLE_OVERLAYS.facing.color);
           overlayMeshes.push(line);
         }
         if (overlays.targets && fighter.targetId) {
           const target = battle.fighters.find(f => f.id === fighter.targetId);
           if (target && target.hp > 0) {
-            const line = MeshBuilder.CreateLines('target line', { points: [new Vector3(fighter.x, 0.25, fighter.z), new Vector3(target.x, 0.25, target.z)] }, scene);
+            const line = MeshBuilder.CreateLines('target line', { points: [new Vector3(bx, 0.25, bz), new Vector3(-target.x, 0.25, -target.z)] }, scene);
             line.color = Color3.FromHexString(BATTLE_OVERLAYS.targets.color);
             overlayMeshes.push(line);
           }
@@ -324,10 +330,10 @@ export function createBattleBoardScene(
           const to = battle.fighters.find(f => f.id === event.to);
           if (!from || !to) continue;
           const mesh = MeshBuilder.CreateSphere('archer arrow', { diameter: 0.18, segments: 6 }, scene);
-          mesh.position.set(from.x, 0.95, from.z);
+          mesh.position.set(-from.x, 0.95, -from.z);
           mesh.material = projectileMaterial;
           mesh.isPickable = false;
-          projectiles.push({ mesh, target: new Vector3(to.x, 0.95, to.z), speed: event.projectileSpeed });
+          projectiles.push({ mesh, target: new Vector3(-to.x, 0.95, -to.z), speed: event.projectileSpeed });
         }
       }
     }

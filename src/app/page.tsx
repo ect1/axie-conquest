@@ -7,6 +7,7 @@ import MilitaryPanel from './military-panel';
 import TrainingDialog from './training-dialog';
 import MailDialog from './mail-dialog';
 import DeveloperPanel from './developer-panel';
+import BattleSpectatorModal from './battle-spectator';
 import { activateCommanderSkill, Battle, stepBattle } from '@/game/battle';
 import { BATTLE_SAVE_KEY, BattleSession, BattleReport, createBattleSession, restoreBattleSave, readBattleReports, recoverBattleTransaction, commitBattleOutcome } from '@/game/battle-save';
 import { beginReplay, recordReplay } from '@/game/battle-replay';
@@ -28,6 +29,7 @@ type AxieApiResponse = { data?: { axies?: { results?: unknown } }; error?: strin
 export default function Home() {
   const unitStats = activeUnitGlobalStats;
   const [battleSession, setBattleSession] = useState<BattleSession | null>(null);
+  const [spectating, setSpectating] = useState(false);
   const battleRef = useRef<BattleSession | null>(null);
   const [battleReport, setBattleReport] = useState<BattleReport | null>(null);
   const [battleReports, setBattleReports] = useState<BattleReport[]>([]);
@@ -171,6 +173,7 @@ export default function Home() {
       localStorage.setItem(BATTLE_SAVE_KEY, JSON.stringify({ active: session, report: battleReport, reports: battleReports }));
       battleRef.current = session; setBattleSession(session);
       setSelectedUnitId(attacker.id); setTarget(null); setRouteAction(null);
+      setSpectating(true);
     } catch { setBattleError('Battle could not start because browser storage is unavailable. Free storage and retry.'); }
   }, [units, worldObjects, ready, battleError, battleReport, apiAxies]);
   useEffect(() => {
@@ -199,8 +202,8 @@ export default function Home() {
     if (!worldView) { view.current?.setWorldView(true); setWorldView(true); view.current?.focusBattle(); }
   }, [battleSession?.target.id, ready]);
   useEffect(() => {
-    if (battleSession?.battle.result && !battleError) finishBattle();
-  }, [battleSession?.battle.result, battleError]);
+    if (battleSession?.battle.result && !battleError && !spectating) finishBattle();
+  }, [battleSession?.battle.result, battleError, spectating]);
   function updateBattle(battle: Battle, forceSave = false) {
     const session = battleRef.current;
     if (!session) return;
@@ -414,6 +417,45 @@ export default function Home() {
     {training && <TrainingDialog buildings={buildings} troops={troops} ready={ready} onTrain={kind => { view.current?.train(kind); }} onClose={() => setTraining(false)} />}
     {developer && <DeveloperPanel settings={generation} onSettings={setGeneration} objects={worldObjects} status={generationStatus} ready={ready} mobSpawnEnabled={mobSpawnEnabled} onMobSpawnEnabled={setMobSpawnEnabled} mobGroup={mobGroup} onMobGroup={setMobGroup} activeAxies={apiAxies.filter(axie => selectedCity.deployedAxieIds.includes(axie.id))} onClose={() => setDeveloper(false)} onRegenerate={regenerate} onRemove={() => { view.current?.removeWorld(); try { localStorage.setItem(WORLD_SAVE_KEY, '[]'); } catch { /* Keep the removal in memory when storage is unavailable. */ } setWorldObjects([]); setGenerationStatus('All generated objects removed.'); }} />}
     {mail && <MailDialog battleReports={battleReports} onClose={() => setMail(false)} />}
+    {battleSession && !spectating && (
+      <aside
+        style={{
+          position: 'fixed',
+          top: '72px',
+          right: '16px',
+          zIndex: 40,
+          background: 'rgba(24, 30, 28, 0.92)',
+          backdropFilter: 'blur(8px)',
+          border: '1px solid rgba(255, 90, 90, 0.5)',
+          borderRadius: '8px',
+          padding: '8px 12px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '10px',
+          boxShadow: '0 4px 16px rgba(0,0,0,0.5)',
+        }}
+        aria-label="Active combat indicator"
+      >
+        <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', background: '#e04040' }} />
+        <div style={{ display: 'flex', flexDirection: 'column' }}>
+          <strong style={{ fontSize: '0.85rem' }}>⚔️ Combat in progress</strong>
+          <small style={{ opacity: 0.8 }}>{battleSession.army.name}</small>
+        </div>
+        <button className="primary" style={{ fontSize: '0.8rem', padding: '4px 10px' }} onClick={() => setSpectating(true)}>
+          Spectate
+        </button>
+      </aside>
+    )}
+    {spectating && battleSession && (
+      <BattleSpectatorModal
+        session={battleSession}
+        onClose={() => setSpectating(false)}
+        onFinish={() => {
+          setSpectating(false);
+          finishBattle();
+        }}
+      />
+    )}
     <footer className="bottom-bar"><div className="status" role="status"><span className="status-dot" />{message}<small>DRAG TO PAN · PINCH / SCROLL TO ZOOM</small></div><div className="hud-actions"><button className="build-toggle" onClick={toggleDeveloper} aria-expanded={developer}><span>Developer</span></button><button className="build-toggle" onClick={toggleHeroes} aria-expanded={heroes}><span>Axies</span></button><button className="build-toggle" onClick={toggleTraining} aria-expanded={training}><span>Train</span></button><button className="build-toggle" onClick={toggleMail} aria-haspopup="dialog" aria-expanded={mail}><span>Mail</span></button><button className="build-toggle" onClick={toggleMilitary} aria-expanded={military}><span>Military</span></button><button className="build-toggle" onClick={() => { setDeveloper(false); setHeroes(false); setMilitary(false); setTraining(false); if (placing) cancel(); else { setSelected(null); setCatalog(selected ? true : !catalog); } }} aria-expanded={(catalog && !selected) || placing}>▦ <span>{placing ? (moving ? 'Cancel move' : 'Cancel build') : 'Build'}</span></button></div></footer>
   </main>;
 }
