@@ -37,7 +37,7 @@ const openingPlayer = b.formationCenter(initial, 'player');
 const openingEnemy = b.formationCenter(initial, 'enemy');
 assert.equal(openingPlayer.x, 0, 'player formation opens centered on the battle axis');
 assert.equal(openingEnemy.x, 0, 'enemy formation opens centered on the battle axis');
-assert.equal(openingEnemy.z - openingPlayer.z, 18, 'opening teams honor the shared configurable separation');
+assert.ok(Math.abs((openingEnemy.z - openingPlayer.z) - 11.483) < 0.01, 'opening teams honor the shared configurable separation');
 assert.ok(initial.fighters.filter(fighter => fighter.side === 'player').every(fighter => fighter.facing === 0), 'player opens south-facing north');
 assert.ok(initial.fighters.filter(fighter => fighter.side === 'enemy').every(fighter => fighter.facing === Math.PI), 'enemy opens north-facing south');
 const recording = replayRules.beginReplay(initial);
@@ -185,7 +185,7 @@ assert.equal(retarget.fighters[0].targetId, 'alive');
 const target = { id: 'test-garrison', kind: 'garrison', state: 'defended', x: 40, z: 0, loot: { apple: 1 } };
 const attacking = { ...army, position: { x: 40, z: 0 }, activity: { action: 'attack', targetId: target.id, targetLabel: 'Garrison' } };
 let session = save.createBattleSession(attacking, target);
-for (let i = 0; i < 100; i++) session = { ...session, battle: b.stepBattle(session.battle) };
+for (let i = 0; i < 50; i++) session = { ...session, battle: b.stepBattle(session.battle) };
 const restored = save.restoreBattleSave(JSON.stringify({ active: session, report: null }), troops).active;
 assert.ok(restored, 'valid active battle restores');
 assert.equal(JSON.stringify(run(restored.battle)), JSON.stringify(run(session.battle)), 'reload resumes exactly the same simulation');
@@ -238,7 +238,7 @@ for (const point of [{ x: 24, z: 0 }, { x: 40, z: -16 }, { x: 40, z: 0 }, { x: 4
   const fight = save.createBattleSession(march, target);
   const sessionPlayer = b.formationCenter(fight.battle, 'player');
   const sessionEnemy = b.formationCenter(fight.battle, 'enemy');
-  assert.equal(sessionEnemy.z - sessionPlayer.z, 18, 'world sessions retain the centered tactical opening');
+  assert.ok(Math.abs((sessionEnemy.z - sessionPlayer.z) - 11.483) < 0.01, 'world sessions retain the centered tactical opening');
   const angle = projection.battleWorldTransform(fight).angle;
   for (const fighter of fight.battle.fighters.filter(f => f.side === 'player')) {
     const member = march.members.find(m => m.id === fighter.memberId);

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { BUILDABLE_KINDS, BUILDING_DEFINITIONS, BuildableKind, BuildingKind, Building, Cell, canPlace, canMoveBuilding, getBuildingDimensions, MAIN_HALL, EMPTY_TROOPS, Troops } from '@/game/base';
 import HeroesPanel from './heroes-panel';
 import MilitaryPanel from './military-panel';
@@ -30,6 +30,8 @@ export default function Home() {
   const unitStats = activeUnitGlobalStats;
   const [battleSession, setBattleSession] = useState<BattleSession | null>(null);
   const [spectating, setSpectating] = useState(false);
+  const [battlePaused, setBattlePaused] = useState(true);
+  const [battleSpeed, setBattleSpeed] = useState<1 | 2 | 0.5>(1);
   const battleRef = useRef<BattleSession | null>(null);
   const [battleReport, setBattleReport] = useState<BattleReport | null>(null);
   const [battleReports, setBattleReports] = useState<BattleReport[]>([]);
@@ -173,19 +175,42 @@ export default function Home() {
       localStorage.setItem(BATTLE_SAVE_KEY, JSON.stringify({ active: session, report: battleReport, reports: battleReports }));
       battleRef.current = session; setBattleSession(session);
       setSelectedUnitId(attacker.id); setTarget(null); setRouteAction(null);
+      setBattlePaused(true);
       setSpectating(true);
     } catch { setBattleError('Battle could not start because browser storage is unavailable. Free storage and retry.'); }
   }, [units, worldObjects, ready, battleError, battleReport, apiAxies]);
   useEffect(() => {
-    if (!battleSession || battleError) return;
+    if (!battleSession || battleError || battlePaused) return;
+    const intervalMs = Math.round(100 / battleSpeed);
     const timer = window.setInterval(() => {
       const session = battleRef.current;
       if (!session || session.battle.result || document.hidden) return;
       const stepped = stepBattle(session.battle), skilled = activateCommanderSkill(stepped);
       updateBattle(skilled === stepped ? stepped : { ...skilled, events: [...stepped.events, ...skilled.events] });
-    }, 100);
+    }, intervalMs);
     return () => window.clearInterval(timer);
-  }, [battleSession?.army.id, battleError]);
+  }, [battleSession?.army.id, battleError, battlePaused, battleSpeed]);
+  const toggleBattlePause = useCallback(() => {
+    setBattlePaused(prev => !prev);
+  }, []);
+  const stepBattleOnce = useCallback(() => {
+    const session = battleRef.current;
+    if (!session || session.battle.result) return;
+    const stepped = stepBattle(session.battle), skilled = activateCommanderSkill(stepped);
+    updateBattle(skilled === stepped ? stepped : { ...skilled, events: [...stepped.events, ...skilled.events] });
+  }, []);
+  const restartBattle = useCallback(() => {
+    const session = battleRef.current;
+    if (!session) return;
+    const restarted = createBattleSession(session.army, session.target, apiAxies);
+    battleRef.current = restarted;
+    setBattleSession(restarted);
+    setBattlePaused(true);
+    view.current?.setBattle(restarted, null);
+    try {
+      localStorage.setItem(BATTLE_SAVE_KEY, JSON.stringify({ active: restarted, report: battleReport, reports: battleReports }));
+    } catch { /* LocalStorage error handling */ }
+  }, [apiAxies, battleReport, battleReports]);
   useEffect(() => {
     const flush = () => {
       if (!battleRef.current) return;
@@ -426,7 +451,7 @@ export default function Home() {
           zIndex: 40,
           background: 'rgba(24, 30, 28, 0.92)',
           backdropFilter: 'blur(8px)',
-          border: '1px solid rgba(255, 90, 90, 0.5)',
+          border: `1px solid ${battlePaused ? '#f1c40f' : 'rgba(255, 90, 90, 0.5)'}`,
           borderRadius: '8px',
           padding: '8px 12px',
           display: 'flex',
@@ -436,19 +461,53 @@ export default function Home() {
         }}
         aria-label="Active combat indicator"
       >
-        <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', background: '#e04040' }} />
+        <span
+          style={{
+            display: 'inline-block',
+            width: '8px',
+            height: '8px',
+            borderRadius: '50%',
+            background: battlePaused ? '#f1c40f' : '#e04040',
+            boxShadow: battlePaused ? 'none' : '0 0 8px #e04040',
+          }}
+        />
         <div style={{ display: 'flex', flexDirection: 'column' }}>
-          <strong style={{ fontSize: '0.85rem' }}>⚔️ Combat in progress</strong>
+          <strong style={{ fontSize: '0.85rem' }}>
+            {battlePaused && battleSession.battle.tick === 0
+              ? '⚔️ Ready to Engage'
+              : battlePaused
+              ? '⏸ Battle Paused'
+              : '⚔️ Combat in progress'}
+          </strong>
           <small style={{ opacity: 0.8 }}>{battleSession.army.name}</small>
         </div>
-        <button className="primary" style={{ fontSize: '0.8rem', padding: '4px 10px' }} onClick={() => setSpectating(true)}>
-          Spectate
+        {battlePaused && battleSession.battle.tick > 0 && !battleSession.battle.result && (
+          <button
+            className="secondary"
+            style={{ fontSize: '0.8rem', padding: '4px 10px' }}
+            onClick={() => setBattlePaused(false)}
+          >
+            Resume
+          </button>
+        )}
+        <button
+          className="primary"
+          style={{ fontSize: '0.8rem', padding: '4px 10px' }}
+          onClick={() => setSpectating(true)}
+        >
+          {battlePaused && battleSession.battle.tick === 0 ? 'Inspect & Start' : 'Spectate'}
         </button>
       </aside>
     )}
     {spectating && battleSession && (
       <BattleSpectatorModal
         session={battleSession}
+        isPaused={battlePaused}
+        onTogglePause={toggleBattlePause}
+        onStep={stepBattleOnce}
+        onRestart={restartBattle}
+        speed={battleSpeed}
+        onSpeedChange={setBattleSpeed}
         onClose={() => setSpectating(false)}
         onFinish={() => {
           setSpectating(false);

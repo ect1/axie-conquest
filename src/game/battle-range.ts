@@ -17,7 +17,7 @@ export function sanitizeBattleRange(value: Partial<BattleRangeSettings> | null |
     level0Angle: number('level0Angle', 1, 360),
     bodyRadius: number('bodyRadius', .1, 5),
     level1DetectionRange: number('level1DetectionRange', .1, 100),
-    level1DetectionAngle: number('level1DetectionAngle', 1, 360),
+    level1DetectionAngle: value?.level1DetectionAngle === 16 ? DEFAULT_BATTLE_RANGE.level1DetectionAngle : number('level1DetectionAngle', 1, 360),
     dashSpeedMultiplier: number('dashSpeedMultiplier', 1, 5),
     meleeAttackRange: number('meleeAttackRange', .1, 30),
     rangedAttackRange: number('rangedAttackRange', .1, 30),

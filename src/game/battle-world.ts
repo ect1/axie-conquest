@@ -10,11 +10,9 @@ export function battleWorldTransform(session: Pick<BattleSession, 'army' | 'targ
   const angle = Math.atan2(dx, dz);
   return { angle, x: session.army.position.x, z: session.army.position.z };
 }
-export function fighterWorldPosition(session: Pick<BattleSession, 'army' | 'target'>, point: Coordinate): Coordinate {
+export function fighterWorldPosition(session: Pick<BattleSession, 'army' | 'target'>, point: Coordinate & { memberId?: string }): Coordinate {
   const origin = battleWorldTransform(session), sin = Math.sin(origin.angle), cos = Math.cos(origin.angle);
-  const boardCenter = teamStartingCenter('player', activeBattleSettings.teamSeparation);
-  const offsetCenter = session.army.members.reduce((center, member) => ({ x: center.x + member.offset.x / session.army.members.length, z: center.z + member.offset.z / session.army.members.length }), { x: 0, z: 0 });
-  const x = point.x - boardCenter.x + offsetCenter.x;
-  const z = point.z - boardCenter.z + offsetCenter.z;
-  return { x: origin.x + x * cos + z * sin, z: origin.z - x * sin + z * cos };
+  const member = point.memberId ? session.army.members.find(m => m.id === point.memberId) : undefined;
+  const offset = member?.offset ?? { x: point.x, z: point.z };
+  return { x: origin.x + offset.x * cos + offset.z * sin, z: origin.z - offset.x * sin + offset.z * cos };
 }

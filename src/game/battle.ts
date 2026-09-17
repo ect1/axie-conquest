@@ -8,6 +8,7 @@ import { activeBattleSettings } from './battle-settings';
 import { teamFacing, teamStartingCenter } from './battle-layout';
 import { isInDirectionalRange, level0CanAttack, level1CanDetect } from './battle-range';
 import { baseCombatStats } from './sandbox-battle';
+import { createHexGridSlots } from './hex-grid';
 
 import defaults from './battle-settings.json';
 
@@ -50,10 +51,22 @@ export function formationCenter(battle: Battle, side: Fighter['side']) {
 export function createBattle(army: WorldUnit, enemyCount = 18, roster: readonly ApiAxie[] = []): Battle {
   const leader = STARTER_HEROES.find(hero => hero.id === army.leaderId);
   const modifiers = leaderTalent(leader)?.modifiers ?? NO_MODIFIERS;
-  const playerCenter = teamStartingCenter('player', activeBattleSettings.teamSeparation);
-  const enemyCenter = teamStartingCenter('enemy', activeBattleSettings.teamSeparation);
-  const playerOffsetCenter = army.members.reduce((center, member) => ({ x: center.x + member.offset.x / army.members.length, z: center.z + member.offset.z / army.members.length }), { x: 0, z: 0 });
-  const members: Fighter[] = army.members.map(member => {
+
+  const boardRows = activeBattleSettings.boardRows ?? 3;
+  const boardColumns = activeBattleSettings.boardColumns ?? 5;
+  const neutralRows = Math.round(activeBattleSettings.boardTeamGap ?? 1);
+  const hexGap = (activeBattleSettings.boardHexGap ?? 0.35) * 0.22;
+  const slots = createHexGridSlots({
+    columns: boardColumns,
+    hexGap,
+    bands: [
+      { id: 'enemy', rows: boardRows },
+      { id: 'neutral', rows: neutralRows },
+      { id: 'player', rows: boardRows },
+    ],
+  });
+
+  const members: Fighter[] = army.members.map((member, index) => {
     const hero = STARTER_HEROES.find(h => h.id === member.heroId);
     const appearance = roster.find(axie => axie.id === member.heroId);
     const troopKind = member.troopKind ?? 'infantry';
@@ -66,26 +79,70 @@ export function createBattle(army: WorldUnit, enemyCount = 18, roster: readonly 
       ? { ...profile, speed: profile.speed * hero.stats.speed / 100, range: attackRange, interval: attackInterval, radius: activeBattleSettings.bodyRadius, ...(isRanged ? { projectileSpeed: activeBattleSettings.baseArcherProjectileSpeed } : {}) }
       : { ...TROOP_COMBAT_STATS[troopKind], health: profile.health, attack: profile.attack, defense: profile.defense, speed: profile.speed, interval: attackInterval, range: attackRange, radius: activeBattleSettings.bodyRadius, ...(projectileSpeed ? { projectileSpeed } : {}) };
     const stats = { ...base, range: base.range * activeBattleSettings.attackRangeMultiplier, radius: base.radius * activeBattleSettings.bodyRadiusMultiplier, health: base.health * modifiers.health, attack: base.attack * modifiers.attack, defense: base.defense * modifiers.defense, speed: base.speed * modifiers.speed, ...(base.projectileSpeed ? { projectileSpeed: base.projectileSpeed } : {}) };
-    return { id: `player:${member.id}`, memberId: member.id, side: 'player', ...(appearance ? { appearance: structuredClone(appearance) } : {}), name: appearance?.name ?? hero?.name ?? member.troopKind ?? 'Squad', heroId: member.heroId, troopKind: member.troopKind, initialCount: member.count, hp: stats.health * member.count * (member.healthRatio ?? 1), maxHp: stats.health * member.count, stats, x: playerCenter.x + member.offset.x - playerOffsetCenter.x, z: playerCenter.z + member.offset.z - playerOffsetCenter.z, facing: teamFacing('player'), cooldown: 0, targetId: null, state: 'holding' };
+
+    // Resolve exact tactical hex slot matching the march formation assignment:
+    const match = /^hex-(\d+)-(\d+)$/.exec(member.id);
+    const formationRow = match ? parseInt(match[1], 10) : Math.floor(index / boardColumns);
+    const formationCol = match ? parseInt(match[2], 10) : index % boardColumns;
+    const targetBoardRow = boardRows + neutralRows + formationRow;
+    const slot = slots.find(s => s.band === 'player' && s.row === targetBoardRow && s.column === formationCol)
+      || slots.find(s => s.band === 'player')!;
+
+    // Coordinate convention: in battle.ts, player has negative Z and faces 0 (North).
+    // The board scene displays (bx = -x, bz = -z), landing precisely at (slot.x, slot.z).
+    const posX = -slot.x;
+    const posZ = -slot.z;
+
+    return {
+      id: `player:${member.id}`, memberId: member.id, side: 'player',
+      ...(appearance ? { appearance: structuredClone(appearance) } : {}),
+      name: appearance?.name ?? hero?.name ?? member.troopKind ?? 'Squad',
+      heroId: member.heroId, troopKind: member.troopKind, initialCount: member.count,
+      hp: stats.health * member.count * (member.healthRatio ?? 1), maxHp: stats.health * member.count,
+      stats, x: posX, z: posZ, facing: teamFacing('player'), cooldown: 0, targetId: null, state: 'holding'
+    };
   });
-  const enemyOffsets = [{ x: -2, z: -1 }, { x: 0, z: -1 }, { x: 2, z: 2 }];
+
+  // Deploy enemy units symmetrically onto the enemy hex rows:
+  // Melee front line (closest to neutral row), archers in middle/back.
+  const enemyFrontRow = boardRows - 1;
+  const enemyBackRow = 0;
+  const enemyPositions = [
+    { row: enemyFrontRow, col: 1, kind: 'infantry' as const },
+    { row: enemyFrontRow, col: 3, kind: 'infantry' as const },
+    { row: enemyBackRow, col: 2, kind: 'archer' as const },
+  ];
+
   for (let index = 0; index < 3; index++) {
-    const kind = index === 2 ? 'archer' : 'infantry';
+    const enemyPos = enemyPositions[index] || { row: enemyFrontRow, col: index % boardColumns, kind: index % 2 === 0 ? 'infantry' : 'archer' };
+    const kind = enemyPos.kind;
     const isRanged = kind === 'archer';
     const attackRange = isRanged ? activeBattleSettings.rangedAttackRange : activeBattleSettings.meleeAttackRange;
     const baseline = TROOP_COMBAT_STATS[kind], chimera = baseCombatStats(activeBattleSettings, 'chimera');
     const base = { ...baseline, health: chimera.health, attack: chimera.attack, defense: chimera.defense, speed: chimera.speed, interval: 1 / chimera.attackSpeed, range: attackRange, radius: activeBattleSettings.bodyRadius, ...(isRanged ? { projectileSpeed: activeBattleSettings.baseArcherProjectileSpeed } : {}) };
     const stats = { ...base, range: base.range * activeBattleSettings.attackRangeMultiplier, radius: base.radius * activeBattleSettings.bodyRadiusMultiplier, ...(isRanged ? { projectileSpeed: activeBattleSettings.baseArcherProjectileSpeed } : {}) };
-    const offset = enemyOffsets[index];
-    members.push({ id: `enemy:${index}`, memberId: `${index}`, side: 'enemy', name: kind === 'archer' ? 'Chimera archers' : 'Chimera guards', troopKind: kind, initialCount: enemyCount, hp: stats.health * enemyCount, maxHp: stats.health * enemyCount, stats, x: enemyCenter.x + offset.x, z: enemyCenter.z + offset.z, facing: teamFacing('enemy'), cooldown: 0, targetId: null, state: 'holding' });
+
+    const slot = slots.find(s => s.band === 'enemy' && s.row === enemyPos.row && s.column === enemyPos.col)
+      || slots.find(s => s.band === 'enemy')!;
+    const posX = -slot.x;
+    const posZ = -slot.z;
+
+    members.push({
+      id: `enemy:${index}`, memberId: `${index}`, side: 'enemy',
+      name: kind === 'archer' ? 'Chimera archers' : 'Chimera guards',
+      troopKind: kind, initialCount: enemyCount,
+      hp: stats.health * enemyCount, maxHp: stats.health * enemyCount,
+      stats, x: posX, z: posZ, facing: teamFacing('enemy'), cooldown: 0, targetId: null, state: 'holding'
+    });
   }
+
   return { version: 1, layoutVersion: 2, tick: 0, fighters: members, leaderId: members.find(f => f.heroId === army.leaderId)?.id ?? null, skillCooldown: 0, retreating: false, result: null, events: [] };
 }
 export function createSandboxArmy(kind: 'balanced' | 'infantry' | 'archer'): WorldUnit {
   const formation = createEmptyFormation();
   formation.assignments.push({ row: 0, column: 1, heroId: STARTER_HEROES[0].id, military: null, militaryCount: 0 });
   formation.leader = STARTER_HEROES[0].id;
-  formation.assignments.push({ row: 0, column: 0, heroId: null, military: kind === 'archer' ? 'archer' : 'infantry', militaryCount: 20 });
+  formation.assignments.push({ row: 0, column: 3, heroId: null, military: kind === 'archer' ? 'archer' : 'infantry', militaryCount: 20 });
   formation.assignments.push({ row: 2, column: 2, heroId: null, military: kind === 'infantry' ? 'infantry' : 'archer', militaryCount: 20 });
   return createArmy(formation, 0, 'sandbox', 'Practice', 3, 'sandbox');
 }
