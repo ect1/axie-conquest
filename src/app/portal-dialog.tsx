@@ -8,9 +8,10 @@ type Props = {
   onClose: () => void;
   onTriggerWave?: (portalId: string) => void;
   onTogglePause?: () => void;
+  onAttackPortal?: (portal: PortalInstance) => void;
 };
 
-export default function PortalDialog({ portal, config, now, onClose, onTriggerWave, onTogglePause }: Props) {
+export default function PortalDialog({ portal, config, now, onClose, onTriggerWave, onTogglePause, onAttackPortal }: Props) {
   const remainingMs = Math.max(0, portal.nextAttackTime - now);
   const form = portal.upcomingFormation;
 
@@ -301,7 +302,27 @@ export default function PortalDialog({ portal, config, now, onClose, onTriggerWa
       </div>
 
       {/* Actions */}
-      <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+      <div style={{ display: 'flex', gap: '8px', marginTop: '8px', flexWrap: 'wrap' }}>
+        {config.portalLevelScaling.subPortal?.destroyable && portal.id !== 'portal-prime' && onAttackPortal && (
+          <button
+            className="primary"
+            onClick={() => onAttackPortal(portal)}
+            style={{
+              flex: '1 1 100%',
+              background: '#b91c1c',
+              borderColor: '#ef4444',
+              color: '#ffffff',
+              borderRadius: '8px',
+              padding: '10px 8px',
+              fontSize: '12px',
+              fontWeight: 'bold',
+              cursor: 'pointer',
+              marginBottom: '4px',
+            }}
+          >
+            ⚔️ Attack Sub-portal (Destroy)
+          </button>
+        )}
         {onTogglePause && (
           <button
             onClick={onTogglePause}

@@ -1,0 +1,4 @@
+wall:
+  baseStats:
+    health: 1000
+    defense: 10

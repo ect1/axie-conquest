@@ -209,7 +209,7 @@ function storageFor(failAt = Infinity) {
 const storage = storageFor();
 const outcome = save.commitBattleOutcome(storage, completed, [attacking], troops, [formation], [target], 10000);
 assert.equal(outcome.troops.infantry, troops.infantry - outcome.report.losses.infantry);
-assert.equal(outcome.units[0].status, completed.battle.result === 'victory' ? 'holding' : 'returning');
+assert.equal(outcome.units[0].status, 'returning');
 assert.equal(outcome.units[0].activity, undefined);
 assert.equal(storage.getItem(save.BATTLE_TRANSACTION_KEY), null);
 assert.ok(u.restoreUnits(JSON.stringify(outcome.units), outcome.troops, 10000).length, 'survivors restore and remain reserved');
@@ -227,11 +227,11 @@ for (let failAt = 2; failAt <= 6; failAt++) {
 const win = { ...session, battle: { ...session.battle, result: 'victory', fighters: session.battle.fighters.map(f => f.side === 'enemy' ? { ...f, hp: 0, state: 'defeated', targetId: null } : f) } };
 const won = save.commitBattleOutcome(storageFor(), win, [attacking], troops, [formation], [target], 10000);
 assert.equal(won.units[0].id, attacking.id);
-assert.equal(won.units[0].status, 'holding', 'victorious formation stays deployed');
-assert.equal(won.units[0].order, null);
+assert.equal(won.units[0].status, 'returning', 'victorious formation returns to base');
+assert.ok(won.units[0].order && won.units[0].order.kind === 'return');
 assert.equal(won.units[0].activity, undefined, 'finished attack cannot restart');
 assert.equal(u.commandUnit(won.units[0], 'move', 10001, { x: 55, z: 25 }).status, 'moving', 'survivors accept the next order');
-assert.equal(u.restoreUnits(JSON.stringify(won.units), won.troops, 10001)[0].status, 'holding', 'victorious survivors remain commandable after reload');
+assert.equal(u.restoreUnits(JSON.stringify(won.units), won.troops, 10001)[0].status, 'returning', 'victorious survivors remain commandable after reload');
 const projection = load('src/game/battle-world.ts');
 for (const point of [{ x: 24, z: 0 }, { x: 40, z: -16 }, { x: 40, z: 0 }, { x: 45, z: 5 }]) {
   const march = { ...attacking, position: point };

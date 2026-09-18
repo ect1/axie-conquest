@@ -18,7 +18,7 @@ import CityUnitPanel from './city-unit-panel';
 import { CAPITAL_CITY_ID, CITIES_SAVE_KEY, CityState, createCapitalCity, restoreCities } from '@/game/cities';
 import { createEmptyFormations, Formation, OFFENSE_FORMATIONS_SAVE_KEY, restoreOffenseFormations, serializeOffenseFormations } from '@/game/offense-formations';
 import { BATTLE_SETTINGS_SAVE_KEY, restoreActiveBattleSettings } from '@/game/battle-settings';
-import { createRoute, formatDuration, isValidFormation, marchTravelTimeMs, WorldTarget } from '@/game/routes';
+import { Coordinate, createRoute, formatDuration, isValidFormation, marchTravelTimeMs, WorldTarget } from '@/game/routes';
 import { WorldUnit, UNITS_SAVE_KEY, createArmy, createScout, deployUnit, commandUnit, commandWorldAction, deploymentError, restoreUnits, migrateMarches, settleUnit, unitPosition } from '@/game/units';
 import { createMilitaryService } from '@/game/military-service';
 import { activeUnitGlobalStats } from '@/game/unit-stats';
@@ -43,6 +43,7 @@ import {
   PortalRuntimeState,
   createInitialPortalState,
   defeatEnemyMarch,
+  destroySubPortal,
   enemyMarchPosition,
   generateNewPortalCoordinate,
   generateWaveFormation,
@@ -50,6 +51,7 @@ import {
   restorePortalConfig,
   restorePortalState,
   stepPortalSystem,
+  subPortalDefenderToBossConfig,
 } from '@/game/portal';
 
 type InventoryTab = 'resources' | 'equipment' | 'other';
@@ -219,6 +221,29 @@ export default function Home() {
     setSelectedAction('march');
     setRouteAction('formation');
     setFormationIndex(null);
+  }
+
+  function handleAttackPortal(portal: PortalInstance) {
+    const bossCfg = subPortalDefenderToBossConfig(portal);
+    registerDynamicBoss(bossCfg);
+    setTarget({ x: portal.coordinate.x, z: portal.coordinate.z, id: portal.id, label: portal.name });
+    setSelectedPortalId(null);
+    setSelectedUnitId(null);
+    setSelectedAction('attack');
+    setRouteAction('formation');
+    setFormationIndex(null);
+  }
+
+  function handleDestroySubPortal(portalId: string) {
+    const { state: nextState, destroyedPortal } = destroySubPortal(portalId, portalState);
+    setPortalState(nextState);
+    try {
+      localStorage.setItem(PORTAL_STATE_SAVE_KEY, JSON.stringify(nextState));
+    } catch { /* ignore */ }
+    view.current?.setPortalState(nextState, null);
+    setSelectedPortalId(null);
+    setSelectedUnitId(null);
+    setMessage(`💥 VICTORY! Destroyed ${destroyedPortal?.name || 'sub-portal'}! The void rift collapsed.`);
   }
 
   const [showIntro, setShowIntro] = useState(true);
@@ -414,6 +439,22 @@ export default function Home() {
             bossId: `portal-boss-${hostile.id}`,
             bossName: hostile.name,
           };
+        } else {
+          const subPortal = portalState.portals.find(p => p.id === targetId && p.id !== 'portal-prime');
+          if (subPortal && portalConfig.portalLevelScaling.subPortal?.destroyable) {
+            const bossCfg = subPortalDefenderToBossConfig(subPortal);
+            registerDynamicBoss(bossCfg);
+            enemy = {
+              id: subPortal.id,
+              kind: 'boss',
+              x: subPortal.coordinate.x,
+              z: subPortal.coordinate.z,
+              state: 'defended',
+              loot: { apple: 50 * subPortal.level },
+              bossId: `subportal-boss-${subPortal.id}`,
+              bossName: `${subPortal.name} Defenders`,
+            };
+          }
         }
       }
       if (!enemy) {
@@ -453,6 +494,26 @@ export default function Home() {
     }
 
     if (newSessions.length > 0) {
+      // Freeze any EnemyMarch targets that have just entered battle
+      const fightingMarchTargets = new Map<string, Coordinate>();
+      for (const s of newSessions) {
+        if (portalState.activeEnemyMarches.some(m => m.id === s.target.id)) {
+          fightingMarchTargets.set(s.target.id, { x: s.target.x, z: s.target.z });
+        }
+      }
+      if (fightingMarchTargets.size > 0) {
+        const updatedMarches = portalState.activeEnemyMarches.map(m => {
+          const fightPos = fightingMarchTargets.get(m.id);
+          return fightPos ? { ...m, status: 'fighting' as const, fightingPosition: fightPos } : m;
+        });
+        const nextPortalState = { ...portalState, activeEnemyMarches: updatedMarches };
+        setPortalState(nextPortalState);
+        view.current?.setPortalState(nextPortalState, selectedUnitId);
+        try {
+          localStorage.setItem(PORTAL_STATE_SAVE_KEY, JSON.stringify(nextPortalState));
+        } catch { /* session only */ }
+      }
+
       const allSessions = [...battleSessionsRef.current, ...newSessions];
       try {
         localStorage.setItem(BATTLE_SAVE_KEY, JSON.stringify({ active: allSessions[0] ?? null, sessions: allSessions, report: battleReport, reports: battleReports }));
@@ -632,10 +693,39 @@ export default function Home() {
       setBattleReports(outcome.reports);
       view.current?.loadWorld(outcome.objects);
       view.current?.refreshMilitary();
-      setMessage(`${outcome.report.result}: ${outcome.report.losses.infantry} infantry and ${outcome.report.losses.archer} archers lost. ${outcome.report.result === 'victory' ? 'Formation ready for orders.' : 'Survivors returning home.'}`);
+      setMessage(`${outcome.report.result}: ${outcome.report.losses.infantry} infantry and ${outcome.report.losses.archer} archers lost. ${outcome.report.result === 'victory' ? 'Victorious army returning home.' : 'Survivors returning home.'}`);
 
-      if (session.battle.result === 'victory' && portalState.activeEnemyMarches.some(m => m.id === session.target.id)) {
-        handleDefeatHostileMarch(session.target.id);
+      if (session.battle.result === 'victory') {
+        if (portalState.activeEnemyMarches.some(m => m.id === session.target.id)) {
+          handleDefeatHostileMarch(session.target.id);
+        } else if (portalState.portals.some(p => p.id === session.target.id && p.id !== 'portal-prime')) {
+          handleDestroySubPortal(session.target.id);
+        }
+      } else {
+        const hostile = portalState.activeEnemyMarches.find(m => m.id === session.target.id);
+        if (hostile && hostile.status === 'fighting') {
+          const currentPos = hostile.fightingPosition || enemyMarchPosition(hostile, now);
+          const route = createRoute(hostile.destination, currentPos);
+          const travelTime = marchTravelTimeMs(route, hostile.speed);
+          const resumedMarches = portalState.activeEnemyMarches.map(m =>
+            m.id === hostile.id
+              ? {
+                  ...m,
+                  origin: { ...currentPos },
+                  startedAt: now,
+                  arrivesAt: now + travelTime,
+                  status: travelTime === 0 ? ('arrived' as const) : ('marching' as const),
+                  fightingPosition: undefined,
+                }
+              : m
+          );
+          const nextPortalState = { ...portalState, activeEnemyMarches: resumedMarches };
+          setPortalState(nextPortalState);
+          view.current?.setPortalState(nextPortalState, selectedUnitId);
+          try {
+            localStorage.setItem(PORTAL_STATE_SAVE_KEY, JSON.stringify(nextPortalState));
+          } catch { /* session only */ }
+        }
       }
     } catch {
       setBattleError('Battle outcome could not be fully saved. Retry to complete recovery; progress is kept in the battle journal.');
@@ -780,6 +870,22 @@ export default function Home() {
             bossId: `portal-boss-${hostile.id}`,
             bossName: hostile.name,
           };
+        } else {
+          const subPortal = portalState.portals.find(p => p.id === target.id && p.id !== 'portal-prime');
+          if (subPortal && portalConfig.portalLevelScaling.subPortal?.destroyable) {
+            const bossCfg = subPortalDefenderToBossConfig(subPortal);
+            registerDynamicBoss(bossCfg);
+            object = {
+              id: subPortal.id,
+              kind: 'boss',
+              x: subPortal.coordinate.x,
+              z: subPortal.coordinate.z,
+              state: 'defended',
+              loot: { apple: 50 * subPortal.level },
+              bossId: `subportal-boss-${subPortal.id}`,
+              bossName: `${subPortal.name} Defenders`,
+            };
+          }
         }
       }
       if (!target) throw new Error('Choose a destination.');
@@ -855,6 +961,8 @@ export default function Home() {
     ? enemyMarchPosition(selectedEnemyMarch, now)
     : null;
   const hostileTargetMarch = target?.id ? portalState.activeEnemyMarches.find(m => m.id === target.id) : undefined;
+  const targetSubportal = target?.id ? portalState.portals.find(p => p.id === target.id && p.id !== 'portal-prime') : undefined;
+  const isDestroyableSubportal = targetSubportal && portalConfig.portalLevelScaling.subPortal?.destroyable;
   const selectedObject = target?.id
     ? (worldObjects.find(object => object.id === target.id) ?? (hostileTargetMarch ? {
         id: hostileTargetMarch.id,
@@ -865,6 +973,15 @@ export default function Home() {
         loot: { apple: 0 },
         bossId: `portal-boss-${hostileTargetMarch.id}`,
         bossName: hostileTargetMarch.name,
+      } : isDestroyableSubportal ? {
+        id: targetSubportal.id,
+        kind: 'boss' as const,
+        x: targetSubportal.coordinate.x,
+        z: targetSubportal.coordinate.z,
+        state: 'defended' as const,
+        loot: { apple: 50 * targetSubportal.level },
+        bossId: `subportal-boss-${targetSubportal.id}`,
+        bossName: `${targetSubportal.name} Defenders`,
       } : undefined))
     : undefined;
   const targetActions = selectedObject ? getWorldObjectActions(selectedObject) : [];
@@ -921,7 +1038,13 @@ export default function Home() {
             }}
           >
             <strong style={{ color: '#b91c1c' }}>⚠️ {march.name}</strong>
-            <small style={{ color: '#991b1b' }}>Hostile wave · ETA {formatDuration(etaMs)}</small>
+            <small style={{ color: '#991b1b' }}>
+              {march.status === 'fighting'
+                ? '⚔️ In battle'
+                : march.status === 'arrived' || now >= march.arrivesAt
+                ? '⚔️ Halted outside city'
+                : `Hostile wave · ETA ${formatDuration(etaMs)}`}
+            </small>
             <span className="unit-coordinate">⌖ {position.x.toFixed(1)}, {position.z.toFixed(1)} · View enemy</span>
           </button>
         );
@@ -1001,10 +1124,16 @@ export default function Home() {
           }}
         >
           <span style={{ fontSize: '12px', fontWeight: 'bold', color: '#fca5a5' }}>
-            {now >= selectedEnemyMarch.arrivesAt || selectedEnemyMarch.status === 'arrived' ? 'STATUS:' : 'ETA ARRIVAL:'}
+            {selectedEnemyMarch.status === 'fighting'
+              ? 'STATUS:'
+              : now >= selectedEnemyMarch.arrivesAt || selectedEnemyMarch.status === 'arrived'
+              ? 'STATUS:'
+              : 'ETA ARRIVAL:'}
           </span>
           <strong style={{ fontSize: '15px', color: '#ffffff' }}>
-            {now >= selectedEnemyMarch.arrivesAt || selectedEnemyMarch.status === 'arrived'
+            {selectedEnemyMarch.status === 'fighting'
+              ? '⚔️ ENGAGED IN BATTLE'
+              : now >= selectedEnemyMarch.arrivesAt || selectedEnemyMarch.status === 'arrived'
               ? '⚔️ HALTED OUTSIDE CITY'
               : formatDuration(Math.max(0, selectedEnemyMarch.arrivesAt - now))}
           </strong>
@@ -1190,6 +1319,7 @@ export default function Home() {
         onClose={() => setSelectedPortalId(null)}
         onTriggerWave={id => triggerPortalWave(id)}
         onTogglePause={togglePortalPause}
+        onAttackPortal={handleAttackPortal}
       />
     )}
     {mail && <MailDialog battleReports={battleReports} onClose={() => setMail(false)} />}

@@ -80,10 +80,10 @@ export function createWorldFight(scene: Scene) {
     watchBadge.parent = root; watchBadge.material = badgeMaterial; watchBadge.billboardMode = Mesh.BILLBOARDMODE_ALL;
     watchBadge.isPickable = true; watchBadge.metadata = { action: 'watchBattle', sessionId: id };
 
-    clash.position.set(0, 2, 0);
+    clash.position.set(0, 1.75, 0);
     attacker.back.position.set(0, 4, 0);
     defender.back.position.set(0, 3.4, 0);
-    watchBadge.position.set(0, 4.85, 0);
+    watchBadge.position.set(0, 5.7, 0);
 
     return { root, clash, watchBadge, attacker, defender, lastSession: '', lastTick: -3 };
   }

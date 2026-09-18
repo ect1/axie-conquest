@@ -36,7 +36,7 @@ export default function MailDialog({ onClose, battleReports }: { onClose: () => 
                 ))}
               </div>
             )}
-            <p>{report.result === 'victory' ? 'The site was defeated. Your formation remains in the world, ready for orders.' : 'The formation returned toward home. Knocked-out Axies recover there.'}</p>
+            <p>{report.result === 'victory' ? 'The site was defeated. Your victorious formation is returning to base.' : 'The formation returned toward home. Knocked-out Axies recover there.'}</p>
             {report.members && <div className="battle-report-table"><table><caption>Formation results</caption><thead><tr><th>Unit</th><th>Started</th><th>Survived</th><th>Damage</th></tr></thead><tbody>{report.members.map((member, i) => <tr key={i}><th>{member.name}<small>{member.formationName ?? (member.side === 'player' ? 'Your formation' : 'Defenders')}</small></th><td>{member.starting}</td><td>{member.surviving}</td><td>{Math.round(member.damage)}</td></tr>)}</tbody></table><p>Commander skills used: {report.members.reduce((sum, m) => sum + m.skills, 0)} · Healing: {Math.round(report.members.reduce((sum, m) => sum + m.healing, 0))}</p></div>}
             <p>No resource rewards were granted by this battle.</p>
             {report.replay ? <button className="primary" onClick={() => setWatching(report)}>Watch Replay</button> : <p>Recording unavailable for this battle.</p>}

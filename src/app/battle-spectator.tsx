@@ -492,7 +492,7 @@ export default function BattleSpectatorModal({
               <strong>Outcome: {currentBattle.result?.toUpperCase()}!</strong>
               <div style={{ fontSize: '0.8rem', opacity: 0.85 }}>
                 {currentBattle.result === 'victory'
-                  ? 'Victory achieved. The area is secured.'
+                  ? 'Victory achieved. Team is returning to base.'
                   : 'Battle concluded. Team is returning to base.'}
               </div>
             </div>

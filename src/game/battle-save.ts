@@ -191,7 +191,7 @@ export function commitBattleOutcome(storage: StorageAccess, session: BattleSessi
       return member.heroId ? [{ ...member, healthRatio: fighter.hp / fighter.maxHp }] : count ? [{ ...member, count, healthRatio: fighter.hp / (count * fighter.stats.health) }] : [];
     });
     const surviving = { ...army, position: normalizeCoordinate(defaultPosition)!, members, activity: undefined, order: null, status: 'holding' as const };
-    const returning = session.battle.result === 'victory' ? surviving : commandUnit(surviving, 'return', now);
+    const returning = commandUnit(surviving, 'return', now);
     nextUnits = nextUnits.map(unit => unit.id === army.id ? returning : unit);
 
     if (army.formationIndex !== undefined) {

@@ -134,10 +134,12 @@ export class PortalSceneManager {
       visual.root.position.set(currentPos.x, 0, currentPos.z);
       visual.ring.setEnabled(march.id === this.selectedId);
 
-      // Gentle movement bob (breathing idle when arrived outside city)
+      // Gentle movement bob (breathing idle when arrived outside city or fighting)
+      const isFighting = march.status === 'fighting';
       const isArrived = now >= march.arrivesAt || march.status === 'arrived';
+      const isHalted = isArrived || isFighting;
       visual.unitNodes.forEach((unitNode, idx) => {
-        unitNode.position.y = isArrived
+        unitNode.position.y = isHalted
           ? Math.abs(Math.sin(now / 350 + idx)) * 0.05
           : Math.abs(Math.sin(now / 150 + idx)) * 0.15;
       });
@@ -490,10 +492,11 @@ export class PortalSceneManager {
 
   private updateMarchBillboard(node: EnemyMarchVisualNode, now: number): void {
     const march = node.march;
+    const isFighting = march.status === 'fighting';
     const isArrived = now >= march.arrivesAt || march.status === 'arrived';
     const remainingMs = Math.max(0, march.arrivesAt - now);
     const etaDuration = formatDuration(remainingMs);
-    const stateKey = `${march.level}-${isArrived ? 'arrived' : etaDuration}`;
+    const stateKey = `${march.level}-${isFighting ? 'fighting' : isArrived ? 'arrived' : etaDuration}`;
     if (node.lastDrawnText === stateKey) return;
     node.lastDrawnText = stateKey;
 
@@ -503,15 +506,27 @@ export class PortalSceneManager {
     ctx.clearRect(0, 0, w, h);
 
     // Dark crimson pill background with red neon border
-    ctx.fillStyle = 'rgba(28, 12, 18, 0.92)';
+    ctx.fillStyle = isFighting ? 'rgba(45, 10, 16, 0.95)' : 'rgba(28, 12, 18, 0.92)';
     this.roundRect(ctx, 6, 6, w - 12, h - 12, 18);
     ctx.fill();
 
-    ctx.strokeStyle = '#ef4444';
+    ctx.strokeStyle = isFighting ? '#f87171' : '#ef4444';
     ctx.lineWidth = 3;
     ctx.stroke();
 
-    if (isArrived) {
+    if (isFighting) {
+      // Primary text: In Battle Status
+      ctx.font = 'bold 28px Arial, Helvetica, sans-serif';
+      ctx.fillStyle = '#fee2e2';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(`⚔️ IN BATTLE`, w / 2, 42);
+
+      // Subtitle: Engaged forces count
+      ctx.font = 'bold 20px Arial, Helvetica, sans-serif';
+      ctx.fillStyle = '#fca5a5';
+      ctx.fillText(`ENGAGED · ${march.formation.totalMobs} MOBS`, w / 2, 84);
+    } else if (isArrived) {
       // Primary text: Outside City Status
       ctx.font = 'bold 28px Arial, Helvetica, sans-serif';
       ctx.fillStyle = '#fee2e2';

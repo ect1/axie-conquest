@@ -1,0 +1,13 @@
+military:
+  - scout:
+      enabled: true
+      id: scout
+      name: Scout
+  - defense:
+      enabled: false
+      id: defense
+      name: Defense
+  - formation:
+      enabled: true
+      id: formation
+      name: Formation

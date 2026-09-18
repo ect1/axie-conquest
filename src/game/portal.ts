@@ -99,7 +99,8 @@ export type EnemyMarch = {
   arrivesAt: number;
   speed: number;
   formation: PortalWaveFormation;
-  status?: 'marching' | 'arrived' | 'defeated';
+  status?: 'marching' | 'arrived' | 'fighting' | 'defeated';
+  fightingPosition?: Coordinate;
 };
 
 export type PortalRuntimeState = {
@@ -451,6 +452,12 @@ export function restorePortalState(raw: string | null, config: PortalMobSummonin
       } catch { /* ignore */ }
     });
 
+    portals.filter(p => p.id !== 'portal-prime').forEach(p => {
+      try {
+        registerDynamicBoss(subPortalDefenderToBossConfig(p));
+      } catch { /* ignore */ }
+    });
+
     return { portals, activeEnemyMarches };
   } catch {
     return createInitialPortalState(config, now);
@@ -459,8 +466,15 @@ export function restorePortalState(raw: string | null, config: PortalMobSummonin
 
 /**
  * Computes current enemy march position along route.
+ * Locks position when engaged in battle ('fighting' status).
  */
 export function enemyMarchPosition(march: EnemyMarch, now: number): Coordinate {
+  if (march.status === 'fighting' && march.fightingPosition) {
+    return { ...march.fightingPosition };
+  }
+  if (march.status === 'arrived' || now >= march.arrivesAt) {
+    return { ...march.destination };
+  }
   const duration = Math.max(1, march.arrivesAt - march.startedAt);
   const progress = Math.max(0, Math.min(1, (now - march.startedAt) / duration));
   return {
@@ -494,6 +508,10 @@ export function stepPortalSystem(
   let arrivedCount = 0;
 
   for (const march of state.activeEnemyMarches) {
+    if (march.status === 'fighting') {
+      remainingMarches.push(march);
+      continue;
+    }
     const isArrived = now >= march.arrivesAt;
     if (isArrived && march.status !== 'arrived') {
       arrivedCount++;
@@ -615,6 +633,11 @@ export function stepPortalSystem(
 
   if (newPortalsToAppend.length > 0) {
     updatedPortals.push(...newPortalsToAppend);
+    newPortalsToAppend.forEach(p => {
+      try {
+        registerDynamicBoss(subPortalDefenderToBossConfig(p));
+      } catch { /* ignore */ }
+    });
   }
 
   newMarches.forEach(m => {
@@ -735,6 +758,92 @@ export function portalFormationToBossConfig(march: EnemyMarch): BossConfig {
     description: `Hostile forces spawned from ${march.portalName}.`,
     leader,
     military,
+  };
+}
+
+/**
+ * Converts a Sub-portal's defender formation into a structured BossConfig
+ * for defending the portal when attacked by player formations.
+ */
+export function subPortalDefenderToBossConfig(portal: PortalInstance): BossConfig {
+  const formation = portal.defenderFormation && portal.defenderFormation.slots.length > 0
+    ? portal.defenderFormation
+    : portal.upcomingFormation;
+  const mascots = formation.slots.filter(s => s.kind === 'mascot');
+  const nonMascots = formation.slots.filter(s => s.kind !== 'mascot');
+  const mainMascot = mascots[0];
+
+  const leader: BossLeaderConfig = {
+    id: `portal-guardian-${portal.id}`,
+    name: mainMascot ? `Guardian ${mainMascot.mascotId?.toUpperCase() || 'Mascot'} (Lv. ${portal.level})` : `Rift Guardian (Lv. ${portal.level})`,
+    modelKind: 'mascot',
+    mascotId: mainMascot?.mascotId || 'kotaro',
+    position: { row: mainMascot?.row ?? 1, column: mainMascot?.column ?? 2 },
+    initialCount: 1,
+    stats: mainMascot ? {
+      health: Math.round(mainMascot.stats.health * 1.5),
+      attack: mainMascot.stats.attack,
+      defense: mainMascot.stats.defense,
+      attackSpeed: mainMascot.stats.attackSpeed,
+      speed: mainMascot.stats.moveSpeed,
+      range: mainMascot.stats.attackRange,
+    } : { health: 250, attack: 22, defense: 12, speed: 3.5 },
+  };
+
+  const military: BossMilitarySquad[] = [];
+  for (let i = 1; i < mascots.length; i++) {
+    const m = mascots[i];
+    military.push({
+      id: `portal-guardian-mascot-${i}-${portal.id}`,
+      name: `Guardian ${m.mascotId?.toUpperCase() || 'Mascot'}`,
+      troopKind: 'soldier',
+      count: 1,
+      mascotId: m.mascotId || 'paladill',
+      position: { row: m.row, column: m.column },
+      stats: { ...m.stats },
+    });
+  }
+
+  nonMascots.forEach((slot, idx) => {
+    military.push({
+      id: `portal-guardian-squad-${idx}-${portal.id}`,
+      name: slot.kind === 'archer' ? `Guardian Archers (Lv. ${portal.level})` : `Guardian Soldiers (Lv. ${portal.level})`,
+      troopKind: slot.kind === 'archer' ? 'archer' : 'soldier',
+      count: slot.count,
+      position: { row: slot.row, column: slot.column },
+      stats: { ...slot.stats },
+    });
+  });
+
+  return {
+    id: `subportal-boss-${portal.id}`,
+    name: `${portal.name} Defenders`,
+    title: `Rift Defense Garrison (Lv. ${portal.level})`,
+    description: `Defenders guarding ${portal.name}. Destroy them to collapse the sub-portal.`,
+    leader,
+    military,
+  };
+}
+
+/**
+ * Destroys a sub-portal, removing it and any associated marches from the runtime state.
+ */
+export function destroySubPortal(
+  portalId: string,
+  state: PortalRuntimeState
+): { state: PortalRuntimeState; destroyedPortal?: PortalInstance } {
+  const destroyed = state.portals.find(p => p.id === portalId);
+  if (!destroyed) return { state };
+
+  const remainingPortals = state.portals.filter(p => p.id !== portalId);
+  const remainingMarches = state.activeEnemyMarches.filter(m => m.portalId !== portalId);
+
+  return {
+    state: {
+      portals: remainingPortals,
+      activeEnemyMarches: remainingMarches,
+    },
+    destroyedPortal: destroyed,
   };
 }
 

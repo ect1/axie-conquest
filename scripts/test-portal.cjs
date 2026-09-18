@@ -321,4 +321,79 @@ assert.equal(stepped.tick, 1);
 bossesModule.clearDynamicBosses();
 assert.equal(bossesModule.getBossConfig('portal-boss-portal-march-test-1'), undefined, 'Dynamic bosses cleared');
 
+console.log('Testing fighting status position freeze & resume on battle...');
+const fightingMarch = {
+  ...sampleMarch,
+  id: 'portal-march-fighting-test',
+  status: 'fighting',
+  fightingPosition: { x: 33.3, z: 22.2 },
+};
+
+// Even if now advances far past arrivesAt, position must remain frozen at fightingPosition
+const frozenPos = portal.enemyMarchPosition(fightingMarch, 9999999);
+assert.equal(frozenPos.x, 33.3, 'Fighting march position must freeze at fightingPosition');
+assert.equal(frozenPos.y, undefined);
+assert.equal(frozenPos.z, 22.2);
+
+// stepPortalSystem must NOT mark fighting march as arrived
+const fightingState = {
+  portals: [state.portals[0]],
+  activeEnemyMarches: [fightingMarch],
+};
+const stepFighting = portal.stepPortalSystem(9999999, fightingState, config, { x: 0, z: 0 });
+assert.equal(stepFighting.state.activeEnemyMarches[0].status, 'fighting', 'Fighting march stays fighting');
+assert.equal(stepFighting.arrivedMarchesCount, 0, 'Fighting march does not trigger arrived count');
+
+console.log('Testing subportal attack, defense garrison, and destruction...');
+// Take subportal generated earlier
+assert.ok(subPortal, 'Subportal must exist from previous test phase');
+assert.equal(subPortal.id, 'portal-2');
+
+const subPortalBossCfg = portal.subPortalDefenderToBossConfig(subPortal);
+assert.equal(subPortalBossCfg.id, 'subportal-boss-portal-2');
+assert.ok(subPortalBossCfg.name.includes('Defenders'));
+assert.equal(subPortalBossCfg.leader.modelKind, 'mascot');
+assert.ok(subPortalBossCfg.military.length > 0, 'Subportal garrison must have military squads');
+
+bossesModule.registerDynamicBoss(subPortalBossCfg);
+const fetchedSubportalBoss = bossesModule.getBossConfig('subportal-boss-portal-2');
+assert.equal(fetchedSubportalBoss?.id, subPortalBossCfg.id);
+
+// Target subportal virtual world object
+const subPortalTarget = {
+  id: subPortal.id,
+  kind: 'boss',
+  x: subPortal.coordinate.x,
+  z: subPortal.coordinate.z,
+  state: 'defended',
+  loot: { apple: 50 },
+  bossId: `subportal-boss-${subPortal.id}`,
+  bossName: `${subPortal.name} Defenders`,
+};
+
+const subActions = worldModule.getWorldObjectActions(subPortalTarget);
+assert.ok(subActions.find(a => a.action === 'attack')?.enabled, 'Subportal must be attackable');
+
+// Create battle against subportal defenders
+const subBattle = battleModule.createBattle(mockArmy, subPortalTarget, []);
+assert.ok(subBattle, 'Battle against subportal created');
+assert.ok(subBattle.fighters.some(f => f.side === 'enemy' && f.isBoss), 'Subportal guardian boss present');
+assert.ok(subBattle.fighters.some(f => f.side === 'enemy' && (f.troopKind === 'soldier' || f.troopKind === 'archer')), 'Subportal defenders present');
+
+// Destroy subportal
+const stateWithSubportal = {
+  portals: [state.portals[0], subPortal],
+  activeEnemyMarches: [
+    { ...sampleMarch, id: 'sub-march-1', portalId: subPortal.id },
+    { ...sampleMarch, id: 'prime-march-1', portalId: state.portals[0].id },
+  ],
+};
+
+const destroyRes = portal.destroySubPortal(subPortal.id, stateWithSubportal);
+assert.equal(destroyRes.state.portals.length, 1, 'Subportal removed from portals list');
+assert.equal(destroyRes.state.portals[0].id, state.portals[0].id, 'Prime portal remains intact');
+assert.equal(destroyRes.destroyedPortal?.id, subPortal.id);
+assert.equal(destroyRes.state.activeEnemyMarches.length, 1, 'Marches from destroyed subportal removed');
+assert.equal(destroyRes.state.activeEnemyMarches[0].id, 'prime-march-1', 'Prime portal march preserved');
+
 console.log('All portal tests passed successfully!');
