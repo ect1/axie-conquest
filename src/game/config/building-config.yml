@@ -1,0 +1,8 @@
+building:
+  - farm:
+      id: farm
+      name: Farm
+      maxPerCity: 3
+      model: #leave empty for now
+      level2:
+        - requirement: city

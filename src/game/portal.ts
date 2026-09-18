@@ -1,5 +1,6 @@
 import portalData from './portal-config.json';
 import { Coordinate, createRoute, marchTravelTimeMs } from './routes';
+import { BossConfig, BossLeaderConfig, BossMilitarySquad, clearDynamicBosses, registerDynamicBoss } from './bosses';
 
 export const PORTAL_CONFIG_SAVE_KEY = 'axie-conquest-portal-config-v1';
 export const PORTAL_STATE_SAVE_KEY = 'axie-conquest-portal-state-v1';
@@ -444,6 +445,12 @@ export function restorePortalState(raw: string | null, config: PortalMobSummonin
       ? parsed.activeEnemyMarches.filter((m: any) => m && m.id && typeof m.startedAt === 'number')
       : [];
 
+    activeEnemyMarches.forEach(m => {
+      try {
+        registerDynamicBoss(portalFormationToBossConfig(m));
+      } catch { /* ignore */ }
+    });
+
     return { portals, activeEnemyMarches };
   } catch {
     return createInitialPortalState(config, now);
@@ -610,6 +617,12 @@ export function stepPortalSystem(
     updatedPortals.push(...newPortalsToAppend);
   }
 
+  newMarches.forEach(m => {
+    try {
+      registerDynamicBoss(portalFormationToBossConfig(m));
+    } catch { /* ignore */ }
+  });
+
   return {
     state: {
       portals: updatedPortals,
@@ -650,6 +663,81 @@ export function defeatEnemyMarch(
   };
 }
 
+/**
+ * Converts an EnemyMarch wave formation into a structured BossConfig
+ * compatible with the battle simulation engine.
+ */
+export function portalFormationToBossConfig(march: EnemyMarch): BossConfig {
+  const mascots = march.formation.slots.filter(s => s.kind === 'mascot');
+  const nonMascots = march.formation.slots.filter(s => s.kind !== 'mascot');
+  const mainMascot = mascots[0];
+
+  const leader: BossLeaderConfig = {
+    id: `portal-leader-${march.id}`,
+    name: mainMascot ? `Hostile ${mainMascot.mascotId?.toUpperCase() || 'Mascot'} (Lv. ${march.level})` : `Hostile Vanguard (Lv. ${march.level})`,
+    modelKind: 'mascot',
+    mascotId: mainMascot?.mascotId || 'kotaro',
+    position: { row: mainMascot?.row ?? 1, column: mainMascot?.column ?? 2 },
+    initialCount: 1,
+    stats: mainMascot ? {
+      health: mainMascot.stats.health,
+      attack: mainMascot.stats.attack,
+      defense: mainMascot.stats.defense,
+      attackSpeed: mainMascot.stats.attackSpeed,
+      speed: mainMascot.stats.moveSpeed,
+      range: mainMascot.stats.attackRange,
+    } : { health: 150, attack: 20, defense: 10, speed: 3.5 },
+  };
+
+  const military: BossMilitarySquad[] = [];
+  for (let i = 1; i < mascots.length; i++) {
+    const m = mascots[i];
+    military.push({
+      id: `portal-mascot-${i}-${march.id}`,
+      name: `Hostile ${m.mascotId?.toUpperCase() || 'Mascot'}`,
+      troopKind: 'soldier',
+      count: 1,
+      mascotId: m.mascotId || 'paladill',
+      position: { row: m.row, column: m.column },
+      stats: {
+        health: m.stats.health,
+        attack: m.stats.attack,
+        defense: m.stats.defense,
+        attackSpeed: m.stats.attackSpeed,
+        speed: m.stats.moveSpeed,
+        range: m.stats.attackRange,
+      },
+    });
+  }
+
+  nonMascots.forEach((slot, idx) => {
+    military.push({
+      id: `portal-squad-${idx}-${march.id}`,
+      name: slot.kind === 'archer' ? `Rift Archers (Lv. ${march.level})` : `Rift Soldiers (Lv. ${march.level})`,
+      troopKind: slot.kind === 'archer' ? 'archer' : 'soldier',
+      count: slot.count,
+      position: { row: slot.row, column: slot.column },
+      stats: {
+        health: slot.stats.health,
+        attack: slot.stats.attack,
+        defense: slot.stats.defense,
+        attackSpeed: slot.stats.attackSpeed,
+        speed: slot.stats.moveSpeed,
+        range: slot.stats.attackRange,
+      },
+    });
+  });
+
+  return {
+    id: `portal-boss-${march.id}`,
+    name: march.name,
+    title: `Void Rift Wave ${march.level}`,
+    description: `Hostile forces spawned from ${march.portalName}.`,
+    leader,
+    military,
+  };
+}
+
 let activePortalConfig: PortalMobSummoningConfig = { ...DEFAULT_PORTAL_CONFIG };
 let activePortalState: PortalRuntimeState = createInitialPortalState(DEFAULT_PORTAL_CONFIG);
 
@@ -672,4 +760,5 @@ export function setActivePortalState(state: PortalRuntimeState): void {
 export function resetPortalState(): void {
   activePortalConfig = { ...DEFAULT_PORTAL_CONFIG };
   activePortalState = createInitialPortalState(DEFAULT_PORTAL_CONFIG);
+  clearDynamicBosses();
 }

@@ -240,4 +240,85 @@ assert.equal(storageData.has(portal.PORTAL_CONFIG_SAVE_KEY), false);
 assert.equal(storageData.has(portal.PORTAL_STATE_SAVE_KEY), false);
 assert.equal(storageData.has('other-app-data'), true);
 
+console.log('Testing portalFormationToBossConfig & dynamic boss registration...');
+const bossesModule = load('src/game/bosses.ts');
+const worldModule = load('src/game/world.ts');
+const battleModule = load('src/game/battle.ts');
+
+const sampleMarch = {
+  id: 'portal-march-test-1',
+  portalId: 'portal-1',
+  portalName: 'Rift Portal 1',
+  level: 3,
+  name: 'Rift Portal 1 · Wave 3',
+  ownerId: 'portal',
+  origin: { x: 50, z: 50 },
+  destination: { x: 10, z: 10 },
+  startedAt: 1000,
+  arrivesAt: 5000,
+  speed: 1.0,
+  formation: portal.generateWaveFormation(3, config),
+  status: 'marching',
+};
+
+const bossConfig = portal.portalFormationToBossConfig(sampleMarch);
+assert.equal(bossConfig.id, 'portal-boss-portal-march-test-1');
+assert.equal(bossConfig.name, sampleMarch.name);
+assert.equal(bossConfig.leader.modelKind, 'mascot');
+assert.ok(bossConfig.leader.stats.health > 150, 'Leader stats scaled with level');
+assert.ok(Array.isArray(bossConfig.military));
+
+// Register dynamic boss
+bossesModule.registerDynamicBoss(bossConfig);
+const fetchedBoss = bossesModule.getBossConfig('portal-boss-portal-march-test-1');
+assert.equal(fetchedBoss?.id, bossConfig.id);
+assert.equal(fetchedBoss?.name, sampleMarch.name);
+
+// Create virtual target
+const virtualTarget = {
+  id: sampleMarch.id,
+  kind: 'boss',
+  x: 10,
+  z: 10,
+  state: 'defended',
+  loot: { apple: 0 },
+  bossId: `portal-boss-${sampleMarch.id}`,
+  bossName: sampleMarch.name,
+};
+
+const actions = worldModule.getWorldObjectActions(virtualTarget);
+const attackAction = actions.find(a => a.action === 'attack');
+assert.ok(attackAction?.enabled, 'Attack action must be enabled on hostile march target');
+
+// Verify battle creation against this dynamic boss
+const mockArmy = {
+  id: 'player-army-1',
+  name: 'Vanguard Army',
+  kind: 'army',
+  cityId: 'city-1',
+  cityName: 'Everleaf Haven',
+  speed: 1.2,
+  position: { x: 10, z: 10 },
+  status: 'holding',
+  members: [
+    { id: 'm-1', troopKind: 'infantry', count: 20, offset: { x: 0, z: 0 } },
+    { id: 'm-2', troopKind: 'archer', count: 15, offset: { x: 1, z: 0 } },
+  ],
+};
+
+const battle = battleModule.createBattle(mockArmy, virtualTarget, []);
+assert.ok(battle, 'Battle must be created against dynamic portal boss');
+assert.ok(battle.fighters.some(f => f.side === 'enemy' && f.isBoss), 'Enemy boss fighter present in battle');
+assert.ok(battle.fighters.some(f => f.side === 'enemy' && f.troopKind === 'soldier'), 'Enemy soldier fighters present');
+assert.ok(battle.fighters.some(f => f.side === 'enemy' && f.troopKind === 'archer'), 'Enemy archer fighters present');
+assert.ok(battle.fighters.some(f => f.side === 'player'), 'Player fighters present');
+
+// Stepping battle
+let stepped = battleModule.stepBattle(battle);
+assert.equal(stepped.tick, 1);
+
+// Test clearDynamicBosses
+bossesModule.clearDynamicBosses();
+assert.equal(bossesModule.getBossConfig('portal-boss-portal-march-test-1'), undefined, 'Dynamic bosses cleared');
+
 console.log('All portal tests passed successfully!');

@@ -59,9 +59,19 @@ export function getAllBosses(): readonly BossConfig[] {
   return BOSS_LINEUP;
 }
 
+const dynamicBosses = new Map<string, BossConfig>();
+
+export function registerDynamicBoss(boss: BossConfig): void {
+  dynamicBosses.set(boss.id, boss);
+}
+
+export function clearDynamicBosses(): void {
+  dynamicBosses.clear();
+}
+
 export function getBossConfig(id: string | null | undefined): BossConfig | undefined {
   if (!id) return undefined;
-  return BOSS_LINEUP.find(b => b.id === id);
+  return dynamicBosses.get(id) || BOSS_LINEUP.find(b => b.id === id);
 }
 
 export function defaultBoss(): BossConfig {

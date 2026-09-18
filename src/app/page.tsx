@@ -12,7 +12,7 @@ import { activateCommanderSkill, Battle, MAX_BATTLE_TICKS, stepBattle } from '@/
 import { BATTLE_SAVE_KEY, BATTLE_TRANSACTION_KEY, BattleSession, BattleReport, createBattleSession, reinforceBattleSession, restoreBattleSave, readBattleReports, recoverBattleTransaction, commitBattleOutcome } from '@/game/battle-save';
 import { beginReplay, recordReplay } from '@/game/battle-replay';
 import { createMobGroup, DEFAULT_GENERATION, GenerationSettings, getWorldObjectActions, restoreWorld, SpawnableMobGroup, WORLD_SAVE_KEY, WorldAction, WorldObject } from '@/game/world';
-import { getAllBosses, getBossConfig } from '@/game/bosses';
+import { getAllBosses, getBossConfig, registerDynamicBoss } from '@/game/bosses';
 import type { BaseView } from '@/game/scene';
 import CityUnitPanel from './city-unit-panel';
 import { CAPITAL_CITY_ID, CITIES_SAVE_KEY, CityState, createCapitalCity, restoreCities } from '@/game/cities';
@@ -35,6 +35,7 @@ import { resetGame } from '@/game/reset';
 import PortalDialog from './portal-dialog';
 import {
   DEFAULT_PORTAL_CONFIG,
+  EnemyMarch,
   PORTAL_CONFIG_SAVE_KEY,
   PORTAL_STATE_SAVE_KEY,
   PortalInstance,
@@ -45,6 +46,7 @@ import {
   enemyMarchPosition,
   generateNewPortalCoordinate,
   generateWaveFormation,
+  portalFormationToBossConfig,
   restorePortalConfig,
   restorePortalState,
   stepPortalSystem,
@@ -197,6 +199,26 @@ export default function Home() {
     view.current?.setPortalState(nextState, null);
     setSelectedUnitId(null);
     setMessage(`⚔️ Defeated ${defeatedMarch?.name || 'hostile squad'}! Next wave countdown begins.`);
+  }
+
+  function handleAttackHostileMarch(march: EnemyMarch) {
+    const pos = enemyMarchPosition(march, now);
+    const bossCfg = portalFormationToBossConfig(march);
+    registerDynamicBoss(bossCfg);
+    setTarget({ x: pos.x, z: pos.z, id: march.id, label: march.name });
+    setSelectedUnitId(null);
+    setSelectedAction('attack');
+    setRouteAction('formation');
+    setFormationIndex(null);
+  }
+
+  function handleMarchToHostileMarch(march: EnemyMarch) {
+    const pos = enemyMarchPosition(march, now);
+    setTarget({ x: pos.x, z: pos.z, id: march.id, label: march.name });
+    setSelectedUnitId(null);
+    setSelectedAction('march');
+    setRouteAction('formation');
+    setFormationIndex(null);
   }
 
   const [showIntro, setShowIntro] = useState(true);
@@ -375,7 +397,25 @@ export default function Home() {
 
     for (const attacker of arrivedAttackers) {
       const targetId = attacker.activity!.targetId;
-      const enemy = worldObjects.find(object => object.id === targetId && object.state === 'defended');
+      let enemy = worldObjects.find(object => object.id === targetId && object.state === 'defended');
+      if (!enemy) {
+        const hostile = portalState.activeEnemyMarches.find(m => m.id === targetId);
+        if (hostile) {
+          const pos = enemyMarchPosition(hostile, now);
+          const bossCfg = portalFormationToBossConfig(hostile);
+          registerDynamicBoss(bossCfg);
+          enemy = {
+            id: hostile.id,
+            kind: 'boss',
+            x: pos.x,
+            z: pos.z,
+            state: 'defended',
+            loot: { apple: 0 },
+            bossId: `portal-boss-${hostile.id}`,
+            bossName: hostile.name,
+          };
+        }
+      }
       if (!enemy) {
         nextUnits = nextUnits.map(u => u.id === attacker.id ? { ...u, activity: undefined } : u);
         unitsChanged = true;
@@ -427,7 +467,7 @@ export default function Home() {
         setBattleError('Battle could not start because browser storage is unavailable. Free storage and retry.');
       }
     }
-  }, [units, worldObjects, ready, battleError, battleReport, battleReports, apiAxies]);
+  }, [units, worldObjects, portalState, ready, battleError, battleReport, battleReports, apiAxies]);
 
   useEffect(() => {
     if (!battleSessions.length || battleError || battlePaused) return;
@@ -593,6 +633,10 @@ export default function Home() {
       view.current?.loadWorld(outcome.objects);
       view.current?.refreshMilitary();
       setMessage(`${outcome.report.result}: ${outcome.report.losses.infantry} infantry and ${outcome.report.losses.archer} archers lost. ${outcome.report.result === 'victory' ? 'Formation ready for orders.' : 'Survivors returning home.'}`);
+
+      if (session.battle.result === 'victory' && portalState.activeEnemyMarches.some(m => m.id === session.target.id)) {
+        handleDefeatHostileMarch(session.target.id);
+      }
     } catch {
       setBattleError('Battle outcome could not be fully saved. Retry to complete recovery; progress is kept in the battle journal.');
     }
@@ -719,7 +763,25 @@ export default function Home() {
   }
   function deploy(index: number | null, action: WorldAction | 'march') {
     try {
-      const object = target?.id ? worldObjects.find(item => item.id === target.id) : undefined;
+      let object = target?.id ? worldObjects.find(item => item.id === target.id) : undefined;
+      if (!object && target?.id) {
+        const hostile = portalState.activeEnemyMarches.find(m => m.id === target.id);
+        if (hostile) {
+          const pos = enemyMarchPosition(hostile, now);
+          const bossCfg = portalFormationToBossConfig(hostile);
+          registerDynamicBoss(bossCfg);
+          object = {
+            id: hostile.id,
+            kind: 'boss',
+            x: pos.x,
+            z: pos.z,
+            state: 'defended',
+            loot: { apple: 0 },
+            bossId: `portal-boss-${hostile.id}`,
+            bossName: hostile.name,
+          };
+        }
+      }
       if (!target) throw new Error('Choose a destination.');
       if (action !== 'march' && !object) throw new Error('Choose a world object.');
       const dispatchedAt = Date.now();
@@ -792,7 +854,19 @@ export default function Home() {
     : selectedEnemyMarch
     ? enemyMarchPosition(selectedEnemyMarch, now)
     : null;
-  const selectedObject = target?.id ? worldObjects.find(object => object.id === target.id) : undefined;
+  const hostileTargetMarch = target?.id ? portalState.activeEnemyMarches.find(m => m.id === target.id) : undefined;
+  const selectedObject = target?.id
+    ? (worldObjects.find(object => object.id === target.id) ?? (hostileTargetMarch ? {
+        id: hostileTargetMarch.id,
+        kind: 'boss' as const,
+        x: target.x,
+        z: target.z,
+        state: 'defended' as const,
+        loot: { apple: 0 },
+        bossId: `portal-boss-${hostileTargetMarch.id}`,
+        bossName: hostileTargetMarch.name,
+      } : undefined))
+    : undefined;
   const targetActions = selectedObject ? getWorldObjectActions(selectedObject) : [];
 
   return <main className={`game ${worldView ? 'world-mode' : ''}`}>
@@ -955,21 +1029,50 @@ export default function Home() {
         <small style={{ color: '#fca5a5', display: 'block', marginTop: '6px' }}>
           Hostiles halt outside the city perimeter. Next wave will not spawn until hostiles are defeated.
         </small>
-        <div className="placement-actions" style={{ marginTop: '10px' }}>
+        <div className="placement-actions" style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', width: '100%' }}>
+            <button
+              className="primary"
+              style={{
+                background: '#dc2626',
+                borderColor: '#f87171',
+                color: '#ffffff',
+                fontWeight: 'bold',
+                padding: '10px 8px',
+                cursor: 'pointer',
+              }}
+              onClick={() => handleAttackHostileMarch(selectedEnemyMarch)}
+            >
+              ⚔️ Attack
+            </button>
+            <button
+              className="secondary"
+              style={{
+                background: 'rgba(30, 41, 59, 0.8)',
+                borderColor: '#64748b',
+                color: '#f1f5f9',
+                padding: '10px 8px',
+                cursor: 'pointer',
+              }}
+              onClick={() => handleMarchToHostileMarch(selectedEnemyMarch)}
+            >
+              March here
+            </button>
+          </div>
           <button
-            className="primary"
+            className="secondary"
             style={{
-              background: '#b91c1c',
-              borderColor: '#ef4444',
-              color: '#ffffff',
-              width: '100%',
-              padding: '8px',
-              fontWeight: 'bold',
+              background: 'rgba(127, 29, 29, 0.4)',
+              borderColor: '#7f1d1d',
+              color: '#fca5a5',
+              fontSize: '11px',
+              padding: '4px',
               cursor: 'pointer',
             }}
             onClick={() => handleDefeatHostileMarch(selectedEnemyMarch.id)}
+            title="Developer instant clear"
           >
-            ⚔️ Defeat / Clear Hostiles
+            💥 Instant Defeat (Dev)
           </button>
         </div>
       </section>
