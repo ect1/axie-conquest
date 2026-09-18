@@ -16,6 +16,8 @@ type Props = {
   onSpeedChange: (speed: 1 | 2 | 0.5) => void;
   onClose: () => void;
   onFinish?: () => void;
+  onRetreat?: () => void;
+  debug?: boolean;
 };
 
 export default function BattleSpectatorModal({
@@ -28,6 +30,8 @@ export default function BattleSpectatorModal({
   onSpeedChange,
   onClose,
   onFinish,
+  onRetreat,
+  debug = false,
 }: Props) {
   const dialog = useRef<HTMLDialogElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
@@ -160,91 +164,106 @@ export default function BattleSpectatorModal({
 
         {/* Primary Combat & Inspection Controls */}
         <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
-          {/* Main Action: Start Battle / Pause / Resume */}
-          {isFinished ? (
-            <button className="secondary" onClick={onRestart} title="Restart combat to replay/inspect from tick 0">
-              ↺ Restart
-            </button>
-          ) : isPaused && currentBattle.tick === 0 ? (
-            <button
-              className="primary"
-              onClick={onTogglePause}
-              style={{
-                fontWeight: 'bold',
-                background: 'linear-gradient(135deg, #2ecc71, #27ae60)',
-                border: 'none',
-                padding: '8px 18px',
-                fontSize: '0.92rem',
-                boxShadow: '0 2px 10px rgba(46, 204, 113, 0.4)',
-                cursor: 'pointer',
-              }}
-            >
-              ▶ Start Battle
-            </button>
-          ) : (
-            <button
-              className={isPaused ? 'primary' : 'secondary'}
-              onClick={onTogglePause}
-              style={{ minWidth: '85px', fontWeight: 600 }}
-            >
-              {isPaused ? '▶ Resume' : '⏸ Pause'}
-            </button>
-          )}
-
-          {/* Step Button (when paused and combat running) */}
-          {isPaused && !isFinished && (
-            <button
-              className="secondary"
-              onClick={onStep}
-              title="Advance exactly 1 tick (0.1s)"
-              style={{ padding: '6px 12px', fontWeight: 500 }}
-            >
-              ⏭ Step (+0.1s)
-            </button>
-          )}
-
-          {/* Restart Button (during battle) */}
-          {!isFinished && currentBattle.tick > 0 && (
-            <button
-              className="secondary"
-              onClick={onRestart}
-              title="Rewind to tick 0 opening positions"
-              style={{ padding: '6px 10px' }}
-            >
-              ↺ Restart
-            </button>
-          )}
-
-          {/* Speed Toggle */}
-          {!isFinished && (
-            <div
-              style={{
-                display: 'flex',
-                background: 'rgba(255,255,255,0.08)',
-                borderRadius: '6px',
-                padding: '2px',
-                border: '1px solid rgba(255,255,255,0.15)',
-              }}
-            >
-              {([0.5, 1, 2] as const).map(s => (
+          {debug && (
+            <>
+              {/* Main Action: Start Battle / Pause / Resume */}
+              {isFinished ? (
+                <button className="secondary" onClick={onRestart} title="Restart combat to replay/inspect from tick 0">
+                  ↺ Restart
+                </button>
+              ) : isPaused && currentBattle.tick === 0 ? (
                 <button
-                  key={s}
-                  onClick={() => onSpeedChange(s)}
+                  className="primary"
+                  onClick={onTogglePause}
                   style={{
-                    background: speed === s ? '#36f0d8' : 'transparent',
-                    color: speed === s ? '#0f2027' : '#fff',
-                    fontWeight: speed === s ? 700 : 400,
+                    fontWeight: 'bold',
+                    background: 'linear-gradient(135deg, #2ecc71, #27ae60)',
                     border: 'none',
-                    borderRadius: '4px',
-                    padding: '3px 7px',
-                    fontSize: '0.75rem',
+                    padding: '8px 18px',
+                    fontSize: '0.92rem',
+                    boxShadow: '0 2px 10px rgba(46, 204, 113, 0.4)',
                     cursor: 'pointer',
                   }}
                 >
-                  {s}x
+                  ▶ Start Battle
                 </button>
-              ))}
-            </div>
+              ) : (
+                <button
+                  className={isPaused ? 'primary' : 'secondary'}
+                  onClick={onTogglePause}
+                  style={{ minWidth: '85px', fontWeight: 600 }}
+                >
+                  {isPaused ? '▶ Resume' : '⏸ Pause'}
+                </button>
+              )}
+
+              {/* Step Button (when paused and combat running) */}
+              {isPaused && !isFinished && (
+                <button
+                  className="secondary"
+                  onClick={onStep}
+                  title="Advance exactly 1 tick (0.1s)"
+                  style={{ padding: '6px 12px', fontWeight: 500 }}
+                >
+                  ⏭ Step (+0.1s)
+                </button>
+              )}
+
+              {/* Restart Button (during battle) */}
+              {!isFinished && currentBattle.tick > 0 && (
+                <button
+                  className="secondary"
+                  onClick={onRestart}
+                  title="Rewind to tick 0 opening positions"
+                  style={{ padding: '6px 10px' }}
+                >
+                  ↺ Restart
+                </button>
+              )}
+
+              {/* Speed Toggle */}
+              {!isFinished && (
+                <div
+                  style={{
+                    display: 'flex',
+                    background: 'rgba(255,255,255,0.08)',
+                    borderRadius: '6px',
+                    padding: '2px',
+                    border: '1px solid rgba(255,255,255,0.15)',
+                  }}
+                >
+                  {([0.5, 1, 2] as const).map(s => (
+                    <button
+                      key={s}
+                      onClick={() => onSpeedChange(s)}
+                      style={{
+                        background: speed === s ? '#36f0d8' : 'transparent',
+                        color: speed === s ? '#0f2027' : '#fff',
+                        fontWeight: speed === s ? 700 : 400,
+                        border: 'none',
+                        borderRadius: '4px',
+                        padding: '3px 7px',
+                        fontSize: '0.75rem',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {s}x
+                    </button>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+
+          {!isFinished && onRetreat && (
+            <button
+              className="secondary"
+              style={{ color: '#ff907d', borderColor: 'rgba(255,144,125,0.4)', fontSize: '0.82rem', padding: '6px 12px' }}
+              onClick={onRetreat}
+              title="Retreat formation back to base"
+            >
+              🏳 Retreat
+            </button>
           )}
 
           <button className="secondary" onClick={onClose}>
@@ -367,58 +386,60 @@ export default function BattleSpectatorModal({
         {error && <p role="alert">{error}</p>}
 
         {/* Live Debug & Overlay Toggles */}
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', alignItems: 'center', margin: '4px 0' }}>
-          <span style={{ fontSize: '0.8rem', opacity: 0.8, marginRight: '4px' }}>Inspect Overlays:</span>
-          <button
-            className={overlays.attack ? 'primary' : 'secondary'}
-            style={{ fontSize: '0.75rem', padding: '4px 8px' }}
-            onClick={() => toggleOverlay('attack')}
-          >
-            Attack Ranges
-          </button>
-          <button
-            className={overlays.engagement ? 'primary' : 'secondary'}
-            style={{ fontSize: '0.75rem', padding: '4px 8px' }}
-            onClick={() => toggleOverlay('engagement')}
-          >
-            Vision Cones
-          </button>
-          <button
-            className={overlays.awareness ? 'primary' : 'secondary'}
-            style={{ fontSize: '0.75rem', padding: '4px 8px' }}
-            onClick={() => toggleOverlay('awareness')}
-          >
-            Awareness Radius
-          </button>
-          <button
-            className={overlays.targets ? 'primary' : 'secondary'}
-            style={{ fontSize: '0.75rem', padding: '4px 8px' }}
-            onClick={() => toggleOverlay('targets')}
-          >
-            Target Lines
-          </button>
-          <button
-            className={overlays.facing ? 'primary' : 'secondary'}
-            style={{ fontSize: '0.75rem', padding: '4px 8px' }}
-            onClick={() => toggleOverlay('facing')}
-          >
-            Facing Lines
-          </button>
-          <button
-            className={overlays.body ? 'primary' : 'secondary'}
-            style={{ fontSize: '0.75rem', padding: '4px 8px' }}
-            onClick={() => toggleOverlay('body')}
-          >
-            Body Rings
-          </button>
-          <button
-            className={showAll ? 'primary' : 'secondary'}
-            style={{ fontSize: '0.75rem', padding: '4px 8px' }}
-            onClick={() => setShowAll(!showAll)}
-          >
-            {showAll ? 'Selected Only' : 'Show All Units'}
-          </button>
-        </div>
+        {debug && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', alignItems: 'center', margin: '4px 0' }}>
+            <span style={{ fontSize: '0.8rem', opacity: 0.8, marginRight: '4px' }}>Inspect Overlays:</span>
+            <button
+              className={overlays.attack ? 'primary' : 'secondary'}
+              style={{ fontSize: '0.75rem', padding: '4px 8px' }}
+              onClick={() => toggleOverlay('attack')}
+            >
+              Attack Ranges
+            </button>
+            <button
+              className={overlays.engagement ? 'primary' : 'secondary'}
+              style={{ fontSize: '0.75rem', padding: '4px 8px' }}
+              onClick={() => toggleOverlay('engagement')}
+            >
+              Vision Cones
+            </button>
+            <button
+              className={overlays.awareness ? 'primary' : 'secondary'}
+              style={{ fontSize: '0.75rem', padding: '4px 8px' }}
+              onClick={() => toggleOverlay('awareness')}
+            >
+              Awareness Radius
+            </button>
+            <button
+              className={overlays.targets ? 'primary' : 'secondary'}
+              style={{ fontSize: '0.75rem', padding: '4px 8px' }}
+              onClick={() => toggleOverlay('targets')}
+            >
+              Target Lines
+            </button>
+            <button
+              className={overlays.facing ? 'primary' : 'secondary'}
+              style={{ fontSize: '0.75rem', padding: '4px 8px' }}
+              onClick={() => toggleOverlay('facing')}
+            >
+              Facing Lines
+            </button>
+            <button
+              className={overlays.body ? 'primary' : 'secondary'}
+              style={{ fontSize: '0.75rem', padding: '4px 8px' }}
+              onClick={() => toggleOverlay('body')}
+            >
+              Body Rings
+            </button>
+            <button
+              className={showAll ? 'primary' : 'secondary'}
+              style={{ fontSize: '0.75rem', padding: '4px 8px' }}
+              onClick={() => setShowAll(!showAll)}
+            >
+              {showAll ? 'Selected Only' : 'Show All Units'}
+            </button>
+          </div>
+        )}
 
         {/* Finished Combat Action */}
         {isFinished && (
@@ -438,13 +459,15 @@ export default function BattleSpectatorModal({
               <div style={{ fontSize: '0.8rem', opacity: 0.85 }}>
                 {currentBattle.result === 'victory'
                   ? 'Victory achieved. The area is secured.'
-                  : 'Army defeated or retreated to base.'}
+                  : 'Battle concluded. Team is returning to base.'}
               </div>
             </div>
             <div style={{ display: 'flex', gap: '8px' }}>
-              <button className="secondary" onClick={onRestart}>
-                ↺ Replay / Inspect Again
-              </button>
+              {debug && (
+                <button className="secondary" onClick={onRestart}>
+                  ↺ Replay / Inspect Again
+                </button>
+              )}
               <button
                 className="primary"
                 onClick={() => {
@@ -452,7 +475,7 @@ export default function BattleSpectatorModal({
                   onClose();
                 }}
               >
-                Complete & View Report
+                Close Spectator
               </button>
             </div>
           </div>

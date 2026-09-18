@@ -13,7 +13,7 @@ import { createMilitaryService, getTrainingMessage } from './military-service';
 import { CAPITAL_CITY_ID } from './cities';
 import { Coordinate, WorldTarget } from './routes';
 
-type Events = { fighterSelect?: (id: string) => void; troops: (troops: Troops) => void; change: (b: Building[]) => void; preview: (c: Cell | null) => void; select: (b: Building | null) => void; unitSelect: (id: string) => void; target: (target: WorldTarget | null) => void; message: (s: string) => void; viewMode: (mode: 'base' | 'world') => void };
+type Events = { fighterSelect?: (id: string) => void; watchBattle?: () => void; troops: (troops: Troops) => void; change: (b: Building[]) => void; preview: (c: Cell | null) => void; select: (b: Building | null) => void; unitSelect: (id: string) => void; target: (target: WorldTarget | null) => void; message: (s: string) => void; viewMode: (mode: 'base' | 'world') => void };
 export type BaseView = { focusBattle: () => void; setBattle: (session: BattleSession | null, selectedId: string | null) => void; refreshMilitary: () => void; setUnits: (orders: WorldUnit[], selectedId: string | null) => void; setSelectedTarget: (id: string | null) => void; focusCoordinate: (coordinate: Coordinate) => void; regenerateWorld: (settings: GenerationSettings) => WorldObject[]; loadWorld: (objects: WorldObject[]) => void; removeWorld: () => void; train: (kind: TroopKind) => boolean; rotate: (id: string) => boolean; move: (id: string) => boolean; remove: (id: string) => boolean; begin: (kind: BuildableKind) => void; cancel: () => void; confirm: () => boolean; setGridVisible: (visible: boolean) => void; setWorldView: (enabled: boolean) => void; setRoute: (route: { origin: Coordinate; destination: Coordinate } | null) => void; zoom: (factor: number) => void; home: () => void; dispose: () => void };
 const SAVE_KEY = 'axie-conquest-base-v2';
 const HALF_WIDTH = GRID_WIDTH / 2;
@@ -486,7 +486,11 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
     }
     else {
       const rect = canvas.getBoundingClientRect();
-      const hit = scene.pick(e.clientX - rect.left, e.clientY - rect.top, mesh => mesh.isEnabled() && mesh.isPickable && (!!mesh.metadata?.fighterId || !!mesh.metadata?.buildingId || !!mesh.metadata?.mapObject || !!mesh.metadata?.unitId));
+      const hit = scene.pick(e.clientX - rect.left, e.clientY - rect.top, mesh => mesh.isEnabled(true) && mesh.isVisible && mesh.isPickable && (!!mesh.metadata?.fighterId || !!mesh.metadata?.buildingId || !!mesh.metadata?.mapObject || !!mesh.metadata?.unitId || (mesh.metadata?.action === 'watchBattle' && !!liveBattle)));
+      if (hit?.pickedMesh?.metadata?.action === 'watchBattle' && liveBattle) {
+        events.watchBattle?.();
+        return;
+      }
       if (typeof hit?.pickedMesh?.metadata?.fighterId === 'string') { events.fighterSelect?.(hit.pickedMesh.metadata.fighterId); return; }
       if (typeof hit?.pickedMesh?.metadata?.unitId === 'string') {
         events.unitSelect(hit.pickedMesh.metadata.unitId);
@@ -553,6 +557,7 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
     },
     setBattle(session) {
       liveBattle = session;
+      worldFight.update(liveBattle, overviewActive);
     },
     setUnits,
     setSelectedTarget,

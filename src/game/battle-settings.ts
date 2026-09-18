@@ -3,12 +3,12 @@ import { BattleOverlays, DEFAULT_BATTLE_OVERLAYS } from './battle-debug';
 import { BattleRangeSettings, DEFAULT_BATTLE_RANGE, sanitizeBattleRange } from './battle-range';
 
 export const BATTLE_SETTINGS_SAVE_KEY = 'axie-conquest-battle-settings-v1';
-export type BattleSettings = typeof defaults & BattleRangeSettings & { overlays: BattleOverlays; showAll: boolean };
+export type BattleSettings = typeof defaults & BattleRangeSettings & { overlays: BattleOverlays; showAll: boolean; debugBattle: boolean };
 type SavedBattleSettings = Partial<BattleSettings> & { replayTeamSeparation?: unknown };
 // `battle-settings.json` is the canonical combined battle configuration. Keep
 // range defaults as a fallback for fields it does not provide, rather than
 // letting the legacy range file overwrite its sandbox/live-battle values.
-export const DEFAULT_BATTLE_SETTINGS: BattleSettings = { ...DEFAULT_BATTLE_RANGE, ...defaults, overlays: { ...DEFAULT_BATTLE_OVERLAYS }, showAll: false };
+export const DEFAULT_BATTLE_SETTINGS: BattleSettings = { ...DEFAULT_BATTLE_RANGE, ...defaults, overlays: { ...DEFAULT_BATTLE_OVERLAYS }, showAll: false, debugBattle: false };
 export let activeBattleSettings: BattleSettings = { ...DEFAULT_BATTLE_SETTINGS };
 
 export function sanitizeBattleSettings(value: SavedBattleSettings | null | undefined): BattleSettings {
@@ -61,6 +61,7 @@ export function sanitizeBattleSettings(value: SavedBattleSettings | null | undef
     ...range,
     overlays: Object.fromEntries(Object.keys(DEFAULT_BATTLE_OVERLAYS).map(key => [key, typeof value?.overlays?.[key as keyof BattleOverlays] === 'boolean' ? value.overlays[key as keyof BattleOverlays] : DEFAULT_BATTLE_OVERLAYS[key as keyof BattleOverlays]])) as BattleOverlays,
     showAll: value?.showAll === true,
+    debugBattle: value?.debugBattle === true,
   };
 }
 

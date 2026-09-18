@@ -4,6 +4,7 @@ import ResetGameControl from './reset-game-control';
 import { GenerationSettings, SpawnableMobGroup, WorldObject, SPAWNABLE_MOB_GROUPS, WORLD_KINDS, WORLD_DEFINITIONS, WORLD_WIDTH, WORLD_DEPTH, DEFAULT_GENERATION } from '@/game/world';
 import { DEFAULT_UNIT_GLOBAL_STATS, setActiveUnitGlobalStats, UnitGlobalStats } from '@/game/unit-stats';
 import { BATTLE_SETTINGS_SAVE_KEY, BattleSettings, DEFAULT_BATTLE_SETTINGS, restoreActiveBattleSettings, sanitizeBattleSettings, setActiveBattleSettings } from '@/game/battle-settings';
+import type { BattleSession } from '@/game/battle-save';
 import type { ApiAxie } from '@/game/axie-roster';
 
 type Props = {
@@ -13,20 +14,44 @@ type Props = {
   mobSpawnEnabled: boolean; onMobSpawnEnabled: (enabled: boolean) => void;
   mobGroup: SpawnableMobGroup; onMobGroup: (group: SpawnableMobGroup) => void;
   activeAxies: readonly ApiAxie[];
+  debugBattle?: boolean;
+  onDebugBattleChange?: (enabled: boolean) => void;
+  activeBattleSession?: BattleSession | null;
+  onAbortBattle?: () => void;
 };
 
-export default function DeveloperPanel({ settings, onSettings, objects, status, ready, unitStats = DEFAULT_UNIT_GLOBAL_STATS, onUnitStats = stats => setActiveUnitGlobalStats(stats), onClose, onRegenerate, onRemove, mobSpawnEnabled, onMobSpawnEnabled, mobGroup, onMobGroup, activeAxies }: Props) {
+export default function DeveloperPanel({ settings, onSettings, objects, status, ready, unitStats = DEFAULT_UNIT_GLOBAL_STATS, onUnitStats = stats => setActiveUnitGlobalStats(stats), onClose, onRegenerate, onRemove, mobSpawnEnabled, onMobSpawnEnabled, mobGroup, onMobGroup, activeAxies, debugBattle = false, onDebugBattleChange, activeBattleSession, onAbortBattle }: Props) {
   const [tab, setTab] = useState<'world' | 'units' | 'battle'>('world');
   const [sandboxOpen, setSandboxOpen] = useState(false);
   const [localStats, setLocalStats] = useState(unitStats);
   const [battleSettings, setBattleSettings] = useState<BattleSettings>(DEFAULT_BATTLE_SETTINGS);
   const [applyStatus, setApplyStatus] = useState('');
   useEffect(() => { try { const saved = JSON.parse(localStorage.getItem('axie-conquest-unit-stats-v1') || 'null'); if (saved && Number.isFinite(saved.marchSpeed) && saved.marchSpeed > 0) { const next = { marchSpeed: saved.marchSpeed }; setLocalStats(next); setActiveUnitGlobalStats(next); onUnitStats(next); } } catch { /* Use code defaults. */ } }, []);
-  useEffect(() => { try { setBattleSettings(restoreActiveBattleSettings(localStorage.getItem(BATTLE_SETTINGS_SAVE_KEY))); } catch { setApplyStatus('Saved settings unavailable. Changes still work for this session.'); } }, []);
+  useEffect(() => {
+    try {
+      const restored = restoreActiveBattleSettings(localStorage.getItem(BATTLE_SETTINGS_SAVE_KEY));
+      setBattleSettings(restored);
+      onDebugBattleChange?.(restored.debugBattle);
+    } catch {
+      setApplyStatus('Saved settings unavailable. Changes still work for this session.');
+    }
+  }, []);
   function saveUnitStats() { try { localStorage.setItem('axie-conquest-unit-stats-v1', JSON.stringify(localStats)); } catch { /* Keep session value. */ } setActiveUnitGlobalStats(localStats); onUnitStats(localStats); }
   function applyBattleSettings() { const next = sanitizeBattleSettings(battleSettings); setBattleSettings(next); setActiveBattleSettings(next); const feedback = 'Applied. The sandbox now uses the saved board spacing.'; try { localStorage.setItem(BATTLE_SETTINGS_SAVE_KEY, JSON.stringify(next)); setApplyStatus(feedback); } catch { setApplyStatus(`${feedback} Browser save failed; changes last only for this session.`); } }
   function saveBoardLayout(layout: { hexGap: number; teamGap: number; columns: number; rowsPerTeam: number }) { const next = sanitizeBattleSettings({ ...battleSettings, boardHexGap: layout.hexGap, boardTeamGap: layout.teamGap, boardColumns: layout.columns, boardRows: layout.rowsPerTeam }); setBattleSettings(next); setActiveBattleSettings(next); try { localStorage.setItem(BATTLE_SETTINGS_SAVE_KEY, JSON.stringify(next)); setApplyStatus('Board layout saved.'); } catch { setApplyStatus('Board layout applied, but browser save failed.'); } }
   function saveRange(range: BattleSettings) { const next = sanitizeBattleSettings({ ...battleSettings, ...range }); setBattleSettings(next); setActiveBattleSettings(next); try { localStorage.setItem(BATTLE_SETTINGS_SAVE_KEY, JSON.stringify(next)); setApplyStatus('Battle sandbox settings saved.'); } catch { setApplyStatus('Battle sandbox settings applied, but browser save failed.'); } }
+  function updateDebugBattle(enabled: boolean) {
+    const next = sanitizeBattleSettings({ ...battleSettings, debugBattle: enabled });
+    setBattleSettings(next);
+    setActiveBattleSettings(next);
+    onDebugBattleChange?.(enabled);
+    try {
+      localStorage.setItem(BATTLE_SETTINGS_SAVE_KEY, JSON.stringify(next));
+      setApplyStatus(`Battle debugging ${enabled ? 'enabled' : 'disabled'}.`);
+    } catch {
+      setApplyStatus('Debug setting applied for this session.');
+    }
+  }
   return <section className="developer panel" aria-label="Developer">
     <div className="catalog-heading"><div><span className="eyebrow">WORLD GENERATION</span><h2>Developer</h2></div><button className="close" aria-label="Close developer tab" onClick={onClose}>&times;</button></div>
     <p>Populate the full {WORLD_WIDTH} × {WORLD_DEPTH} map. Attack defended sites to fight chimeras. Gathering and loot collection are still unavailable.</p>
@@ -34,6 +59,54 @@ export default function DeveloperPanel({ settings, onSettings, objects, status, 
     {tab === 'units' && <div className="unit-global-stats"><p>Global movement values used to simulate marching.</p><label className="developer-distance">March speed (tiles / second)<input type="number" min={0.1} max={100} step={0.1} value={localStats.marchSpeed} onChange={event => setLocalStats({ marchSpeed: Math.max(0.1, Math.min(100, Number(event.target.value) || 0.1)) })} /></label><div className="placement-actions"><button className="primary" onClick={saveUnitStats}>Save unit stats</button></div><p><small>Higher speed reduces travel time. Edit <code>src/game/unit-stats.json</code> to change the code default.</small></p></div>}
     {tab === 'world' && <div className="developer-world"><div className="developer-counts">{WORLD_KINDS.map(kind => <label key={kind}><span>{WORLD_DEFINITIONS[kind].name}<small>{objects.filter(object => object.kind === kind).length} on map{kind === 'village' || kind === 'garrison' ? ' · Loot: 1 apple' : ''}</small></span><input type="number" min={0} max={100} step={1} value={settings.counts[kind]} onChange={event => onSettings({ ...settings, counts: { ...settings.counts, [kind]: Math.max(0, Math.min(100, Math.floor(Number(event.target.value) || 0))) } })} /></label>)}</div><label className="developer-distance">Minimum distance<input type="number" min={1} max={50} step={1} value={settings.spacing} onChange={event => onSettings({ ...settings, spacing: Math.max(1, Math.min(50, Math.floor(Number(event.target.value) || 1))) })} /></label><p><small>1–50 units of clear ground between objects. City, walls and map edges are protected. Counts: 0–100 per type.</small></p><div className="placement-actions"><button className="primary" disabled={!ready} onClick={onRegenerate}>{objects.length ? 'Regenerate' : 'Generate'}</button><button className="secondary" disabled={!ready || !objects.length} onClick={onRemove}>Remove all</button><button className="secondary" onClick={() => onSettings({ counts: { ...DEFAULT_GENERATION.counts }, spacing: DEFAULT_GENERATION.spacing })}>Defaults</button></div><p role="status">{status}</p></div>}
     {tab === 'battle' && <div className="battle-system"><p>Prototype the new tactical board before units and simulation are added. The middle lane is made of neutral gray hex slots, not empty ground.</p><label className="developer-distance">Gap between hexes<input type="number" min={0} max={3} step={0.05} value={battleSettings.boardHexGap} onChange={event => setBattleSettings({ ...battleSettings, boardHexGap: Math.max(0, Math.min(3, Number(event.target.value) || 0)) })} /></label><label className="developer-distance">Neutral hex rows<input type="number" min={0} max={4} step={1} value={battleSettings.boardTeamGap} onChange={event => setBattleSettings({ ...battleSettings, boardTeamGap: Math.max(0, Math.min(4, Math.round(Number(event.target.value) || 0))) })} /></label><div className="placement-actions"><button className="primary" onClick={applyBattleSettings}>Save board settings</button><button className="secondary" onClick={() => setBattleSettings(DEFAULT_BATTLE_SETTINGS)}>JSON defaults</button><button className="primary" onClick={() => { applyBattleSettings(); setSandboxOpen(true); }}>Open battle sandbox</button></div><p><small>Set hex gap to 0 for one connected board. Neutral rows split the two teams.</small></p><p role="status">{applyStatus || 'Open the sandbox to inspect the empty formation board.'}</p></div>}
+    {tab === 'battle' && <fieldset className="battle-debug">
+      <legend>Tactical battle debugging</legend>
+      <p><small>Enable or disable developer combat controls (pause/step/restart/speed/overlays) in the battle spectator.</small></p>
+      <div style={{ display: 'flex', gap: '20px', margin: '8px 0' }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
+          <input
+            type="radio"
+            name="debugBattle"
+            value="disabled"
+            checked={!battleSettings.debugBattle}
+            onChange={() => updateDebugBattle(false)}
+          />
+          <span>Disabled (Standard RTS)</span>
+        </label>
+        <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
+          <input
+            type="radio"
+            name="debugBattle"
+            value="enabled"
+            checked={!!battleSettings.debugBattle}
+            onChange={() => updateDebugBattle(true)}
+          />
+          <span>Enabled (Debug controls)</span>
+        </label>
+      </div>
+    </fieldset>}
+    {tab === 'battle' && <fieldset className="battle-debug">
+      <legend>Active Combat Control</legend>
+      {activeBattleSession ? (
+        <div>
+          <p style={{ margin: '4px 0', fontSize: '0.85rem' }}>
+            <strong>⚔️ Active Battle:</strong> {activeBattleSession.army.name} vs{' '}
+            {activeBattleSession.target.kind === 'boss' ? 'Chimera Boss' : activeBattleSession.target.kind === 'garrison' ? 'Garrison' : 'Wild Chimeras'} (Tick {activeBattleSession.battle.tick})
+          </p>
+          <div className="placement-actions" style={{ marginTop: '8px' }}>
+            <button
+              className="secondary"
+              style={{ color: '#ff7070', borderColor: '#ff7070' }}
+              onClick={onAbortBattle}
+            >
+              ✕ Abort / Clear Active Battle
+            </button>
+          </div>
+        </div>
+      ) : (
+        <p style={{ margin: '4px 0', fontSize: '0.82rem', opacity: 0.8 }}>No active battle currently running.</p>
+      )}
+    </fieldset>}
     {tab === 'battle' && <fieldset className="battle-debug mob-spawn-controls"><legend>World encounter spawning</legend><label><input type="checkbox" checked={mobSpawnEnabled} onChange={event => onMobSpawnEnabled(event.target.checked)} />Enable mob spawning on World View</label><label>Mob group<select disabled={!mobSpawnEnabled} value={mobGroup} onChange={event => onMobGroup(event.target.value as SpawnableMobGroup)}>{Object.entries(SPAWNABLE_MOB_GROUPS).map(([id, group]) => <option key={id} value={id}>{group.label}</option>)}</select></label><small>With this enabled, tap empty ground in World View and choose Spawn mob group.</small></fieldset>}
     {sandboxOpen && <BattleSandbox layout={{ hexGap: battleSettings.boardHexGap, teamGap: battleSettings.boardTeamGap, columns: battleSettings.boardColumns, rowsPerTeam: battleSettings.boardRows }} range={battleSettings} activeAxies={activeAxies} onSaveLayout={saveBoardLayout} onSaveRange={saveRange} onClose={() => setSandboxOpen(false)} />}
     <ResetGameControl />

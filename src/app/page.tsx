@@ -8,8 +8,8 @@ import TrainingDialog from './training-dialog';
 import MailDialog from './mail-dialog';
 import DeveloperPanel from './developer-panel';
 import BattleSpectatorModal from './battle-spectator';
-import { activateCommanderSkill, Battle, stepBattle } from '@/game/battle';
-import { BATTLE_SAVE_KEY, BattleSession, BattleReport, createBattleSession, restoreBattleSave, readBattleReports, recoverBattleTransaction, commitBattleOutcome } from '@/game/battle-save';
+import { activateCommanderSkill, Battle, MAX_BATTLE_TICKS, stepBattle } from '@/game/battle';
+import { BATTLE_SAVE_KEY, BATTLE_TRANSACTION_KEY, BattleSession, BattleReport, createBattleSession, restoreBattleSave, readBattleReports, recoverBattleTransaction, commitBattleOutcome } from '@/game/battle-save';
 import { beginReplay, recordReplay } from '@/game/battle-replay';
 import { createMobGroup, DEFAULT_GENERATION, GenerationSettings, getWorldObjectActions, restoreWorld, SpawnableMobGroup, WORLD_SAVE_KEY, WorldAction, WorldObject } from '@/game/world';
 import type { BaseView } from '@/game/scene';
@@ -29,9 +29,11 @@ type AxieApiResponse = { data?: { axies?: { results?: unknown } }; error?: strin
 export default function Home() {
   const unitStats = activeUnitGlobalStats;
   const [battleSession, setBattleSession] = useState<BattleSession | null>(null);
+  const [spectatorSession, setSpectatorSession] = useState<BattleSession | null>(null);
   const [spectating, setSpectating] = useState(false);
   const [battlePaused, setBattlePaused] = useState(true);
   const [battleSpeed, setBattleSpeed] = useState<1 | 2 | 0.5>(1);
+  const [battleDebug, setBattleDebug] = useState(false);
   const battleRef = useRef<BattleSession | null>(null);
   const [battleReport, setBattleReport] = useState<BattleReport | null>(null);
   const [battleReports, setBattleReports] = useState<BattleReport[]>([]);
@@ -127,11 +129,16 @@ export default function Home() {
     let disposed = false;
     import('@/game/scene').then(({ createBase }) => {
       if (disposed || !canvas.current) return;
-      try { restoreActiveBattleSettings(localStorage.getItem(BATTLE_SETTINGS_SAVE_KEY)); }
-      catch { restoreActiveBattleSettings(null); }
+      try {
+        const settings = restoreActiveBattleSettings(localStorage.getItem(BATTLE_SETTINGS_SAVE_KEY));
+        setBattleDebug(settings.debugBattle);
+      } catch {
+        const settings = restoreActiveBattleSettings(null);
+        setBattleDebug(settings.debugBattle);
+      }
       try { recoverBattleTransaction(localStorage); }
       catch (error) { setLoadError(`Cannot recover the last battle save: ${(error as Error).message}`); return; }
-      view.current = createBase(canvas.current, { fighterSelect: setSelectedFighterId, change: setBuildings, preview: setCell, unitSelect: id => { setSelectedUnitId(id); setTarget(null); setRouteAction(null); setSelectedAction(null); }, target: next => { setTarget(next); setRouteAction(next ? 'choose' : null); setSelectedAction(null); setFormationIndex(null); if (next?.id) setSelectedUnitId(null); if (next) { setSelected(null); setDeveloper(false); setMilitary(false); setTraining(false); setHeroes(false); setInventory(false); setCatalog(false); } }, viewMode: mode => { setWorldView(mode === 'world'); if (mode !== 'world') { setSelectedUnitId(null); setTarget(null); setRouteAction(null); setSelectedAction(null); } }, select: building => { setSelected(building); if (building) { setDeveloper(false); setMilitary(false); setTraining(false); setHeroes(false); setInventory(false); } }, message: setMessage, troops: setTroops });
+      view.current = createBase(canvas.current, { watchBattle: () => { setSpectatorSession(battleRef.current); setSpectating(true); }, fighterSelect: setSelectedFighterId, change: setBuildings, preview: setCell, unitSelect: id => { setSelectedUnitId(id); setTarget(null); setRouteAction(null); setSelectedAction(null); }, target: next => { setTarget(next); setRouteAction(next ? 'choose' : null); setSelectedAction(null); setFormationIndex(null); if (next?.id) setSelectedUnitId(null); if (next) { setSelected(null); setDeveloper(false); setMilitary(false); setTraining(false); setHeroes(false); setInventory(false); setCatalog(false); } }, viewMode: mode => { setWorldView(mode === 'world'); if (mode !== 'world') { setSelectedUnitId(null); setTarget(null); setRouteAction(null); setSelectedAction(null); } }, select: building => { setSelected(building); if (building) { setDeveloper(false); setMilitary(false); setTraining(false); setHeroes(false); setInventory(false); } }, message: setMessage, troops: setTroops });
       let initialObjects: WorldObject[];
       let savedObjects: WorldObject[] | null = null;
       try { savedObjects = restoreWorld(localStorage.getItem(WORLD_SAVE_KEY)); } catch { savedObjects = null; }
@@ -175,8 +182,7 @@ export default function Home() {
       localStorage.setItem(BATTLE_SAVE_KEY, JSON.stringify({ active: session, report: battleReport, reports: battleReports }));
       battleRef.current = session; setBattleSession(session);
       setSelectedUnitId(attacker.id); setTarget(null); setRouteAction(null);
-      setBattlePaused(true);
-      setSpectating(true);
+      setBattlePaused(false);
     } catch { setBattleError('Battle could not start because browser storage is unavailable. Free storage and retry.'); }
   }, [units, worldObjects, ready, battleError, battleReport, apiAxies]);
   useEffect(() => {
@@ -200,17 +206,18 @@ export default function Home() {
     updateBattle(skilled === stepped ? stepped : { ...skilled, events: [...stepped.events, ...skilled.events] });
   }, []);
   const restartBattle = useCallback(() => {
-    const session = battleRef.current;
+    const session = battleRef.current || spectatorSession;
     if (!session) return;
     const restarted = createBattleSession(session.army, session.target, apiAxies);
     battleRef.current = restarted;
     setBattleSession(restarted);
-    setBattlePaused(true);
+    setSpectatorSession(restarted);
+    setBattlePaused(battleDebug);
     view.current?.setBattle(restarted, null);
     try {
       localStorage.setItem(BATTLE_SAVE_KEY, JSON.stringify({ active: restarted, report: battleReport, reports: battleReports }));
     } catch { /* LocalStorage error handling */ }
-  }, [apiAxies, battleReport, battleReports]);
+  }, [apiAxies, battleReport, battleReports, battleDebug, spectatorSession]);
   useEffect(() => {
     const flush = () => {
       if (!battleRef.current) return;
@@ -227,14 +234,15 @@ export default function Home() {
     if (!worldView) { view.current?.setWorldView(true); setWorldView(true); view.current?.focusBattle(); }
   }, [battleSession?.target.id, ready]);
   useEffect(() => {
-    if (battleSession?.battle.result && !battleError && !spectating) finishBattle();
-  }, [battleSession?.battle.result, battleError, spectating]);
+    if (battleSession?.battle.result && !battleError) finishBattle();
+  }, [battleSession?.battle.result, battleError]);
   function updateBattle(battle: Battle, forceSave = false) {
     const session = battleRef.current;
     if (!session) return;
     const next = { ...session, battle, replay: recordReplay(session.replay ?? beginReplay(session.battle), battle) };
     battleRef.current = next;
     view.current?.setBattle(next, null);
+    setSpectatorSession(next);
     try {
       if (forceSave || battle.result || battle.tick % 20 === 0) localStorage.setItem(BATTLE_SAVE_KEY, JSON.stringify({ active: next, report: battleReport, reports: battleReports }));
       if (forceSave || battle.result || battle.tick % 2 === 0) setBattleSession(next);
@@ -246,13 +254,43 @@ export default function Home() {
     if (!session?.battle.result) return;
     try {
       const outcome = commitBattleOutcome(localStorage, session, units, troops, formations, worldObjects, Date.now());
+      setSpectatorSession(session);
       battleRef.current = null; setBattleSession(null); setBattleError('');
+      view.current?.setBattle(null, null);
       setSelectedFighterId(null); setSelectedUnitId(session.army.id); setTarget(null); setRouteAction(null);
       setTroops(outcome.troops); setUnits(outcome.units); setFormations(outcome.formations); setWorldObjects(outcome.objects); setBattleReport(outcome.report);
       setBattleReports(outcome.reports);
       view.current?.loadWorld(outcome.objects); view.current?.refreshMilitary();
       setMessage(`${outcome.report.result}: ${outcome.report.losses.infantry} infantry and ${outcome.report.losses.archer} archers lost. ${outcome.report.result === 'victory' ? 'Formation ready for orders.' : 'Survivors returning home.'}`);
     } catch { setBattleError('Battle outcome could not be fully saved. Retry to complete recovery; progress is kept in the battle journal.'); }
+  }
+  function retreatBattle() {
+    const session = battleRef.current;
+    if (!session || session.battle.result) return;
+    const retreatingBattle: Battle = { ...session.battle, retreating: true };
+    if (battlePaused || session.battle.tick >= MAX_BATTLE_TICKS) {
+      retreatingBattle.result = 'retreated';
+    }
+    updateBattle(retreatingBattle, true);
+    if (retreatingBattle.result) finishBattle();
+    else setMessage('Formation is retreating from combat.');
+  }
+  function abortBattle() {
+    const session = battleRef.current || spectatorSession;
+    if (!session) return;
+    battleRef.current = null;
+    setBattleSession(null);
+    setSpectatorSession(null);
+    setBattleError('');
+    setSpectating(false);
+    view.current?.setBattle(null, null);
+    setSelectedFighterId(null);
+    try {
+      localStorage.removeItem(BATTLE_SAVE_KEY);
+      localStorage.removeItem(BATTLE_TRANSACTION_KEY);
+    } catch { /* Ignore storage access errors */ }
+    setUnits(current => current.map(unit => unit.id === session.army.id ? { ...unit, activity: undefined, order: null, status: 'holding' } : unit));
+    setMessage('Active battle ended and formation returned to holding.');
   }
   const size = getBuildingDimensions(buildingKind, moving?.rotation);
   const valid = cell !== null && (moving ? canMoveBuilding(moving.id, cell, buildings) : canPlace(cell, buildings, size.width, size.depth));
@@ -440,7 +478,7 @@ export default function Home() {
     </section>}
     {heroes && !placing && !selected && <HeroesPanel axies={apiAxies} deployedIds={selectedCity.deployedAxieIds.filter(id => apiAxies.some(axie => axie.id === id))} status={axieSyncStatus} error={axieSyncError} syncedAt={axieSyncedAt} onDeploy={id => setSelectedCity(city => city.deployedAxieIds.includes(id) ? city : { ...city, deployedAxieIds: [...city.deployedAxieIds.filter(deployedId => apiAxies.some(axie => axie.id === deployedId)), id] })} onEnlist={id => setSelectedCity(city => ({ ...city, deployedAxieIds: city.deployedAxieIds.filter(deployedId => deployedId !== id) }))} onClose={() => setHeroes(false)} />}
     {training && <TrainingDialog buildings={buildings} troops={troops} ready={ready} onTrain={kind => { view.current?.train(kind); }} onClose={() => setTraining(false)} />}
-    {developer && <DeveloperPanel settings={generation} onSettings={setGeneration} objects={worldObjects} status={generationStatus} ready={ready} mobSpawnEnabled={mobSpawnEnabled} onMobSpawnEnabled={setMobSpawnEnabled} mobGroup={mobGroup} onMobGroup={setMobGroup} activeAxies={apiAxies.filter(axie => selectedCity.deployedAxieIds.includes(axie.id))} onClose={() => setDeveloper(false)} onRegenerate={regenerate} onRemove={() => { view.current?.removeWorld(); try { localStorage.setItem(WORLD_SAVE_KEY, '[]'); } catch { /* Keep the removal in memory when storage is unavailable. */ } setWorldObjects([]); setGenerationStatus('All generated objects removed.'); }} />}
+    {developer && <DeveloperPanel settings={generation} onSettings={setGeneration} objects={worldObjects} status={generationStatus} ready={ready} mobSpawnEnabled={mobSpawnEnabled} onMobSpawnEnabled={setMobSpawnEnabled} mobGroup={mobGroup} onMobGroup={setMobGroup} activeAxies={apiAxies.filter(axie => selectedCity.deployedAxieIds.includes(axie.id))} debugBattle={battleDebug} onDebugBattleChange={setBattleDebug} activeBattleSession={battleSession} onAbortBattle={abortBattle} onClose={() => setDeveloper(false)} onRegenerate={regenerate} onRemove={() => { view.current?.removeWorld(); try { localStorage.setItem(WORLD_SAVE_KEY, '[]'); } catch { /* Keep the removal in memory when storage is unavailable. */ } setWorldObjects([]); setGenerationStatus('All generated objects removed.'); }} />}
     {mail && <MailDialog battleReports={battleReports} onClose={() => setMail(false)} />}
     {battleSession && !spectating && (
       <aside
@@ -491,27 +529,42 @@ export default function Home() {
           </button>
         )}
         <button
+          className="secondary"
+          style={{ fontSize: '0.8rem', padding: '4px 10px', color: '#ff907d' }}
+          onClick={retreatBattle}
+        >
+          Retreat
+        </button>
+        <button
           className="primary"
           style={{ fontSize: '0.8rem', padding: '4px 10px' }}
-          onClick={() => setSpectating(true)}
+          onClick={() => {
+            setSpectatorSession(battleRef.current);
+            setSpectating(true);
+          }}
         >
-          {battlePaused && battleSession.battle.tick === 0 ? 'Inspect & Start' : 'Spectate'}
+          Watch Battle
         </button>
       </aside>
     )}
-    {spectating && battleSession && (
+    {spectating && (battleSession || spectatorSession) && (
       <BattleSpectatorModal
-        session={battleSession}
+        session={(battleSession || spectatorSession)!}
         isPaused={battlePaused}
         onTogglePause={toggleBattlePause}
         onStep={stepBattleOnce}
         onRestart={restartBattle}
         speed={battleSpeed}
         onSpeedChange={setBattleSpeed}
-        onClose={() => setSpectating(false)}
+        onClose={() => {
+          setSpectating(false);
+          setSpectatorSession(null);
+        }}
+        onRetreat={retreatBattle}
+        debug={battleDebug}
         onFinish={() => {
           setSpectating(false);
-          finishBattle();
+          setSpectatorSession(null);
         }}
       />
     )}

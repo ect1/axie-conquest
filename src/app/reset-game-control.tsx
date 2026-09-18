@@ -1,9 +1,17 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { resetGame } from '@/game/reset';
 
 export default function ResetGameControl() {
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState('');
+  const containerRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    if (confirming) {
+      containerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+  }, [confirming]);
+
   function confirmReset() {
     try {
       resetGame(window.localStorage);
@@ -12,12 +20,41 @@ export default function ResetGameControl() {
       setError('Reset could not finish. Some saves may already be cleared. Check browser storage access and retry.');
     }
   }
-  return <section className="reset-game" aria-label="Reset game">
-    <h3>Start from scratch</h3>
-    {confirming ? <>
-      <p>Delete all saved buildings, marches, generated resources, trained units, military assignments, city data and developer settings? This cannot be undone. The game will reload with starter defaults and a newly generated world.</p>
-      <div className="placement-actions"><button className="secondary" onClick={() => { setConfirming(false); setError(''); }}>Cancel</button><button className="primary" onClick={confirmReset}>Delete saves and restart</button></div>
-    </> : <button className="secondary" onClick={() => setConfirming(true)}>Reset game</button>}
-    {error && <p role="alert">{error}</p>}
-  </section>;
+
+  return (
+    <section ref={containerRef} className="reset-game" aria-label="Reset game">
+      <h3>Start from scratch</h3>
+      {confirming ? (
+        <>
+          <p style={{ color: '#ffd166', fontWeight: 500, margin: '8px 0' }}>
+            ⚠️ Confirmation required: Delete all saved buildings, marches, generated resources, trained units, military assignments, city data and developer settings? This cannot be undone.
+          </p>
+          <div className="placement-actions">
+            <button
+              className="secondary"
+              onClick={() => {
+                setConfirming(false);
+                setError('');
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              className="primary"
+              style={{ background: '#e04040', borderColor: '#ff6060', fontWeight: 'bold' }}
+              onClick={confirmReset}
+            >
+              Delete saves and restart
+            </button>
+          </div>
+        </>
+      ) : (
+        <button className="secondary" onClick={() => setConfirming(true)}>
+          Reset game
+        </button>
+      )}
+      {error && <p role="alert">{error}</p>}
+    </section>
+  );
 }
+

@@ -38,16 +38,59 @@ export function createWorldFight(scene: Scene) {
   clashMaterial.diffuseTexture = clashTexture; clashMaterial.opacityTexture = clashTexture;
   clashMaterial.emissiveColor = Color3.White(); clashMaterial.disableLighting = true; clashMaterial.backFaceCulling = false;
   const clash = MeshBuilder.CreatePlane('world fight sprite', { size: 2.7 }, scene);
-  clash.parent = root; clash.material = clashMaterial; clash.billboardMode = Mesh.BILLBOARDMODE_ALL; clash.isPickable = false;
+  clash.parent = root; clash.material = clashMaterial; clash.billboardMode = Mesh.BILLBOARDMODE_ALL;
+  clash.isPickable = true; clash.metadata = { action: 'watchBattle' };
 
-  root.setEnabled(false);
+  const badgeTexture = new DynamicTexture('world fight watch badge texture', { width: 256, height: 72 }, scene, false);
+  badgeTexture.hasAlpha = true;
+  const badgeCtx = badgeTexture.getContext() as unknown as CanvasRenderingContext2D;
+  badgeCtx.clearRect(0, 0, 256, 72);
+  badgeCtx.beginPath();
+  if (typeof badgeCtx.roundRect === 'function') badgeCtx.roundRect(4, 4, 248, 64, 32);
+  else badgeCtx.rect(4, 4, 248, 64);
+  badgeCtx.fillStyle = 'rgba(18, 26, 24, 0.94)'; badgeCtx.fill();
+  badgeCtx.lineWidth = 4; badgeCtx.strokeStyle = '#ffd166'; badgeCtx.stroke();
+  badgeCtx.font = 'bold 24px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+  badgeCtx.fillStyle = '#ffffff'; badgeCtx.textAlign = 'center'; badgeCtx.textBaseline = 'middle';
+  badgeCtx.fillText('⚔ Watch Battle', 128, 36);
+  badgeTexture.update();
+
+  const badgeMaterial = new StandardMaterial('world fight watch badge mat', scene);
+  badgeMaterial.diffuseTexture = badgeTexture; badgeMaterial.opacityTexture = badgeTexture;
+  badgeMaterial.emissiveColor = Color3.White(); badgeMaterial.disableLighting = true; badgeMaterial.backFaceCulling = false;
+  const watchBadge = MeshBuilder.CreatePlane('world fight watch badge', { width: 4.4, height: 1.25 }, scene);
+  watchBadge.parent = root; watchBadge.material = badgeMaterial; watchBadge.billboardMode = Mesh.BILLBOARDMODE_ALL;
+  watchBadge.isPickable = false; watchBadge.metadata = { action: 'watchBattle' };
+
+  const setAllEnabled = (enabled: boolean) => {
+    root.setEnabled(enabled);
+    clash.setEnabled(enabled);
+    clash.isVisible = enabled;
+    clash.isPickable = enabled;
+    watchBadge.setEnabled(enabled);
+    watchBadge.isVisible = enabled;
+    watchBadge.isPickable = enabled;
+    attacker.back.setEnabled(enabled);
+    attacker.back.isVisible = enabled;
+    attacker.fill.setEnabled(enabled);
+    attacker.fill.isVisible = enabled;
+    defender.back.setEnabled(enabled);
+    defender.back.isVisible = enabled;
+    defender.fill.setEnabled(enabled);
+    defender.fill.isVisible = enabled;
+  };
+
+  setAllEnabled(false);
   let lastSession = '', lastTick = -3;
   return {
     update(session: BattleSession | null, visible: boolean) {
-      root.setEnabled(!!session && visible);
-      if (!session || !visible) return;
+      const active = !!session && visible;
+      setAllEnabled(active);
+      if (!active || !session) return;
       const pulse = 1 + Math.sin(performance.now() / 170) * 0.08;
       clash.scaling.setAll(pulse); clash.rotation.z = Math.sin(performance.now() / 360) * 0.08;
+      const badgePulse = 1 + Math.sin(performance.now() / 250) * 0.04;
+      watchBadge.scaling.setAll(badgePulse);
       const key = `${session.army.id}:${session.startedAt}`;
       if (key === lastSession && session.battle.tick - lastTick < 3 && !session.battle.result) return;
       lastSession = key; lastTick = session.battle.tick;
@@ -59,13 +102,16 @@ export function createWorldFight(scene: Scene) {
       };
       root.position.set(session.target.x, 0, session.target.z); clash.position.set(0, 2, 0);
       attacker.back.position.set(0, 4, 0); defender.back.position.set(0, 3.4, 0);
+      watchBadge.position.set(0, 4.85, 0);
       for (const [bar, value] of [[attacker, ratio(players)], [defender, ratio(enemies)]] as const) {
         bar.fill.scaling.x = Math.max(0.001, value);
         bar.fill.position.x = -2 * (1 - value);
       }
     },
     dispose() {
-      root.dispose(); friendly.dispose(); enemy.dispose(); empty.dispose(); clashMaterial.dispose(); clashTexture.dispose();
+      root.dispose(); friendly.dispose(); enemy.dispose(); empty.dispose();
+      clashMaterial.dispose(); clashTexture.dispose();
+      badgeMaterial.dispose(); badgeTexture.dispose();
     },
   };
 }
