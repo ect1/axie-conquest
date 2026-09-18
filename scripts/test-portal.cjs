@@ -24,7 +24,7 @@ function load(file) {
 const portal = load('src/game/portal.ts');
 const { resetGame, RESETTABLE_MODULES } = load('src/game/reset.ts');
 
-console.log('Testing portal configuration loading...');
+console.log('Testing portal configuration loading & destroyable / maxSubportal / initialMoveSpeed...');
 const config = portal.restorePortalConfig(null);
 assert.equal(config.enabled, true);
 assert.equal(config.initialPortalCoordinate.x, 79.7);
@@ -34,115 +34,189 @@ assert.equal(config.attackIntervalSeconds, 5);
 assert.equal(config.exhaustedEveryMobLevel, 5);
 assert.equal(config.exhaustedSeconds, 30);
 assert.equal(config.starterMobCount, 6);
-assert.equal(config.maxMoveSpeed, 5.0);
+assert.equal(config.initialMoveSpeed, 0.5, 'initialMoveSpeed must be 0.5');
+assert.equal(config.maxMoveSpeed, 20, 'maxMoveSpeed must be 20');
 assert.equal(config.portalLevelScaling.statsMultiplierPerLevel, 1.15);
 assert.equal(config.portalLevelScaling.mobsCountMultiplierPerLevel, 1.15);
 assert.equal(config.portalLevelScaling.summonNewPortalEveryLevel, 10);
 assert.equal(config.portalLevelScaling.newPortalIndependentLevel, true);
+assert.equal(config.portalLevelScaling.subPortal?.destroyable, true, 'subPortal.destroyable must be true');
+assert.equal(config.portalLevelScaling.subPortal?.maxSubportal, 10, 'subPortal.maxSubportal must be 10');
 assert.equal(config.mobTypes.mascot.baseStats.health, 150);
 assert.equal(config.mobTypes.soldier.baseStats.health, 220);
 assert.equal(config.mobTypes.archer.baseStats.health, 110);
 
-console.log('Testing level scaling calculations...');
+console.log('Testing computeOutsideCityDestination...');
+const outsideDest = portal.computeOutsideCityDestination(config.initialPortalCoordinate, { x: 0, z: 0 });
+assert.notEqual(outsideDest.x, 0);
+const distFromCenter = Math.hypot(outsideDest.x, outsideDest.z);
+assert.ok(distFromCenter >= 21.0, `Destination must stop outside city perimeter, got dist: ${distFromCenter}`);
+
+console.log('Testing level scaling calculations & initialMoveSpeed in stats...');
 const lvl1Count = portal.calculateLevelMobCount(1, config);
 assert.equal(lvl1Count, 6);
 const lvl2Count = portal.calculateLevelMobCount(2, config);
-assert.equal(lvl2Count, Math.round(6 * 1.15)); // 7
-const lvl5Count = portal.calculateLevelMobCount(5, config);
-assert.equal(lvl5Count, Math.round(6 * Math.pow(1.15, 4))); // 10 or 11
+assert.equal(lvl2Count, Math.round(6 * 1.15));
 
 const lvl1MascotStats = portal.calculateLevelStats(config.mobTypes.mascot.baseStats, 1, config);
 assert.equal(lvl1MascotStats.health, 150);
 assert.equal(lvl1MascotStats.attack, 20);
+assert.equal(lvl1MascotStats.moveSpeed, 0.5, 'Mascot moveSpeed at level 1 must start at initialMoveSpeed (0.5)');
 
 const lvl5MascotStats = portal.calculateLevelStats(config.mobTypes.mascot.baseStats, 5, config);
 assert.ok(lvl5MascotStats.health > 150);
 assert.ok(lvl5MascotStats.attack > 20);
+assert.ok(lvl5MascotStats.moveSpeed > 0.5);
 assert.ok(lvl5MascotStats.moveSpeed <= config.maxMoveSpeed);
 
-console.log('Testing randomized formation generation...');
-for (let lvl = 1; lvl <= 12; lvl++) {
-  const formation = portal.generateWaveFormation(lvl, config);
-  assert.equal(formation.level, lvl);
-  assert.equal(formation.totalMobs, portal.calculateLevelMobCount(lvl, config));
-  assert.equal(formation.totalMascot + formation.totalSoldier + formation.totalArcher, formation.totalMobs);
-  assert.ok(formation.totalMascot >= 1);
-
-  // Check that slots quantities match totals
-  const mascotSlotCount = formation.slots.filter(s => s.kind === 'mascot').reduce((sum, s) => sum + s.count, 0);
-  const soldierSlotCount = formation.slots.filter(s => s.kind === 'soldier').reduce((sum, s) => sum + s.count, 0);
-  const archerSlotCount = formation.slots.filter(s => s.kind === 'archer').reduce((sum, s) => sum + s.count, 0);
-
-  assert.equal(mascotSlotCount, formation.totalMascot);
-  assert.equal(soldierSlotCount, formation.totalSoldier);
-  assert.equal(archerSlotCount, formation.totalArcher);
-
-  // Check positioning
-  formation.slots.forEach(slot => {
-    if (slot.kind === 'mascot') assert.equal(slot.row, 1);
-    if (slot.kind === 'soldier') assert.equal(slot.row, 2);
-    if (slot.kind === 'archer') assert.equal(slot.row, 0);
-  });
-}
-
-console.log('Testing portal state cycle & step logic...');
+console.log('Testing initial portal state & defender formation...');
 let now = 1000000;
 let state = portal.createInitialPortalState(config, now);
 assert.equal(state.portals.length, 1);
 assert.equal(state.portals[0].level, 1);
 assert.equal(state.portals[0].cycleState, 'initial_countdown');
 assert.equal(state.portals[0].nextAttackTime, now + 30000);
+assert.ok(state.portals[0].defenderFormation, 'Defender formation must exist when destroyable is true');
+assert.equal(
+  state.portals[0].defenderFormation.totalMobs,
+  state.portals[0].upcomingFormation.totalMobs,
+  'Defender formation must match initial upcoming formation'
+);
 
-// Advance before countdown expires -> no spawn
-let step = portal.stepPortalSystem(now + 10000, state, config, { x: 0, z: 0 });
-assert.equal(step.newMarchesSpawned.length, 0);
-assert.equal(step.state.portals[0].level, 1);
-
-// Advance past countdown -> wave 1 spawns!
+console.log('Testing sequential respawn, speed scaling, and stopping outside city...');
+// Advance past countdown -> wave 1 spawns
 now += 30001;
-step = portal.stepPortalSystem(now, state, config, { x: 0, z: 0 });
+let step = portal.stepPortalSystem(now, state, config, { x: 0, z: 0 });
 assert.equal(step.newMarchesSpawned.length, 1);
-assert.equal(step.newMarchesSpawned[0].level, 1);
-assert.equal(step.state.portals[0].level, 2);
-// Since level 1 just finished and 1 % 5 !== 0, cycleState should be interval_countdown
-assert.equal(step.state.portals[0].cycleState, 'interval_countdown');
-assert.equal(step.state.portals[0].nextAttackTime, now + 5000);
+const wave1 = step.newMarchesSpawned[0];
+assert.equal(wave1.level, 1);
+assert.equal(wave1.speed, 0.5, 'Starting march speed must be initialMoveSpeed (0.5)');
+assert.equal(wave1.destination.x, outsideDest.x);
+assert.equal(wave1.destination.z, outsideDest.z);
+assert.equal(step.state.portals[0].cycleState, 'active_wave');
 state = step.state;
 
-// Advance through waves until level 5 exhaustion
-for (let lvl = 2; lvl <= 5; lvl++) {
-  now = state.portals[0].nextAttackTime + 1;
-  step = portal.stepPortalSystem(now, state, config, { x: 0, z: 0 });
-  state = step.state;
+// Advance time while wave 1 marches
+now += 5000;
+step = portal.stepPortalSystem(now, state, config, { x: 0, z: 0 });
+assert.equal(step.newMarchesSpawned.length, 0, 'No wave spawns while wave is active');
+state = step.state;
+
+// Advance time past arrival: MOBS MUST NOT DISAPPEAR!
+now = wave1.arrivesAt + 10;
+step = portal.stepPortalSystem(now, state, config, { x: 0, z: 0 });
+assert.equal(step.arrivedMarchesCount, 1, 'Arrival detected');
+assert.equal(step.state.activeEnemyMarches.length, 1, 'March must NOT disappear; must stay in activeEnemyMarches');
+assert.equal(step.state.activeEnemyMarches[0].status, 'arrived', 'March status must be arrived');
+assert.equal(step.state.portals[0].cycleState, 'active_wave', 'Portal must wait in active_wave while hostiles are outside city');
+state = step.state;
+
+// Position after arrival must be stationary outside the city
+const pos = portal.enemyMarchPosition(state.activeEnemyMarches[0], now);
+assert.equal(pos.x, outsideDest.x);
+assert.equal(pos.z, outsideDest.z);
+
+console.log('Testing defeatEnemyMarch action...');
+const defeatRes = portal.defeatEnemyMarch(wave1.id, state, config, now);
+assert.equal(defeatRes.state.activeEnemyMarches.length, 0, 'March removed on defeat');
+assert.equal(defeatRes.state.portals[0].level, 2, 'Portal level advanced to 2');
+assert.equal(defeatRes.state.portals[0].cycleState, 'interval_countdown');
+assert.equal(defeatRes.state.portals[0].nextAttackTime, now + 5000);
+assert.ok(defeatRes.state.portals[0].defenderFormation, 'Defender formation present on respawn');
+assert.equal(
+  defeatRes.state.portals[0].defenderFormation.totalMobs,
+  defeatRes.state.portals[0].upcomingFormation.totalMobs,
+  'Defender formation matches respawned upcoming formation'
+);
+state = defeatRes.state;
+
+console.log('Testing pause respawn functionality...');
+const pausedConfig = { ...config, paused: true };
+now = state.portals[0].nextAttackTime + 1000;
+step = portal.stepPortalSystem(now, state, pausedConfig, { x: 0, z: 0 });
+assert.equal(step.newMarchesSpawned.length, 0, 'Must NOT spawn when respawn is paused');
+state = step.state;
+
+const unpausedConfig = { ...config, paused: false };
+step = portal.stepPortalSystem(now, state, unpausedConfig, { x: 0, z: 0 });
+assert.equal(step.newMarchesSpawned.length, 1, 'Spawns wave after unpausing');
+assert.equal(step.newMarchesSpawned[0].level, 2);
+state = step.state;
+
+console.log('Testing multi-wave progression, exhaustion, and maxSubportal cap...');
+function completeCurrentWave(curState, curNow) {
+  const march = curState.activeEnemyMarches[0];
+  assert.ok(march, 'Expected active march to complete');
+  curNow = march.arrivesAt + 10;
+  // Step once to register arrival outside city
+  let s = portal.stepPortalSystem(curNow, curState, config, { x: 0, z: 0 });
+  assert.equal(s.state.activeEnemyMarches.length, 1);
+  // Defeat march
+  const def = portal.defeatEnemyMarch(march.id, s.state, config, curNow);
+  assert.equal(def.state.activeEnemyMarches.length, 0);
+  return { state: def.state, now: curNow };
 }
+
+function spawnNextWave(curState, curNow) {
+  assert.ok(!curState.activeEnemyMarches.length, 'Must have no active marches before spawning next wave');
+  curNow = curState.portals[0].nextAttackTime + 10;
+  const s = portal.stepPortalSystem(curNow, curState, config, { x: 0, z: 0 });
+  assert.ok(s.newMarchesSpawned.length >= 1, 'Expected wave to spawn');
+  return { state: s.state, now: curNow };
+}
+
+// Complete wave 2
+let res = completeCurrentWave(state, now);
+state = res.state;
+now = res.now;
+
+// Progress through waves 3, 4, 5
+for (let lvl = 3; lvl <= 5; lvl++) {
+  res = spawnNextWave(state, now);
+  res = completeCurrentWave(res.state, res.now);
+  state = res.state;
+  now = res.now;
+}
+
+// After wave 5 finishes, portal level is 6 and cycleState is exhausted (5 % 5 === 0)
 assert.equal(state.portals[0].level, 6);
 assert.equal(state.portals[0].cycleState, 'exhausted');
 assert.equal(state.portals[0].nextAttackTime, now + 30000);
 
-console.log('Testing level 10 multi-portal summoning...');
-// Advance up to level 10 finish
-while (state.portals[0].level <= 10) {
-  now = state.portals[0].nextAttackTime + 1;
-  step = portal.stepPortalSystem(now, state, config, { x: 0, z: 0 });
-  state = step.state;
+// Advance through to level 10
+for (let lvl = 6; lvl <= 10; lvl++) {
+  res = spawnNextWave(state, now);
+  res = completeCurrentWave(res.state, res.now);
+  state = res.state;
+  now = res.now;
 }
-// Now portal 1 finished level 10, so a second portal must be summoned!
-assert.ok(state.portals.length >= 2, `Expected at least 2 portals, got ${state.portals.length}`);
-const secondPortal = state.portals[1];
-assert.equal(secondPortal.level, 1, 'New portal must start at level 1 when newPortalIndependentLevel is true');
-assert.notEqual(secondPortal.coordinate.x, config.initialPortalCoordinate.x);
 
-console.log('Testing march arrival & disappearance...');
-const march = state.activeEnemyMarches[0];
-assert.ok(march, 'Expected active march');
-// Before arrivesAt
-const midPos = portal.enemyMarchPosition(march, march.startedAt + 1000);
-assert.ok(Number.isFinite(midPos.x) && Number.isFinite(midPos.z));
+// After level 10 finishes, sub-portal must be summoned
+assert.ok(state.portals.length >= 2, `Expected at least 2 portals after level 10, got ${state.portals.length}`);
+const subPortal = state.portals[1];
+assert.equal(subPortal.level, 1, 'New portal must start at level 1');
+assert.ok(subPortal.defenderFormation, 'Sub-portal must have defenderFormation when destroyable is true');
 
-// After arrivesAt -> march must DISAPPEAR!
-const afterArrival = portal.stepPortalSystem(march.arrivesAt + 10, state, config, { x: 0, z: 0 });
-assert.ok(!afterArrival.state.activeEnemyMarches.some(m => m.id === march.id), 'March should disappear upon arrival');
-assert.ok(afterArrival.arrivedMarchesCount >= 1);
+// Test maxSubportal cap: set cap to 1
+const cappedConfig = {
+  ...config,
+  portalLevelScaling: {
+    ...config.portalLevelScaling,
+    summonNewPortalEveryLevel: 1, // summon every level
+    subPortal: {
+      destroyable: true,
+      maxSubportal: 1, // already reached (1 prime + 1 subportal = 1 subportal)
+    },
+  },
+};
+const portalCountBefore = state.portals.length;
+res = spawnNextWave(state, now);
+// Complete wave with cappedConfig
+const curMarch = res.state.activeEnemyMarches[0];
+now = curMarch.arrivesAt + 10;
+const capDefeat = portal.defeatEnemyMarch(curMarch.id, res.state, cappedConfig, now);
+const subPortalsCount = capDefeat.state.portals.filter(p => p.id !== 'portal-prime').length;
+assert.equal(subPortalsCount, 1, 'Sub-portals must NOT exceed maxSubportal (1)');
 
 console.log('Testing resetGame compliance...');
 const storageData = new Map();

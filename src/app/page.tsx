@@ -41,6 +41,7 @@ import {
   PortalMobSummoningConfig,
   PortalRuntimeState,
   createInitialPortalState,
+  defeatEnemyMarch,
   enemyMarchPosition,
   generateNewPortalCoordinate,
   generateWaveFormation,
@@ -126,18 +127,29 @@ export default function Home() {
   });
   const [selectedPortalId, setSelectedPortalId] = useState<string | null>(null);
 
+  function togglePortalPause() {
+    const updated = { ...portalConfig, paused: !portalConfig.paused };
+    setPortalConfig(updated);
+    try {
+      localStorage.setItem(PORTAL_CONFIG_SAVE_KEY, JSON.stringify(updated));
+    } catch { /* ignore */ }
+    setMessage(updated.paused ? 'Portal respawn paused' : 'Portal respawn resumed');
+  }
+
   function triggerPortalWave(portalId?: string) {
     const time = Date.now();
     const targetPortal = portalId ? portalState.portals.find(p => p.id === portalId) : portalState.portals[0];
     if (!targetPortal) return;
 
+    // Filter out existing active marches for this portal so manual trigger forces the new wave
+    const marches = portalState.activeEnemyMarches.filter(m => m.portalId !== targetPortal.id);
     const updated = portalState.portals.map(p => {
       if (p.id === targetPortal.id) {
-        return { ...p, nextAttackTime: time - 1 };
+        return { ...p, cycleState: 'interval_countdown' as const, nextAttackTime: time - 1 };
       }
       return p;
     });
-    setPortalState({ ...portalState, portals: updated });
+    setPortalState({ ...portalState, portals: updated, activeEnemyMarches: marches });
     setMessage(`Wave triggered for ${targetPortal.name}!`);
   }
 
@@ -174,6 +186,17 @@ export default function Home() {
       localStorage.setItem(PORTAL_STATE_SAVE_KEY, JSON.stringify(initial));
     } catch { /* ignore */ }
     setMessage('All portals reset to level 1.');
+  }
+
+  function handleDefeatHostileMarch(marchId: string) {
+    const { state: nextState, defeatedMarch } = defeatEnemyMarch(marchId, portalState, portalConfig, now, { x: 0, z: 0 });
+    setPortalState(nextState);
+    try {
+      localStorage.setItem(PORTAL_STATE_SAVE_KEY, JSON.stringify(nextState));
+    } catch { /* ignore */ }
+    view.current?.setPortalState(nextState, null);
+    setSelectedUnitId(null);
+    setMessage(`⚔️ Defeated ${defeatedMarch?.name || 'hostile squad'}! Next wave countdown begins.`);
   }
 
   const [showIntro, setShowIntro] = useState(true);
@@ -337,7 +360,7 @@ export default function Home() {
       });
     }
     if (arrivedMarchesCount > 0) {
-      setMessage('Hostile enemy march reached city gates and disappeared.');
+      setMessage('⚠️ Hostile forces have surrounded the city perimeter and halted outside!');
     }
   }, [now, ready, portalConfig]);
   useEffect(() => {
@@ -903,9 +926,13 @@ export default function Home() {
             alignItems: 'center',
           }}
         >
-          <span style={{ fontSize: '12px', fontWeight: 'bold', color: '#fca5a5' }}>ETA ARRIVAL:</span>
-          <strong style={{ fontSize: '16px', color: '#ffffff' }}>
-            {formatDuration(Math.max(0, selectedEnemyMarch.arrivesAt - now))}
+          <span style={{ fontSize: '12px', fontWeight: 'bold', color: '#fca5a5' }}>
+            {now >= selectedEnemyMarch.arrivesAt || selectedEnemyMarch.status === 'arrived' ? 'STATUS:' : 'ETA ARRIVAL:'}
+          </span>
+          <strong style={{ fontSize: '15px', color: '#ffffff' }}>
+            {now >= selectedEnemyMarch.arrivesAt || selectedEnemyMarch.status === 'arrived'
+              ? '⚔️ HALTED OUTSIDE CITY'
+              : formatDuration(Math.max(0, selectedEnemyMarch.arrivesAt - now))}
           </strong>
         </div>
         <p style={{ fontSize: '11px', color: '#fecaca' }}>
@@ -926,8 +953,25 @@ export default function Home() {
           </div>
         </div>
         <small style={{ color: '#fca5a5', display: 'block', marginTop: '6px' }}>
-          Hostiles will disappear upon reaching the city gates. (Battle and defense systems under development).
+          Hostiles halt outside the city perimeter. Next wave will not spawn until hostiles are defeated.
         </small>
+        <div className="placement-actions" style={{ marginTop: '10px' }}>
+          <button
+            className="primary"
+            style={{
+              background: '#b91c1c',
+              borderColor: '#ef4444',
+              color: '#ffffff',
+              width: '100%',
+              padding: '8px',
+              fontWeight: 'bold',
+              cursor: 'pointer',
+            }}
+            onClick={() => handleDefeatHostileMarch(selectedEnemyMarch.id)}
+          >
+            ⚔️ Defeat / Clear Hostiles
+          </button>
+        </div>
       </section>
     )}
     {worldView && selectedUnit && selectedUnit.id !== battleSession?.army.id && <section className="selection world-action panel" aria-label="Selected unit"><button className="close" aria-label="Deselect unit" onClick={() => setSelectedUnitId(null)}>&times;</button><span className="eyebrow">{selectedUnit.kind} · {settleUnit(selectedUnit, now).status}</span><h2>{selectedUnit.name}</h2><p>Position {selectedPosition!.x.toFixed(1)}, {selectedPosition!.z.toFixed(1)} · {selectedUnit.members.reduce((n, m) => n + m.count, 0)} members</p>{(selectedUnit.order?.activity ?? selectedUnit.activity) ? <p>{(selectedUnit.order?.activity ?? selectedUnit.activity)!.action} · {(selectedUnit.order?.activity ?? selectedUnit.activity)!.targetLabel}{selectedUnit.order ? ` · ${formatDuration(selectedUnit.order.arrivesAt - now)}` : ' · Arrived'}</p> : <p>{target ? `Move to ${target.x.toFixed(1)}, ${target.z.toFixed(1)}` : 'Tap empty ground to choose a destination.'}</p>}<div className="placement-actions"><button className="primary" disabled={!target || !!target.id} onClick={() => issueCommand('move')}>Move</button><button className="secondary" disabled={!selectedUnit.order && !selectedUnit.activity} onClick={() => issueCommand('hold')}>Hold</button><button className="secondary" disabled={selectedUnit.status === 'returning'} onClick={() => issueCommand('return')}>Return to base</button></div></section>}
@@ -982,9 +1026,13 @@ export default function Home() {
         <span style={{ background: '#ef4444', color: '#ffffff', padding: '1px 5px', borderRadius: '6px', fontSize: '10px', fontWeight: 800 }}>
           ⚔️ {portalState.activeEnemyMarches.length}
         </span>
+      ) : portalConfig.paused ? (
+        <span style={{ background: 'rgba(100, 116, 139, 0.65)', color: '#e2e8f0', padding: '1px 5px', borderRadius: '4px', fontSize: '10px', fontWeight: 700 }}>
+          ⏸️
+        </span>
       ) : portalState.portals[0] ? (
         <span style={{ background: 'rgba(147, 51, 234, 0.45)', color: '#f3e8ff', padding: '1px 5px', borderRadius: '4px', fontSize: '10px', fontWeight: 700 }}>
-          {Math.max(0, Math.ceil((portalState.portals[0].nextAttackTime - now) / 1000))}s
+          {portalState.portals[0].cycleState === 'active_wave' ? '⚔️' : `${Math.max(0, Math.ceil((portalState.portals[0].nextAttackTime - now) / 1000))}s`}
         </span>
       ) : null}
     </button>
@@ -1038,6 +1086,7 @@ export default function Home() {
         now={now}
         onClose={() => setSelectedPortalId(null)}
         onTriggerWave={id => triggerPortalWave(id)}
+        onTogglePause={togglePortalPause}
       />
     )}
     {mail && <MailDialog battleReports={battleReports} onClose={() => setMail(false)} />}

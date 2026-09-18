@@ -10,14 +10,16 @@
     "exhaustedEveryMobLevel": 5,
     "exhaustedSeconds": 30,
     "starterMobCount": 6,
-    "maxMoveSpeed": 5.0,
+    "initialMoveSpeed": 0.5,
+    "maxMoveSpeed": 20,
     "portalLevelScaling": {
       "statsMultiplierPerLevel": 1.15,
       "mobsCountMultiplierPerLevel": 1.15,
       "summonNewPortalEveryLevel": 10,
       "newPortalIndependentLevel": true,
       "subPortal": {
-        "killabled": false
+        "destroyable": true,
+        "maxSubportal": 10
       }
     },
     "mobTypes": {

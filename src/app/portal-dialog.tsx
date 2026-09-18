@@ -7,9 +7,10 @@ type Props = {
   now: number;
   onClose: () => void;
   onTriggerWave?: (portalId: string) => void;
+  onTogglePause?: () => void;
 };
 
-export default function PortalDialog({ portal, config, now, onClose, onTriggerWave }: Props) {
+export default function PortalDialog({ portal, config, now, onClose, onTriggerWave, onTogglePause }: Props) {
   const remainingMs = Math.max(0, portal.nextAttackTime - now);
   const form = portal.upcomingFormation;
 
@@ -21,6 +22,8 @@ export default function PortalDialog({ portal, config, now, onClose, onTriggerWa
     return form.slots.find(s => s.row === row && s.column === col);
   };
 
+  const isPaused = !!config.paused;
+  const isWaveActive = portal.cycleState === 'active_wave';
   const isExhausted = portal.cycleState === 'exhausted';
   const isDisabled = portal.cycleState === 'disabled';
 
@@ -90,26 +93,51 @@ export default function PortalDialog({ portal, config, now, onClose, onTriggerWa
           justifyContent: 'space-between',
           padding: '8px 12px',
           borderRadius: '10px',
-          background: isDisabled
+          background: isDisabled || isPaused
             ? 'rgba(71, 85, 105, 0.3)'
+            : isWaveActive
+            ? 'rgba(220, 38, 38, 0.3)'
             : isExhausted
             ? 'rgba(217, 119, 6, 0.25)'
             : 'rgba(185, 28, 28, 0.25)',
-          border: `1px solid ${isDisabled ? '#64748b' : isExhausted ? '#f59e0b' : '#ef4444'}`,
-          marginBottom: '14px',
+          border: `1px solid ${
+            isDisabled || isPaused ? '#64748b' : isWaveActive ? '#ef4444' : isExhausted ? '#f59e0b' : '#ef4444'
+          }`,
+          marginBottom: isWaveActive ? '6px' : '14px',
         }}
       >
-        <span style={{ fontSize: '12px', fontWeight: 700, color: isDisabled ? '#94a3b8' : isExhausted ? '#fbbf24' : '#f87171' }}>
+        <span
+          style={{
+            fontSize: '12px',
+            fontWeight: 700,
+            color: isDisabled || isPaused ? '#94a3b8' : isWaveActive ? '#fca5a5' : isExhausted ? '#fbbf24' : '#f87171',
+          }}
+        >
           {isDisabled
-            ? '⏸️ SUMMONING PAUSED'
+            ? '⏸️ SUMMONING DISABLED'
+            : isPaused
+            ? '⏸️ RESPAWN PAUSED'
+            : isWaveActive
+            ? '⚔️ WAVE IN PROGRESS'
             : isExhausted
             ? '⏳ RESTING (EXHAUSTED)'
             : '⚔️ INCOMING ATTACK WAVE'}
         </span>
         <strong style={{ fontSize: '13px', color: '#ffffff' }}>
-          {isDisabled ? 'Inactive' : formatDuration(remainingMs)}
+          {isDisabled
+            ? 'Disabled'
+            : isPaused
+            ? 'Paused'
+            : isWaveActive
+            ? 'Marching'
+            : formatDuration(remainingMs)}
         </strong>
       </div>
+      {isWaveActive && (
+        <small style={{ color: '#fca5a5', display: 'block', fontSize: '11px', marginBottom: '12px' }}>
+          ⚔️ Mobs are active on the map. Next wave prepares after mobs are defeated or gone.
+        </small>
+      )}
 
       {/* Composition Summary Badges */}
       <div style={{ marginBottom: '14px' }}>
@@ -220,6 +248,34 @@ export default function PortalDialog({ portal, config, now, onClose, onTriggerWa
         </div>
       </div>
 
+      {portal.defenderFormation && (
+        <div style={{ marginBottom: '14px', background: 'rgba(24, 18, 38, 0.7)', border: '1px solid #7c3aed', borderRadius: '10px', padding: '10px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+            <span style={{ fontSize: '11px', fontWeight: 700, color: '#c4b5fd', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+              🛡️ Portal Defenders (Destroyable)
+            </span>
+            <small style={{ color: '#a78bfa', fontSize: '10px' }}>Matches Respawn Formation</small>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px', marginTop: '4px' }}>
+            <div style={{ background: 'rgba(131, 24, 67, 0.25)', border: '1px solid #db2777', borderRadius: '6px', padding: '4px', textAlign: 'center' }}>
+              <span style={{ fontSize: '9px', color: '#fbcfe8', display: 'block' }}>👑 Mascots</span>
+              <strong style={{ fontSize: '13px', color: '#ffffff' }}>{portal.defenderFormation.totalMascot}</strong>
+            </div>
+            <div style={{ background: 'rgba(30, 41, 59, 0.4)', border: '1px solid #64748b', borderRadius: '6px', padding: '4px', textAlign: 'center' }}>
+              <span style={{ fontSize: '9px', color: '#cbd5e1', display: 'block' }}>⚔️ Soldiers</span>
+              <strong style={{ fontSize: '13px', color: '#ffffff' }}>{portal.defenderFormation.totalSoldier}</strong>
+            </div>
+            <div style={{ background: 'rgba(20, 83, 45, 0.25)', border: '1px solid #16a34a', borderRadius: '6px', padding: '4px', textAlign: 'center' }}>
+              <span style={{ fontSize: '9px', color: '#bbf7d0', display: 'block' }}>🏹 Archers</span>
+              <strong style={{ fontSize: '13px', color: '#ffffff' }}>{portal.defenderFormation.totalArcher}</strong>
+            </div>
+          </div>
+          <small style={{ display: 'block', color: '#c4b5fd', fontSize: '10px', marginTop: '6px' }}>
+            Total defending garrison: <strong>{portal.defenderFormation.totalMobs}</strong> mobs guarding the portal structure.
+          </small>
+        </div>
+      )}
+
       {/* Current Level Scaled Stats */}
       <div style={{ marginBottom: '14px', background: 'rgba(30, 20, 48, 0.6)', padding: '8px 10px', borderRadius: '8px', border: '1px solid #581c87' }}>
         <span style={{ fontSize: '10px', fontWeight: 700, color: '#c084fc', textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>
@@ -246,6 +302,24 @@ export default function PortalDialog({ portal, config, now, onClose, onTriggerWa
 
       {/* Actions */}
       <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+        {onTogglePause && (
+          <button
+            onClick={onTogglePause}
+            style={{
+              flex: 1,
+              background: config.paused ? 'rgba(22, 101, 52, 0.7)' : 'rgba(51, 65, 85, 0.7)',
+              color: config.paused ? '#bbf7d0' : '#e2e8f0',
+              border: `1px solid ${config.paused ? '#22c55e' : '#94a3b8'}`,
+              borderRadius: '8px',
+              padding: '8px',
+              fontSize: '11px',
+              fontWeight: 'bold',
+              cursor: 'pointer',
+            }}
+          >
+            {config.paused ? '▶️ Resume' : '⏸️ Pause'}
+          </button>
+        )}
         {onTriggerWave && (
           <button
             className="primary"
@@ -262,7 +336,7 @@ export default function PortalDialog({ portal, config, now, onClose, onTriggerWa
               cursor: 'pointer',
             }}
           >
-            ⚡ Trigger Wave Now
+            ⚡ Trigger
           </button>
         )}
         <button

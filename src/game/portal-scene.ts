@@ -15,6 +15,7 @@ import {
   PortalInstance,
   PortalRuntimeState,
 } from './portal';
+import { formatDuration } from './routes';
 
 export type PortalSceneCallbacks = {
   onSelectPortal?: (portalId: string) => void;
@@ -37,6 +38,9 @@ type EnemyMarchVisualNode = {
   ring: Mesh;
   trailLine: LinesMesh;
   unitNodes: TransformNode[];
+  billboardMesh: Mesh;
+  texture: DynamicTexture;
+  lastDrawnText: string;
 };
 
 export class PortalSceneManager {
@@ -110,6 +114,8 @@ export class PortalSceneManager {
       if (!activeMarchIds.has(id)) {
         node.root.dispose();
         node.trailLine.dispose();
+        node.billboardMesh.dispose();
+        node.texture.dispose();
         this.marchNodes.delete(id);
       }
     });
@@ -128,10 +134,16 @@ export class PortalSceneManager {
       visual.root.position.set(currentPos.x, 0, currentPos.z);
       visual.ring.setEnabled(march.id === this.selectedId);
 
-      // Gentle movement bob
+      // Gentle movement bob (breathing idle when arrived outside city)
+      const isArrived = now >= march.arrivesAt || march.status === 'arrived';
       visual.unitNodes.forEach((unitNode, idx) => {
-        unitNode.position.y = Math.abs(Math.sin(now / 150 + idx)) * 0.15;
+        unitNode.position.y = isArrived
+          ? Math.abs(Math.sin(now / 350 + idx)) * 0.05
+          : Math.abs(Math.sin(now / 150 + idx)) * 0.15;
       });
+
+      // Update unit head ETA billboard sprite
+      this.updateMarchBillboard(visual, now);
     }
   }
 
@@ -270,8 +282,14 @@ export class PortalSceneManager {
     let statusColor = '#ffffff';
 
     if (portal.cycleState === 'disabled') {
-      statusLine = '⏸️ SUMMONING PAUSED';
+      statusLine = '⏸️ SUMMONING DISABLED';
       statusColor = '#94a3b8';
+    } else if (portal.cycleState === 'paused') {
+      statusLine = '⏸️ RESPAWN PAUSED';
+      statusColor = '#94a3b8';
+    } else if (portal.cycleState === 'active_wave') {
+      statusLine = '⚔️ WAVE IN PROGRESS';
+      statusColor = '#ef4444';
     } else if (portal.cycleState === 'exhausted') {
       statusLine = `⏳ EXHAUSTED: ${remainingSec}s`;
       statusColor = '#fbbf24';
@@ -439,13 +457,87 @@ export class PortalSceneManager {
     touchTarget.isPickable = true;
     touchTarget.metadata = { unitId: march.id, isEnemy: true };
 
+    // 3D Billboard Sprite on top of units' heads displaying live ETA
+    const texture = new DynamicTexture(`march-bb-tex-${march.id}`, { width: 340, height: 120 }, this.scene, true);
+    texture.hasAlpha = true;
+
+    const bbMat = new StandardMaterial(`march-bb-mat-${march.id}`, this.scene);
+    bbMat.diffuseTexture = texture;
+    bbMat.emissiveColor = Color3.White();
+    bbMat.specularColor = Color3.Black();
+    bbMat.useAlphaFromDiffuseTexture = true;
+    this.sharedMaterials.push(bbMat);
+
+    const billboardMesh = MeshBuilder.CreatePlane(`march-bb-plane-${march.id}`, { width: 3.4, height: 1.2 }, this.scene);
+    billboardMesh.parent = root;
+    billboardMesh.position.y = 2.4; // directly on top of the units' heads
+    billboardMesh.billboardMode = Mesh.BILLBOARDMODE_ALL;
+    billboardMesh.material = bbMat;
+    billboardMesh.isPickable = true;
+    billboardMesh.metadata = { unitId: march.id, isEnemy: true };
+
     return {
       march,
       root,
       ring,
       trailLine,
       unitNodes,
+      billboardMesh,
+      texture,
+      lastDrawnText: '',
     };
+  }
+
+  private updateMarchBillboard(node: EnemyMarchVisualNode, now: number): void {
+    const march = node.march;
+    const isArrived = now >= march.arrivesAt || march.status === 'arrived';
+    const remainingMs = Math.max(0, march.arrivesAt - now);
+    const etaDuration = formatDuration(remainingMs);
+    const stateKey = `${march.level}-${isArrived ? 'arrived' : etaDuration}`;
+    if (node.lastDrawnText === stateKey) return;
+    node.lastDrawnText = stateKey;
+
+    const ctx = node.texture.getContext() as unknown as CanvasRenderingContext2D;
+    const w = 340;
+    const h = 120;
+    ctx.clearRect(0, 0, w, h);
+
+    // Dark crimson pill background with red neon border
+    ctx.fillStyle = 'rgba(28, 12, 18, 0.92)';
+    this.roundRect(ctx, 6, 6, w - 12, h - 12, 18);
+    ctx.fill();
+
+    ctx.strokeStyle = '#ef4444';
+    ctx.lineWidth = 3;
+    ctx.stroke();
+
+    if (isArrived) {
+      // Primary text: Outside City Status
+      ctx.font = 'bold 28px Arial, Helvetica, sans-serif';
+      ctx.fillStyle = '#fee2e2';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(`⚔️ OUTSIDE CITY`, w / 2, 42);
+
+      // Subtitle: Standby forces count
+      ctx.font = 'bold 20px Arial, Helvetica, sans-serif';
+      ctx.fillStyle = '#fca5a5';
+      ctx.fillText(`STANDBY · ${march.formation.totalMobs} MOBS`, w / 2, 84);
+    } else {
+      // Primary text: Live ETA
+      ctx.font = 'bold 30px Arial, Helvetica, sans-serif';
+      ctx.fillStyle = '#fef2f2';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(`⏱️ ETA: ${etaDuration}`, w / 2, 42);
+
+      // Subtitle: Wave level & mobs
+      ctx.font = 'bold 20px Arial, Helvetica, sans-serif';
+      ctx.fillStyle = '#f87171';
+      ctx.fillText(`WAVE ${march.level} · ${march.formation.totalMobs} MOBS`, w / 2, 84);
+    }
+
+    node.texture.update();
   }
 
   private roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number): void {
@@ -468,6 +560,8 @@ export class PortalSceneManager {
     this.marchNodes.forEach(node => {
       node.root.dispose();
       node.trailLine.dispose();
+      node.billboardMesh.dispose();
+      node.texture.dispose();
     });
     this.marchNodes.clear();
 

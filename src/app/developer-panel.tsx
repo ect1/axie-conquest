@@ -216,14 +216,26 @@ export default function DeveloperPanel({
         <p>Configure automatic enemy mob portal summoning waves attacking the city.</p>
         
         {/* Enable checkbox */}
-        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontWeight: 'bold' }}>
-          <input
-            type="checkbox"
-            checked={localPortalConfig.enabled}
-            onChange={e => setLocalPortalConfig({ ...localPortalConfig, enabled: e.target.checked })}
-          />
-          <span>Enable Portal Mob Summoning</span>
-        </label>
+        <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={localPortalConfig.enabled}
+              onChange={e => setLocalPortalConfig({ ...localPortalConfig, enabled: e.target.checked })}
+            />
+            <span>Enable Portal Mob Summoning</span>
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={!!localPortalConfig.paused}
+              onChange={e => setLocalPortalConfig({ ...localPortalConfig, paused: e.target.checked })}
+            />
+            <span style={{ color: localPortalConfig.paused ? '#b91c1c' : 'inherit', fontWeight: localPortalConfig.paused ? 'bold' : 'normal' }}>
+              ⏸️ Pause Respawn
+            </span>
+          </label>
+        </div>
 
         {/* Initial Portal Coordinates */}
         <fieldset style={{ border: '1px solid #91a38c', borderRadius: '8px', padding: '10px' }}>
@@ -325,6 +337,18 @@ export default function DeveloperPanel({
               />
             </label>
             <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span>Initial move speed:</span>
+              <input
+                type="number"
+                step={0.1}
+                min={0.1}
+                max={20}
+                value={localPortalConfig.initialMoveSpeed ?? 0.5}
+                onChange={e => setLocalPortalConfig({ ...localPortalConfig, initialMoveSpeed: Math.max(0.1, Number(e.target.value) || 0.1) })}
+                style={{ width: '80px' }}
+              />
+            </label>
+            <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span>Max move speed:</span>
               <input
                 type="number"
@@ -380,6 +404,26 @@ export default function DeveloperPanel({
                 style={{ width: '80px' }}
               />
             </label>
+            <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span>Max sub-portals:</span>
+              <input
+                type="number"
+                min={1}
+                max={50}
+                value={localPortalConfig.portalLevelScaling.subPortal?.maxSubportal ?? 10}
+                onChange={e => setLocalPortalConfig({
+                  ...localPortalConfig,
+                  portalLevelScaling: {
+                    ...localPortalConfig.portalLevelScaling,
+                    subPortal: {
+                      destroyable: localPortalConfig.portalLevelScaling.subPortal?.destroyable ?? true,
+                      maxSubportal: Math.max(1, Math.round(Number(e.target.value) || 1)),
+                    }
+                  }
+                })}
+                style={{ width: '80px' }}
+              />
+            </label>
             <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', marginTop: '4px' }}>
               <input
                 type="checkbox"
@@ -390,6 +434,23 @@ export default function DeveloperPanel({
                 })}
               />
               <span style={{ fontSize: '11px' }}>New portals start at Level 1 (Independent)</span>
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', marginTop: '4px' }}>
+              <input
+                type="checkbox"
+                checked={localPortalConfig.portalLevelScaling.subPortal?.destroyable ?? false}
+                onChange={e => setLocalPortalConfig({
+                  ...localPortalConfig,
+                  portalLevelScaling: {
+                    ...localPortalConfig.portalLevelScaling,
+                    subPortal: {
+                      destroyable: e.target.checked,
+                      maxSubportal: localPortalConfig.portalLevelScaling.subPortal?.maxSubportal ?? 10,
+                    }
+                  }
+                })}
+              />
+              <span style={{ fontSize: '11px' }}>Sub-portals are destroyable</span>
             </label>
           </div>
         </fieldset>
@@ -423,6 +484,17 @@ export default function DeveloperPanel({
         <div className="placement-actions" style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
           <button className="primary" onClick={savePortalSettings}>Save portal settings</button>
           <button className="secondary" onClick={resetPortalToDefaults}>JSON defaults</button>
+          <button
+            className="secondary"
+            style={{ background: localPortalConfig.paused ? '#166534' : '#334155', color: '#fff' }}
+            onClick={() => {
+              const updated = { ...localPortalConfig, paused: !localPortalConfig.paused };
+              setLocalPortalConfig(updated);
+              onPortalConfigChange?.(updated);
+            }}
+          >
+            {localPortalConfig.paused ? '▶️ Resume Respawn' : '⏸️ Pause Respawn'}
+          </button>
           {onTriggerPortalWave && (
             <button className="primary" style={{ background: '#7e22ce' }} onClick={() => onTriggerPortalWave()}>
               ⚡ Trigger wave now

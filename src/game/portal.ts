@@ -20,10 +20,15 @@ export type PortalLevelScaling = {
   mobsCountMultiplierPerLevel: number;
   summonNewPortalEveryLevel: number;
   newPortalIndependentLevel: boolean;
+  subPortal?: {
+    destroyable: boolean;
+    maxSubportal?: number;
+  };
 };
 
 export type PortalMobSummoningConfig = {
   enabled: boolean;
+  paused?: boolean;
   initialPortalCoordinate: {
     x: number;
     y: number;
@@ -33,6 +38,7 @@ export type PortalMobSummoningConfig = {
   exhaustedEveryMobLevel: number;
   exhaustedSeconds: number;
   starterMobCount: number;
+  initialMoveSpeed?: number;
   maxMoveSpeed: number;
   portalLevelScaling: PortalLevelScaling;
   mobTypes: Record<PortalMobKind, { baseStats: PortalMobBaseStats }>;
@@ -44,7 +50,7 @@ export type PortalConfigFile = {
 
 export const DEFAULT_PORTAL_CONFIG: PortalMobSummoningConfig = (portalData as PortalConfigFile).portalMobSummoning;
 
-export type PortalCycleState = 'initial_countdown' | 'interval_countdown' | 'exhausted' | 'disabled';
+export type PortalCycleState = 'initial_countdown' | 'interval_countdown' | 'exhausted' | 'active_wave' | 'disabled' | 'paused';
 
 export type FormationSlotSquad = {
   id: string;
@@ -74,7 +80,9 @@ export type PortalInstance = {
   cycleState: PortalCycleState;
   nextAttackTime: number; // ms timestamp
   upcomingFormation: PortalWaveFormation;
+  defenderFormation?: PortalWaveFormation;
   createdAt: number;
+  activeMarchId?: string | null;
 };
 
 export type EnemyMarch = {
@@ -90,6 +98,7 @@ export type EnemyMarch = {
   arrivesAt: number;
   speed: number;
   formation: PortalWaveFormation;
+  status?: 'marching' | 'arrived' | 'defeated';
 };
 
 export type PortalRuntimeState = {
@@ -108,6 +117,7 @@ export function sanitizePortalConfig(raw: unknown): PortalMobSummoningConfig {
 
   return {
     enabled: typeof candidate.enabled === 'boolean' ? candidate.enabled : DEFAULT_PORTAL_CONFIG.enabled,
+    paused: typeof candidate.paused === 'boolean' ? candidate.paused : false,
     initialPortalCoordinate: {
       x: Number.isFinite(coord?.x) ? coord.x : DEFAULT_PORTAL_CONFIG.initialPortalCoordinate.x,
       y: Number.isFinite(coord?.y) ? coord.y : DEFAULT_PORTAL_CONFIG.initialPortalCoordinate.y,
@@ -117,12 +127,17 @@ export function sanitizePortalConfig(raw: unknown): PortalMobSummoningConfig {
     exhaustedEveryMobLevel: Math.max(1, Math.round(Number(candidate.exhaustedEveryMobLevel) || DEFAULT_PORTAL_CONFIG.exhaustedEveryMobLevel)),
     exhaustedSeconds: Math.max(1, Number(candidate.exhaustedSeconds) || DEFAULT_PORTAL_CONFIG.exhaustedSeconds),
     starterMobCount: Math.max(1, Math.round(Number(candidate.starterMobCount) || DEFAULT_PORTAL_CONFIG.starterMobCount)),
+    initialMoveSpeed: Math.max(0.1, Number(candidate.initialMoveSpeed) || (DEFAULT_PORTAL_CONFIG.initialMoveSpeed ?? 0.5)),
     maxMoveSpeed: Math.max(0.5, Number(candidate.maxMoveSpeed) || DEFAULT_PORTAL_CONFIG.maxMoveSpeed),
     portalLevelScaling: {
       statsMultiplierPerLevel: Math.max(1.0, Number(scaling?.statsMultiplierPerLevel) || DEFAULT_PORTAL_CONFIG.portalLevelScaling.statsMultiplierPerLevel),
       mobsCountMultiplierPerLevel: Math.max(1.0, Number(scaling?.mobsCountMultiplierPerLevel) || DEFAULT_PORTAL_CONFIG.portalLevelScaling.mobsCountMultiplierPerLevel),
       summonNewPortalEveryLevel: Math.max(1, Math.round(Number(scaling?.summonNewPortalEveryLevel) || DEFAULT_PORTAL_CONFIG.portalLevelScaling.summonNewPortalEveryLevel)),
       newPortalIndependentLevel: typeof scaling?.newPortalIndependentLevel === 'boolean' ? scaling.newPortalIndependentLevel : DEFAULT_PORTAL_CONFIG.portalLevelScaling.newPortalIndependentLevel,
+      subPortal: {
+        destroyable: typeof scaling?.subPortal?.destroyable === 'boolean' ? scaling.subPortal.destroyable : (DEFAULT_PORTAL_CONFIG.portalLevelScaling.subPortal?.destroyable ?? false),
+        maxSubportal: Math.max(1, Math.round(Number(scaling?.subPortal?.maxSubportal) || (DEFAULT_PORTAL_CONFIG.portalLevelScaling.subPortal?.maxSubportal ?? 10))),
+      },
     },
     mobTypes: {
       mascot: { baseStats: { ...DEFAULT_PORTAL_CONFIG.mobTypes.mascot.baseStats, ...(mobTypes?.mascot?.baseStats || {}) } },
@@ -148,7 +163,8 @@ export function calculateLevelMobCount(level: number, config: PortalMobSummoning
 
 export function calculateLevelStats(baseStats: PortalMobBaseStats, level: number, config: PortalMobSummoningConfig): PortalMobBaseStats {
   const mult = Math.pow(config.portalLevelScaling.statsMultiplierPerLevel, Math.max(0, level - 1));
-  const rawSpeed = baseStats.moveSpeed * mult;
+  const baseSpeed = config.initialMoveSpeed ?? baseStats.moveSpeed;
+  const rawSpeed = baseSpeed * mult;
   return {
     health: Math.round(baseStats.health * mult),
     attack: Math.round(baseStats.attack * mult),
@@ -326,11 +342,51 @@ export function generateNewPortalCoordinate(existingPortals: readonly PortalInst
   };
 }
 
+/**
+ * Computes a destination coordinate stopping outside the city walls/perimeter
+ * along the vector connecting the city center and the portal origin.
+ */
+export function computeOutsideCityDestination(
+  origin: Coordinate | { x: number; y?: number; z?: number },
+  cityCenter: Coordinate | { x: number; y?: number; z?: number } = { x: 0, z: 0 },
+  padding = 3.0
+): Coordinate {
+  const ox = Number.isFinite(origin?.x) ? origin.x : 0;
+  const oz = Number.isFinite((origin as any)?.z) ? (origin as any).z : Number.isFinite((origin as any)?.y) ? (origin as any).y : 0;
+  const cx = Number.isFinite(cityCenter?.x) ? cityCenter.x : 0;
+  const cz = Number.isFinite((cityCenter as any)?.z) ? (cityCenter as any).z : Number.isFinite((cityCenter as any)?.y) ? (cityCenter as any).y : 0;
+
+  const dx = ox - cx;
+  const dz = oz - cz;
+  const dist = Math.hypot(dx, dz);
+  if (dist < 1) return { x: cx + 24, z: cz };
+
+  const ux = dx / dist;
+  const uz = dz / dist;
+
+  // City wall boundary extents: halfWidth = 21.5, halfDepth = 11.5
+  const halfW = 21.5;
+  const halfD = 11.5;
+
+  const scaleX = Math.abs(ux) > 1e-4 ? halfW / Math.abs(ux) : Infinity;
+  const scaleZ = Math.abs(uz) > 1e-4 ? halfD / Math.abs(uz) : Infinity;
+  const edgeDist = Math.min(scaleX, scaleZ) + padding;
+
+  const finalDist = Math.min(dist, edgeDist);
+  return {
+    x: Number((cx + ux * finalDist).toFixed(1)),
+    z: Number((cz + uz * finalDist).toFixed(1)),
+  };
+}
+
 export function createInitialPortalState(config: PortalMobSummoningConfig, now = Date.now()): PortalRuntimeState {
   const primeCoord = {
     x: config.initialPortalCoordinate.x,
     z: config.initialPortalCoordinate.y,
   };
+
+  const isDestroyable = !!config.portalLevelScaling.subPortal?.destroyable;
+  const upcoming = generateWaveFormation(1, config);
 
   const primePortal: PortalInstance = {
     id: 'portal-prime',
@@ -339,7 +395,8 @@ export function createInitialPortalState(config: PortalMobSummoningConfig, now =
     coordinate: primeCoord,
     cycleState: config.enabled ? 'initial_countdown' : 'disabled',
     nextAttackTime: now + config.initialAttackInSeconds * 1000,
-    upcomingFormation: generateWaveFormation(1, config),
+    upcomingFormation: upcoming,
+    defenderFormation: isDestroyable ? JSON.parse(JSON.stringify(upcoming)) : undefined,
     createdAt: now,
   };
 
@@ -356,26 +413,35 @@ export function restorePortalState(raw: string | null, config: PortalMobSummonin
     if (!parsed || !Array.isArray(parsed.portals) || parsed.portals.length === 0) {
       return createInitialPortalState(config, now);
     }
-    const portals: PortalInstance[] = parsed.portals.map((p: any, idx: number) => ({
-      id: typeof p.id === 'string' ? p.id : `portal-${idx + 1}`,
-      name: typeof p.name === 'string' ? p.name : `Rift Portal ${idx + 1}`,
-      level: Math.max(1, Math.round(Number(p.level) || 1)),
-      coordinate: {
-        x: Number.isFinite(p.coordinate?.x) ? p.coordinate.x : config.initialPortalCoordinate.x,
-        z: Number.isFinite(p.coordinate?.z) ? p.coordinate.z : config.initialPortalCoordinate.y,
-      },
-      cycleState: ['initial_countdown', 'interval_countdown', 'exhausted', 'disabled'].includes(p.cycleState)
-        ? p.cycleState
-        : 'initial_countdown',
-      nextAttackTime: Number.isFinite(p.nextAttackTime) ? p.nextAttackTime : now + config.initialAttackInSeconds * 1000,
-      upcomingFormation: p.upcomingFormation && Array.isArray(p.upcomingFormation.slots)
+    const isDestroyable = !!config.portalLevelScaling.subPortal?.destroyable;
+    const portals: PortalInstance[] = parsed.portals.map((p: any, idx: number) => {
+      const upcoming = p.upcomingFormation && Array.isArray(p.upcomingFormation.slots)
         ? p.upcomingFormation
-        : generateWaveFormation(Math.max(1, Math.round(Number(p.level) || 1)), config),
-      createdAt: Number.isFinite(p.createdAt) ? p.createdAt : now,
-    }));
+        : generateWaveFormation(Math.max(1, Math.round(Number(p.level) || 1)), config);
+      const defender = p.defenderFormation && Array.isArray(p.defenderFormation.slots)
+        ? p.defenderFormation
+        : (isDestroyable ? JSON.parse(JSON.stringify(upcoming)) : undefined);
+      return {
+        id: typeof p.id === 'string' ? p.id : `portal-${idx + 1}`,
+        name: typeof p.name === 'string' ? p.name : `Rift Portal ${idx + 1}`,
+        level: Math.max(1, Math.round(Number(p.level) || 1)),
+        coordinate: {
+          x: Number.isFinite(p.coordinate?.x) ? p.coordinate.x : config.initialPortalCoordinate.x,
+          z: Number.isFinite(p.coordinate?.z) ? p.coordinate.z : config.initialPortalCoordinate.y,
+        },
+        cycleState: ['initial_countdown', 'interval_countdown', 'exhausted', 'active_wave', 'disabled', 'paused'].includes(p.cycleState)
+          ? p.cycleState
+          : 'initial_countdown',
+        nextAttackTime: Number.isFinite(p.nextAttackTime) ? p.nextAttackTime : now + config.initialAttackInSeconds * 1000,
+        upcomingFormation: upcoming,
+        defenderFormation: defender,
+        createdAt: Number.isFinite(p.createdAt) ? p.createdAt : now,
+        activeMarchId: typeof p.activeMarchId === 'string' ? p.activeMarchId : null,
+      };
+    });
 
     const activeEnemyMarches: EnemyMarch[] = Array.isArray(parsed.activeEnemyMarches)
-      ? parsed.activeEnemyMarches.filter((m: any) => m && m.id && m.arrivesAt > now)
+      ? parsed.activeEnemyMarches.filter((m: any) => m && m.id && typeof m.startedAt === 'number')
       : [];
 
     return { portals, activeEnemyMarches };
@@ -397,7 +463,8 @@ export function enemyMarchPosition(march: EnemyMarch, now: number): Coordinate {
 }
 
 /**
- * Updates portal cycles, spawns waves, triggers new portals, and removes arrived marches (disappear at city).
+ * Updates portal cycles, spawns waves, triggers new portals, and retains arrived marches outside the city.
+ * Ensures sequential "one at a time" wave spawning per portal: no new mobs will respawn while current mobs are active.
  */
 export function stepPortalSystem(
   now: number,
@@ -415,11 +482,25 @@ export function stepPortalSystem(
     return { state: { ...state, portals }, newMarchesSpawned: [], arrivedMarchesCount: 0 };
   }
 
+  // 1. Process active marches: do NOT remove arrived marches (they stop outside the city!)
+  const remainingMarches: EnemyMarch[] = [];
+  let arrivedCount = 0;
+
+  for (const march of state.activeEnemyMarches) {
+    const isArrived = now >= march.arrivesAt;
+    if (isArrived && march.status !== 'arrived') {
+      arrivedCount++;
+    }
+    remainingMarches.push({
+      ...march,
+      status: isArrived ? 'arrived' : 'marching',
+    });
+  }
+
   const newMarches: EnemyMarch[] = [];
   const updatedPortals: PortalInstance[] = [];
-  let nextPortalIndex = state.portals.length + 1;
-
   const newPortalsToAppend: PortalInstance[] = [];
+  let nextPortalIndex = state.portals.length + 1;
 
   for (const portal of state.portals) {
     let currentPortal = { ...portal };
@@ -430,13 +511,74 @@ export function stepPortalSystem(
       currentPortal.nextAttackTime = now + config.initialAttackInSeconds * 1000;
     }
 
-    // Check if countdown expired
-    if (now >= currentPortal.nextAttackTime) {
-      // 1. Spawn enemy march from this portal
-      const route = createRoute(cityDestination, currentPortal.coordinate);
-      // Average move speed across formation slots
-      const speeds = currentPortal.upcomingFormation.slots.map(s => s.stats.moveSpeed);
-      const marchSpeed = speeds.length ? Math.min(...speeds) : 3.0;
+    // Check if this portal currently has an active squad marching or arrived outside city
+    const hasActiveMarch = remainingMarches.some(m => m.portalId === currentPortal.id);
+    const waveJustFinished =
+      currentPortal.cycleState === 'active_wave' && !hasActiveMarch;
+
+    if (waveJustFinished) {
+      // Current wave has ended (defeated / cleared).
+      // Now progress level and initiate interval or exhausted countdown.
+      const justFinishedLevel = currentPortal.level;
+      const nextLevel = justFinishedLevel + 1;
+
+      // Check exhaustion
+      const isExhausted = justFinishedLevel % config.exhaustedEveryMobLevel === 0;
+      const cycleState: PortalCycleState = isExhausted ? 'exhausted' : 'interval_countdown';
+      const delaySec = isExhausted ? config.exhaustedSeconds : config.attackIntervalSeconds;
+
+      const isDestroyable = !!config.portalLevelScaling.subPortal?.destroyable;
+      const nextUpcoming = generateWaveFormation(nextLevel, config, random);
+
+      currentPortal = {
+        ...currentPortal,
+        level: nextLevel,
+        cycleState,
+        nextAttackTime: now + delaySec * 1000,
+        upcomingFormation: nextUpcoming,
+        defenderFormation: isDestroyable ? JSON.parse(JSON.stringify(nextUpcoming)) : undefined,
+        activeMarchId: null,
+      };
+
+      // Check if this portal reached level 10 (or multiples of summonNewPortalEveryLevel)
+      const maxSub = config.portalLevelScaling.subPortal?.maxSubportal ?? 10;
+      const currentSubCount = [...state.portals, ...newPortalsToAppend].filter(p => p.id !== 'portal-prime').length;
+      const shouldSummonNewPortal =
+        config.portalLevelScaling.summonNewPortalEveryLevel > 0 &&
+        justFinishedLevel % config.portalLevelScaling.summonNewPortalEveryLevel === 0 &&
+        currentSubCount < maxSub;
+
+      if (shouldSummonNewPortal) {
+        const newCoord = generateNewPortalCoordinate([...state.portals, ...updatedPortals, ...newPortalsToAppend], random);
+        const startLevel = config.portalLevelScaling.newPortalIndependentLevel ? 1 : nextLevel;
+        const subUpcoming = generateWaveFormation(startLevel, config, random);
+        const newPortal: PortalInstance = {
+          id: `portal-${nextPortalIndex}`,
+          name: `Rift Portal ${nextPortalIndex}`,
+          level: startLevel,
+          coordinate: newCoord,
+          cycleState: 'initial_countdown',
+          nextAttackTime: now + config.initialAttackInSeconds * 1000,
+          upcomingFormation: subUpcoming,
+          defenderFormation: isDestroyable ? JSON.parse(JSON.stringify(subUpcoming)) : undefined,
+          createdAt: now,
+          activeMarchId: null,
+        };
+        nextPortalIndex++;
+        newPortalsToAppend.push(newPortal);
+      }
+    } else if (hasActiveMarch) {
+      // Mobs are still marching or alive outside city: wait till mobs are defeated or gone.
+      // Do NOT spawn any new wave!
+      currentPortal.cycleState = 'active_wave';
+    } else if (!config.paused && now >= currentPortal.nextAttackTime) {
+      // Countdown completed and no active mobs: spawn wave for currentPortal.level
+      const stopDestination = computeOutsideCityDestination(currentPortal.coordinate, cityDestination);
+      const route = createRoute(stopDestination, currentPortal.coordinate);
+
+      const baseSpeed = config.initialMoveSpeed ?? 0.5;
+      const speedMult = Math.pow(config.portalLevelScaling.statsMultiplierPerLevel, Math.max(0, currentPortal.level - 1));
+      const marchSpeed = Math.min(config.maxMoveSpeed, Math.max(0.1, Number((baseSpeed * speedMult).toFixed(2))));
       const travelTime = marchTravelTimeMs(route, marchSpeed);
 
       const march: EnemyMarch = {
@@ -447,52 +589,18 @@ export function stepPortalSystem(
         name: `${currentPortal.name} · Wave ${currentPortal.level}`,
         ownerId: 'portal',
         origin: { ...currentPortal.coordinate },
-        destination: { ...cityDestination },
+        destination: stopDestination,
         startedAt: now,
         arrivesAt: now + travelTime,
         speed: marchSpeed,
         formation: currentPortal.upcomingFormation,
+        status: 'marching',
       };
       newMarches.push(march);
+      remainingMarches.push(march);
 
-      // 2. Determine next cycle state:
-      const justFinishedLevel = currentPortal.level;
-      const nextLevel = justFinishedLevel + 1;
-
-      // Check exhaustion
-      const isExhausted = justFinishedLevel % config.exhaustedEveryMobLevel === 0;
-      const cycleState: PortalCycleState = isExhausted ? 'exhausted' : 'interval_countdown';
-      const delaySec = isExhausted ? config.exhaustedSeconds : config.attackIntervalSeconds;
-
-      currentPortal = {
-        ...currentPortal,
-        level: nextLevel,
-        cycleState,
-        nextAttackTime: now + delaySec * 1000,
-        upcomingFormation: generateWaveFormation(nextLevel, config, random),
-      };
-
-      // 3. Check if this portal reached level 10 (or multiples of summonNewPortalEveryLevel)
-      const shouldSummonNewPortal =
-        config.portalLevelScaling.summonNewPortalEveryLevel > 0 &&
-        justFinishedLevel % config.portalLevelScaling.summonNewPortalEveryLevel === 0;
-
-      if (shouldSummonNewPortal) {
-        const newCoord = generateNewPortalCoordinate([...state.portals, ...updatedPortals, ...newPortalsToAppend], random);
-        const startLevel = config.portalLevelScaling.newPortalIndependentLevel ? 1 : nextLevel;
-        const newPortal: PortalInstance = {
-          id: `portal-${nextPortalIndex}`,
-          name: `Rift Portal ${nextPortalIndex}`,
-          level: startLevel,
-          coordinate: newCoord,
-          cycleState: 'initial_countdown',
-          nextAttackTime: now + config.initialAttackInSeconds * 1000,
-          upcomingFormation: generateWaveFormation(startLevel, config, random),
-          createdAt: now,
-        };
-        nextPortalIndex++;
-        newPortalsToAppend.push(newPortal);
-      }
+      currentPortal.cycleState = 'active_wave';
+      currentPortal.activeMarchId = march.id;
     }
 
     updatedPortals.push(currentPortal);
@@ -502,19 +610,6 @@ export function stepPortalSystem(
     updatedPortals.push(...newPortalsToAppend);
   }
 
-  // Filter existing active marches:
-  // When they reach the city (arrivesAt <= now), make them DISAPPEAR!
-  const remainingMarches: EnemyMarch[] = [];
-  let arrivedCount = 0;
-
-  for (const march of [...state.activeEnemyMarches, ...newMarches]) {
-    if (now < march.arrivesAt) {
-      remainingMarches.push(march);
-    } else {
-      arrivedCount++;
-    }
-  }
-
   return {
     state: {
       portals: updatedPortals,
@@ -522,6 +617,36 @@ export function stepPortalSystem(
     },
     newMarchesSpawned: newMarches,
     arrivedMarchesCount: arrivedCount,
+  };
+}
+
+/**
+ * Manually or tactically defeats an enemy march on the map.
+ * Removes the march and triggers the originating portal to progress its wave and start cooldown.
+ */
+export function defeatEnemyMarch(
+  marchId: string,
+  state: PortalRuntimeState,
+  config: PortalMobSummoningConfig,
+  now = Date.now(),
+  cityDestination: Coordinate = { x: 0, z: 0 },
+  random = Math.random
+): { state: PortalRuntimeState; defeatedMarch?: EnemyMarch } {
+  const march = state.activeEnemyMarches.find(m => m.id === marchId);
+  if (!march) return { state };
+
+  const remainingMarches = state.activeEnemyMarches.filter(m => m.id !== marchId);
+  const stepResult = stepPortalSystem(
+    now,
+    { ...state, activeEnemyMarches: remainingMarches },
+    config,
+    cityDestination,
+    random
+  );
+
+  return {
+    state: stepResult.state,
+    defeatedMarch: march,
   };
 }
 
