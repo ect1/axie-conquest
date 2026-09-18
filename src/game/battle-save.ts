@@ -74,7 +74,7 @@ export function readBattleReports(raw: string | null): BattleReport[] {
 type StorageAccess = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
 export function enemyStrength(target: WorldObject): number { return target.kind === 'boss' ? 30 : target.kind === 'garrison' ? 18 : 12; }
 export function createBattleSession(army: WorldUnit, target: WorldObject, roster: readonly ApiAxie[] = []): BattleSession {
-  const battle = createBattle(army, enemyStrength(target), roster);
+  const battle = createBattle(army, target, roster);
   const startedAt = Date.now();
   const id = `${army.id}:${target.id}:${startedAt}`;
   return { id, army: structuredClone(army), armies: [structuredClone(army)], target: { ...target }, battle, startedAt, replay: beginReplay(battle) };
@@ -101,7 +101,10 @@ export function validateBattleSession(entry: unknown, troops: Troops): BattleSes
   }
   if (!restoreWorld(JSON.stringify([target]))?.length || target.state !== 'defended' || !['boss', 'garrison', 'village'].includes(target.kind)) return null;
   const roster = restoreAxieRoster(JSON.stringify({ version: 1, syncedAt: 0, axies: battle.fighters?.flatMap(f => f.appearance && f.appearance.id === f.heroId ? [f.appearance] : []) }))?.axies ?? [];
-  let initial = createBattle(armies[0], enemyStrength(target), roster);
+  let initial = createBattle(armies[0], target, roster);
+  if (target.kind === 'boss' && (!battle.fighters?.some(f => f.isBoss) && battle.fighters?.length === 3)) {
+    initial = createBattle(armies[0], enemyStrength(target), roster);
+  }
   for (let i = 1; i < armies.length; i++) {
     initial = reinforceBattle(initial, armies[i], roster);
   }

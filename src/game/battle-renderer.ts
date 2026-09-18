@@ -48,7 +48,7 @@ export function createBattleRenderer(scene: Scene) {
       loading--;
     }
   };
-  const loadMascotAvatar = async (fighter: Fighter, kind: 'soldier' | 'infantry' | 'archer', model: { body: TransformNode; fallback: Mesh; nose: Mesh; avatar?: FighterAvatarInstance }) => {
+  const loadMascotAvatar = async (fighter: Fighter, kind: string, model: { body: TransformNode; fallback: Mesh; nose: Mesh; avatar?: FighterAvatarInstance }) => {
     loading++;
     const fighterId = fighter.id;
     try {
@@ -92,7 +92,7 @@ export function createBattleRenderer(scene: Scene) {
           const hero = STARTER_HEROES.find(h => h.id === fighter.heroId);
           const body = new TransformNode(fighter.name, scene); body.parent = root; body.metadata = { fighterId: fighter.id };
           const fallback = MeshBuilder.CreateSphere(`${fighter.name} placeholder`, { diameter: fighter.stats.radius * 2, segments: 12 }, scene);
-          fallback.material = mat(fighter.id, hero ? AXIE_CLASSES[hero.class].color : fighter.side === 'enemy' ? '#bc685c' : fighter.troopKind === 'archer' ? '#a6ce7d' : '#85b8dd'); fallback.parent = body;
+          fallback.material = mat(fighter.id, hero ? AXIE_CLASSES[hero.class].color : fighter.isBoss ? '#f59e0b' : fighter.side === 'enemy' ? '#bc685c' : fighter.troopKind === 'archer' ? '#a6ce7d' : '#85b8dd'); fallback.parent = body;
           const nose = MeshBuilder.CreateBox('facing marker', { width: 0.15, height: 0.16, depth: 0.35 }, scene); nose.parent = body; nose.position.set(0, 0.1, 0.4); nose.isPickable = false; nose.material = fallback.material;
           if (hero) for (const side of [-1, 1]) { const ear = MeshBuilder.CreateCylinder('Axie ear', { height: 0.4, diameterBottom: 0.22, diameterTop: 0, tessellation: 6 }, scene); ear.parent = fallback; ear.position.set(side * 0.25, 0.55, 0); ear.material = fallback.material; ear.isPickable = false; }
           const bar = MeshBuilder.CreateBox('health', { width: 1.3, height: 0.1, depth: 0.12 }, scene); bar.parent = root; bar.material = healthMat; bar.isPickable = false;
@@ -100,6 +100,8 @@ export function createBattleRenderer(scene: Scene) {
           model = { body, fallback, bar, back, nose }; models.set(fighter.id, model);
           if (fighter.heroId) {
             void loadAvatar(fighter, model);
+          } else if (fighter.mascotId) {
+            void loadMascotAvatar(fighter, fighter.mascotId, model);
           } else if (fighter.troopKind === 'soldier' || fighter.troopKind === 'infantry' || fighter.troopKind === 'archer') {
             void loadMascotAvatar(fighter, fighter.troopKind, model);
           }

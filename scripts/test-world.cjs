@@ -1,10 +1,18 @@
 const fs = require('node:fs');
 const ts = require('typescript');
 const assert = require('node:assert/strict');
+const cache = new Map();
 function load(name) {
+  name = name.replace('./', '');
+  if (name.endsWith('.json')) {
+    const raw = JSON.parse(fs.readFileSync(`src/game/${name}`, 'utf8'));
+    return Object.assign(raw, { default: raw });
+  }
+  if (cache.has(name)) return cache.get(name).exports;
   const module = { exports: {} };
+  cache.set(name, module);
   const source = ts.transpileModule(fs.readFileSync(`src/game/${name}.ts`, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText;
-  new Function('exports', 'require', 'module', source)(module.exports, id => load(id.replace('./', '')), module);
+  new Function('exports', 'require', 'module', source)(module.exports, id => load(id), module);
   return module.exports;
 }
 const { generateWorld, DEFAULT_GENERATION, WORLD_WIDTH, WORLD_DEPTH, WORLD_OBJECT_RADIUS, WORLD_KINDS, getWorldObjectActions, restoreWorld } = load('world');

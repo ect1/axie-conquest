@@ -8,13 +8,13 @@ import {
   type Scene,
 } from '@babylonjs/core';
 
-export type MascotId = 'tripp' | 'xia' | 'bing';
-export type MascotTroopKind = 'soldier' | 'infantry' | 'archer';
+export type MascotId = 'tripp' | 'xia' | 'bing' | 'kotaro' | 'kibo' | 'paladill' | 'pomodoro';
+export type MascotTroopKind = 'soldier' | 'infantry' | 'archer' | 'kotaro' | 'paladill' | 'kibo' | 'pomodoro';
 
 export type BabylonMascotInstance = {
   readonly root: TransformNode;
   readonly mascotId: MascotId;
-  readonly kind: MascotTroopKind;
+  readonly kind: string;
   update(state: string, seconds: number): void;
   dispose(): void;
 };
@@ -23,6 +23,8 @@ export type MascotConfig = {
   readonly id: MascotId;
   readonly name: string;
   readonly url: string;
+  readonly equipmentUrl?: string;
+  readonly equipmentBone?: string;
   readonly scale: number;
   readonly yOffset: number;
   readonly rotationY: number;
@@ -34,7 +36,7 @@ export type MascotConfig = {
   };
 };
 
-export const MASCOT_CONFIGS: Record<MascotTroopKind, MascotConfig> = {
+export const MASCOT_CONFIGS: Record<string, MascotConfig> = {
   soldier: {
     id: 'tripp',
     name: 'Tripp',
@@ -76,6 +78,38 @@ export const MASCOT_CONFIGS: Record<MascotTroopKind, MascotConfig> = {
       dead: ['Dead'],
     },
   },
+  kotaro: {
+    id: 'kotaro',
+    name: 'Kotaro',
+    url: '/assets/mascot/mascots/kotaro.glb',
+    equipmentUrl: '/assets/mascot/equipment/kotaro-sword.glb',
+    equipmentBone: 'Weapon_R_JNT',
+    scale: 0.65,
+    yOffset: 0,
+    rotationY: 0,
+    clips: {
+      idle: ['Sword.Idle', 'Idle'],
+      run: ['Sword.Run', 'Run', 'Sword.Walk', 'Walk'],
+      attack: ['Sword.Attack', 'Sword.Skill', 'Attack'],
+      dead: ['Dead'],
+    },
+  },
+  paladill: {
+    id: 'paladill',
+    name: 'Paladill',
+    url: '/assets/mascot/mascots/paladill.glb',
+    equipmentUrl: '/assets/mascot/equipment/paladill-axe.glb',
+    equipmentBone: 'Weapon_R_JNT',
+    scale: 0.7,
+    yOffset: 0,
+    rotationY: 0,
+    clips: {
+      idle: ['Idle'],
+      run: ['Run', 'Walk'],
+      attack: ['Axe.Attack', 'Axe.Skill', 'Attack'],
+      dead: ['Dead'],
+    },
+  },
 };
 
 function findClip(groups: readonly AnimationGroup[], candidates: readonly string[]): AnimationGroup | undefined {
@@ -93,7 +127,7 @@ function findClip(groups: readonly AnimationGroup[], candidates: readonly string
 
 /**
  * Caches mascot GLB asset containers and creates independent animated instances
- * for Tripp (Soldiers) and Xia (Infantry).
+ * for Tripp (Soldiers), Xia (Infantry), and Boss heroes (Kotaro, Paladill).
  */
 export class BabylonMascotMixer {
   private readonly containers = new Map<string, Promise<AssetContainer>>();
@@ -102,9 +136,9 @@ export class BabylonMascotMixer {
 
   constructor(private readonly scene: Scene) {}
 
-  async create(kind: MascotTroopKind): Promise<BabylonMascotInstance> {
+  async create(kind: MascotTroopKind | string): Promise<BabylonMascotInstance> {
     const config = MASCOT_CONFIGS[kind];
-    if (!config) throw new Error(`Unknown mascot troop kind: ${kind}`);
+    if (!config) throw new Error(`Unknown mascot: ${kind}`);
 
     const container = await this.source(config.url);
     if (this.disposed) throw new Error('Scene disposed.');
@@ -133,6 +167,39 @@ export class BabylonMascotMixer {
       mesh.isPickable = false;
       mesh.receiveShadows = true;
     });
+
+    // Attach weapon / equipment if configured
+    if (config.equipmentUrl) {
+      try {
+        const equipmentContainer = await this.source(config.equipmentUrl);
+        if (!this.disposed) {
+          const equipmentEntries = equipmentContainer.instantiateModelsToScene(
+            (name) => `${name}_eq_${instanceId}`,
+            false,
+            { doNotInstantiate: true }
+          );
+          const skeleton = entries.skeletons[0];
+          const boneName = config.equipmentBone ?? 'Weapon_R_JNT';
+          const bone = skeleton?.bones.find(b => b.name === boneName || b.name === 'Weapon_R_JNT' || b.name === 'Hand_R_JNT');
+          const charMesh = entries.rootNodes[0]?.getChildMeshes()[0];
+          const weaponRoot = equipmentEntries.rootNodes[0];
+          if (bone && charMesh && weaponRoot instanceof TransformNode) {
+            weaponRoot.attachToBone(bone, charMesh);
+          } else if (weaponRoot instanceof TransformNode) {
+            weaponRoot.parent = root;
+          }
+          equipmentEntries.rootNodes.forEach(node => {
+            node.getChildMeshes().forEach(mesh => {
+              mesh.isPickable = false;
+              mesh.receiveShadows = true;
+            });
+          });
+          entries.rootNodes.push(...equipmentEntries.rootNodes);
+        }
+      } catch (err) {
+        console.warn(`[mascot-mixer] Failed to load equipment for ${config.id}:`, err);
+      }
+    }
 
     const idleClip = findClip(entries.animationGroups, config.clips.idle);
     const runClip = findClip(entries.animationGroups, config.clips.run);

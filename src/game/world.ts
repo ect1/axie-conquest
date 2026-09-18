@@ -1,4 +1,5 @@
 import { GRID_WIDTH, GRID_DEPTH } from './base';
+import { getBossConfig, selectBossForSpawn } from './bosses';
 
 export const WORLD_WIDTH = 200;
 export const WORLD_DEPTH = 200;
@@ -19,7 +20,7 @@ export type WorldAction = 'scout' | 'attack' | 'gather' | 'occupy';
 export type WorldObjectState = 'available' | 'defended' | 'defeated';
 export type WorldActionOption = { action: WorldAction; enabled: boolean; reason?: string };
 export type GenerationSettings = { counts: Record<WorldKind, number>; spacing: number };
-export type WorldObject = { id: string; kind: WorldKind; x: number; z: number; state: WorldObjectState; loot: { apple: number } };
+export type WorldObject = { id: string; kind: WorldKind; x: number; z: number; state: WorldObjectState; loot: { apple: number }; bossId?: string; bossName?: string };
 export type SpawnableMobGroup = 'chimera-pack';
 export const SPAWNABLE_MOB_GROUPS: Record<SpawnableMobGroup, { label: string; kind: 'boss' }> = {
   'chimera-pack': { label: 'Chimera pack', kind: 'boss' },
@@ -34,7 +35,7 @@ export function defaultWorldObjectState(kind: WorldKind): WorldObjectState {
 }
 
 /** Creates a developer-placed defended encounter at an explicitly chosen map coordinate. */
-export function createMobGroup(group: SpawnableMobGroup, x: number, z: number, existing: WorldObject[]): WorldObject | null {
+export function createMobGroup(group: SpawnableMobGroup, x: number, z: number, existing: WorldObject[], chosenBossId?: string): WorldObject | null {
   const definition = SPAWNABLE_MOB_GROUPS[group];
   if (!definition || !Number.isFinite(x) || !Number.isFinite(z)
     || Math.abs(x) > WORLD_WIDTH / 2 - WORLD_OBJECT_RADIUS || Math.abs(z) > WORLD_DEPTH / 2 - WORLD_OBJECT_RADIUS
@@ -43,7 +44,8 @@ export function createMobGroup(group: SpawnableMobGroup, x: number, z: number, e
   let serial = existing.length;
   let id = `developer-mob-${serial}`;
   while (existing.some(object => object.id === id)) id = `developer-mob-${++serial}`;
-  return { id, kind: definition.kind, x, z, state: 'defended', loot: { apple: 0 } };
+  const boss = chosenBossId ? (getBossConfig(chosenBossId) ?? selectBossForSpawn()) : selectBossForSpawn();
+  return { id, kind: definition.kind, x, z, state: 'defended', loot: { apple: 0 }, bossId: boss.id, bossName: boss.name };
 }
 
 export function getWorldObjectActions(object: WorldObject): WorldActionOption[] {
@@ -100,7 +102,22 @@ export function generateWorld(settings: GenerationSettings, random = Math.random
       // Reserve the city island, walls and corner towers, even in overview mode.
       if (Math.abs(x) < GRID_WIDTH / 2 + 3 + WORLD_OBJECT_RADIUS + spacing && Math.abs(z) < GRID_DEPTH / 2 + 3 + WORLD_OBJECT_RADIUS + spacing) continue;
       if (objects.some(other => Math.hypot(x - other.x, z - other.z) < WORLD_OBJECT_RADIUS * 2 + spacing)) continue;
-      objects.push({ id: `world-${objects.length}`, kind, x, z, state: defaultWorldObjectState(kind), loot: { apple: kind === 'village' || kind === 'garrison' ? 1 : 0 } });
+      let bossId: string | undefined;
+      let bossName: string | undefined;
+      if (kind === 'boss') {
+        const boss = selectBossForSpawn(random);
+        bossId = boss.id;
+        bossName = boss.name;
+      }
+      objects.push({
+        id: `world-${objects.length}`,
+        kind,
+        x,
+        z,
+        state: defaultWorldObjectState(kind),
+        loot: { apple: kind === 'village' || kind === 'garrison' ? 1 : 0 },
+        ...(bossId ? { bossId, bossName } : {}),
+      });
       break;
     }
   }

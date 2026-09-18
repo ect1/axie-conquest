@@ -8,7 +8,9 @@ import { activeBattleSettings } from './battle-settings';
 import { teamFacing, teamStartingCenter } from './battle-layout';
 import { isInDirectionalRange, level0CanAttack, level1CanDetect } from './battle-range';
 import { baseCombatStats } from './sandbox-battle';
-import { createHexGridSlots } from './hex-grid';
+import { HexGridSlot, createHexGridSlots } from './hex-grid';
+import { BossConfig, BossCustomStats, defaultBoss, getBossConfig } from './bosses';
+import type { WorldObject } from './world';
 
 import defaults from './battle-settings.json';
 
@@ -36,6 +38,8 @@ export type Fighter = {
   roamStepsSinceScan?: number;
   roamTarget?: { x: number; z: number };
   movementBounds?: { minX: number; maxX: number; minZ: number; maxZ: number };
+  mascotId?: string;
+  isBoss?: boolean;
 };
 export type BattleEvent = { from: string; to: string; amount: number; kind: 'hit' | 'skill' | 'heal'; projectileSpeed?: number };
 export type Battle = {
@@ -50,9 +54,98 @@ export function formationCenter(battle: Battle, side: Fighter['side']) {
   const members = battle.fighters.filter(f => f.side === side && f.hp > 0);
   return members.length ? { x: members.reduce((sum, f) => sum + f.x, 0) / members.length, z: members.reduce((sum, f) => sum + f.z, 0) / members.length } : { x: 0, z: side === 'player' ? -8 : 8 };
 }
-export function createBattle(army: WorldUnit, enemyCount = 18, roster: readonly ApiAxie[] = []): Battle {
+
+export function buildBossFighters(boss: BossConfig, enemySlots: readonly HexGridSlot[]): Fighter[] {
+  const fighters: Fighter[] = [];
+  const createBossUnitCombatStats = (custom: BossCustomStats | undefined, fallbackKind: 'soldier' | 'infantry' | 'archer' | 'chimera'): CombatStats => {
+    const fallback = TROOP_COMBAT_STATS[fallbackKind === 'chimera' ? 'infantry' : fallbackKind];
+    const health = custom?.health ?? fallback.health;
+    const attack = custom?.attack ?? fallback.attack;
+    const defense = custom?.defense ?? fallback.defense;
+    const speed = custom?.speed ?? fallback.speed;
+    const attackSpeed = custom?.attackSpeed ?? (fallback.interval > 0 ? 1 / fallback.interval : 1);
+    const interval = attackSpeed > 0 ? 1 / attackSpeed : 1;
+    const range = (custom?.range ?? fallback.range) * (activeBattleSettings.attackRangeMultiplier ?? 1);
+    const radius = (custom?.radius ?? fallback.radius) * (activeBattleSettings.bodyRadiusMultiplier ?? 1);
+    const projectileSpeed = custom?.projectileSpeed ?? fallback.projectileSpeed;
+    return { health, attack, defense, speed, interval, range, radius, ...(projectileSpeed ? { projectileSpeed } : {}) };
+  };
+
+  const leaderCfg = boss.leader;
+  const leaderPos = leaderCfg.position;
+  const leaderSlot = enemySlots.find(s => s.row === leaderPos.row && s.column === leaderPos.column)
+    || enemySlots.find(s => s.band === 'enemy')!;
+  const leaderStats = createBossUnitCombatStats(leaderCfg.stats, 'soldier');
+  const leaderCount = leaderCfg.initialCount ?? 1;
+
+  fighters.push({
+    id: `enemy:boss:${boss.id}`,
+    memberId: `boss:${leaderCfg.id}`,
+    side: 'enemy',
+    name: leaderCfg.name,
+    troopKind: 'soldier',
+    mascotId: leaderCfg.mascotId,
+    isBoss: true,
+    initialCount: leaderCount,
+    hp: leaderStats.health * leaderCount,
+    maxHp: leaderStats.health * leaderCount,
+    stats: leaderStats,
+    x: -leaderSlot.x,
+    z: -leaderSlot.z,
+    facing: teamFacing('enemy'),
+    cooldown: 0,
+    targetId: null,
+    state: 'holding',
+  });
+
+  boss.military.forEach((squad, index) => {
+    const slot = enemySlots.find(s => s.row === squad.position.row && s.column === squad.position.column)
+      || enemySlots[index % enemySlots.length];
+    const stats = createBossUnitCombatStats(squad.stats, squad.troopKind);
+    const count = squad.count;
+    fighters.push({
+      id: `enemy:squad:${squad.id}`,
+      memberId: `squad:${squad.id}`,
+      side: 'enemy',
+      name: squad.name ?? (squad.troopKind === 'archer' ? 'Chimera archers' : 'Chimera guards'),
+      troopKind: squad.troopKind,
+      mascotId: squad.mascotId,
+      initialCount: count,
+      hp: stats.health * count,
+      maxHp: stats.health * count,
+      stats,
+      x: -slot.x,
+      z: -slot.z,
+      facing: teamFacing('enemy'),
+      cooldown: 0,
+      targetId: null,
+      state: 'holding',
+    });
+  });
+
+  return fighters;
+}
+
+export function createBattle(army: WorldUnit, enemyCountOrTarget: number | WorldObject | BossConfig = 18, roster: readonly ApiAxie[] = []): Battle {
   const leader = STARTER_HEROES.find(hero => hero.id === army.leaderId);
   const modifiers = leaderTalent(leader)?.modifiers ?? NO_MODIFIERS;
+
+  let boss: BossConfig | undefined;
+  let enemyCount = 18;
+  if (typeof enemyCountOrTarget === 'number') {
+    enemyCount = enemyCountOrTarget;
+  } else if (enemyCountOrTarget && typeof enemyCountOrTarget === 'object') {
+    if ('leader' in enemyCountOrTarget && 'military' in enemyCountOrTarget) {
+      boss = enemyCountOrTarget as BossConfig;
+    } else if ('kind' in enemyCountOrTarget) {
+      const target = enemyCountOrTarget as WorldObject;
+      if (target.kind === 'boss') {
+        boss = getBossConfig(target.bossId) ?? defaultBoss();
+      } else {
+        enemyCount = target.kind === 'garrison' ? 18 : 12;
+      }
+    }
+  }
 
   const boardRows = activeBattleSettings.boardRows ?? 3;
   const boardColumns = activeBattleSettings.boardColumns ?? 5;
@@ -106,37 +199,42 @@ export function createBattle(army: WorldUnit, enemyCount = 18, roster: readonly 
     };
   });
 
-  // Deploy enemy units symmetrically onto the enemy hex rows:
-  // Melee front line (closest to neutral row), archers in middle/back.
-  const enemyFrontRow = boardRows - 1;
-  const enemyBackRow = 0;
-  const enemyPositions = [
-    { row: enemyFrontRow, col: 1, kind: 'infantry' as const },
-    { row: enemyFrontRow, col: 3, kind: 'infantry' as const },
-    { row: enemyBackRow, col: 2, kind: 'archer' as const },
-  ];
+  if (boss) {
+    const bossFighters = buildBossFighters(boss, slots.filter(s => s.band === 'enemy'));
+    members.push(...bossFighters);
+  } else {
+    // Deploy enemy units symmetrically onto the enemy hex rows:
+    // Melee front line (closest to neutral row), archers in middle/back.
+    const enemyFrontRow = boardRows - 1;
+    const enemyBackRow = 0;
+    const enemyPositions = [
+      { row: enemyFrontRow, col: 1, kind: 'infantry' as const },
+      { row: enemyFrontRow, col: 3, kind: 'infantry' as const },
+      { row: enemyBackRow, col: 2, kind: 'archer' as const },
+    ];
 
-  for (let index = 0; index < 3; index++) {
-    const enemyPos = enemyPositions[index] || { row: enemyFrontRow, col: index % boardColumns, kind: index % 2 === 0 ? 'infantry' : 'archer' };
-    const kind = enemyPos.kind;
-    const isRanged = kind === 'archer';
-    const attackRange = isRanged ? activeBattleSettings.rangedAttackRange : activeBattleSettings.meleeAttackRange;
-    const baseline = TROOP_COMBAT_STATS[kind], chimera = baseCombatStats(activeBattleSettings, 'chimera');
-    const base = { ...baseline, health: chimera.health, attack: chimera.attack, defense: chimera.defense, speed: chimera.speed, interval: 1 / chimera.attackSpeed, range: attackRange, radius: activeBattleSettings.bodyRadius, ...(isRanged ? { projectileSpeed: activeBattleSettings.baseArcherProjectileSpeed } : {}) };
-    const stats = { ...base, range: base.range * activeBattleSettings.attackRangeMultiplier, radius: base.radius * activeBattleSettings.bodyRadiusMultiplier, ...(isRanged ? { projectileSpeed: activeBattleSettings.baseArcherProjectileSpeed } : {}) };
+    for (let index = 0; index < 3; index++) {
+      const enemyPos = enemyPositions[index] || { row: enemyFrontRow, col: index % boardColumns, kind: index % 2 === 0 ? 'infantry' : 'archer' };
+      const kind = enemyPos.kind;
+      const isRanged = kind === 'archer';
+      const attackRange = isRanged ? activeBattleSettings.rangedAttackRange : activeBattleSettings.meleeAttackRange;
+      const baseline = TROOP_COMBAT_STATS[kind], chimera = baseCombatStats(activeBattleSettings, 'chimera');
+      const base = { ...baseline, health: chimera.health, attack: chimera.attack, defense: chimera.defense, speed: chimera.speed, interval: 1 / chimera.attackSpeed, range: attackRange, radius: activeBattleSettings.bodyRadius, ...(isRanged ? { projectileSpeed: activeBattleSettings.baseArcherProjectileSpeed } : {}) };
+      const stats = { ...base, range: base.range * activeBattleSettings.attackRangeMultiplier, radius: base.radius * activeBattleSettings.bodyRadiusMultiplier, ...(isRanged ? { projectileSpeed: activeBattleSettings.baseArcherProjectileSpeed } : {}) };
 
-    const slot = slots.find(s => s.band === 'enemy' && s.row === enemyPos.row && s.column === enemyPos.col)
-      || slots.find(s => s.band === 'enemy')!;
-    const posX = -slot.x;
-    const posZ = -slot.z;
+      const slot = slots.find(s => s.band === 'enemy' && s.row === enemyPos.row && s.column === enemyPos.col)
+        || slots.find(s => s.band === 'enemy')!;
+      const posX = -slot.x;
+      const posZ = -slot.z;
 
-    members.push({
-      id: `enemy:${index}`, memberId: `${index}`, side: 'enemy',
-      name: kind === 'archer' ? 'Chimera archers' : 'Chimera guards',
-      troopKind: kind, initialCount: enemyCount,
-      hp: stats.health * enemyCount, maxHp: stats.health * enemyCount,
-      stats, x: posX, z: posZ, facing: teamFacing('enemy'), cooldown: 0, targetId: null, state: 'holding'
-    });
+      members.push({
+        id: `enemy:${index}`, memberId: `${index}`, side: 'enemy',
+        name: kind === 'archer' ? 'Chimera archers' : 'Chimera guards',
+        troopKind: kind, initialCount: enemyCount,
+        hp: stats.health * enemyCount, maxHp: stats.health * enemyCount,
+        stats, x: posX, z: posZ, facing: teamFacing('enemy'), cooldown: 0, targetId: null, state: 'holding'
+      });
+    }
   }
 
   return { version: 1, layoutVersion: 2, tick: 0, fighters: members, leaderId: members.find(f => f.heroId === army.leaderId)?.id ?? null, skillCooldown: 0, retreating: false, result: null, events: [] };

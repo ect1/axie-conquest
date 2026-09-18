@@ -152,7 +152,8 @@ async function main() {
   global.fetch = async () => ({ ok: false, status: 503 });
   const failed = createBattleRenderer(scene);
   failed.update(battle, null, DEFAULT_BATTLE_OVERLAYS, false);
-  await new Promise(resolve => setTimeout(resolve, 0));
+  const failDeadline = Date.now() + 10000;
+  while (!failed.isReady() && Date.now() < failDeadline) await new Promise(resolve => setTimeout(resolve, 10));
   assert.equal(failed.isReady(), true, 'failure does not block playback');
   assert.equal(failed.errors.length, 1, 'failed model is reported to replay UI');
   failed.dispose();

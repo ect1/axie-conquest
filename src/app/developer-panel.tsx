@@ -7,12 +7,15 @@ import { BATTLE_SETTINGS_SAVE_KEY, BattleSettings, DEFAULT_BATTLE_SETTINGS, rest
 import type { BattleSession } from '@/game/battle-save';
 import type { ApiAxie } from '@/game/axie-roster';
 
+import { getAllBosses } from '@/game/bosses';
+
 type Props = {
   settings: GenerationSettings; onSettings: (settings: GenerationSettings) => void;
   objects: WorldObject[]; status: string; ready: boolean; unitStats?: UnitGlobalStats; onUnitStats?: (stats: UnitGlobalStats) => void;
   onClose: () => void; onRegenerate: () => void; onRemove: () => void;
   mobSpawnEnabled: boolean; onMobSpawnEnabled: (enabled: boolean) => void;
   mobGroup: SpawnableMobGroup; onMobGroup: (group: SpawnableMobGroup) => void;
+  selectedBossId?: string; onSelectedBossId?: (id: string) => void;
   activeAxies: readonly ApiAxie[];
   debugBattle?: boolean;
   onDebugBattleChange?: (enabled: boolean) => void;
@@ -20,7 +23,7 @@ type Props = {
   onAbortBattle?: () => void;
 };
 
-export default function DeveloperPanel({ settings, onSettings, objects, status, ready, unitStats = DEFAULT_UNIT_GLOBAL_STATS, onUnitStats = stats => setActiveUnitGlobalStats(stats), onClose, onRegenerate, onRemove, mobSpawnEnabled, onMobSpawnEnabled, mobGroup, onMobGroup, activeAxies, debugBattle = false, onDebugBattleChange, activeBattleSession, onAbortBattle }: Props) {
+export default function DeveloperPanel({ settings, onSettings, objects, status, ready, unitStats = DEFAULT_UNIT_GLOBAL_STATS, onUnitStats = stats => setActiveUnitGlobalStats(stats), onClose, onRegenerate, onRemove, mobSpawnEnabled, onMobSpawnEnabled, mobGroup, onMobGroup, selectedBossId, onSelectedBossId, activeAxies, debugBattle = false, onDebugBattleChange, activeBattleSession, onAbortBattle }: Props) {
   const [tab, setTab] = useState<'world' | 'units' | 'battle'>('world');
   const [sandboxOpen, setSandboxOpen] = useState(false);
   const [localStats, setLocalStats] = useState(unitStats);
@@ -107,7 +110,35 @@ export default function DeveloperPanel({ settings, onSettings, objects, status, 
         <p style={{ margin: '4px 0', fontSize: '0.82rem', opacity: 0.8 }}>No active battle currently running.</p>
       )}
     </fieldset>}
-    {tab === 'battle' && <fieldset className="battle-debug mob-spawn-controls"><legend>World encounter spawning</legend><label><input type="checkbox" checked={mobSpawnEnabled} onChange={event => onMobSpawnEnabled(event.target.checked)} />Enable mob spawning on World View</label><label>Mob group<select disabled={!mobSpawnEnabled} value={mobGroup} onChange={event => onMobGroup(event.target.value as SpawnableMobGroup)}>{Object.entries(SPAWNABLE_MOB_GROUPS).map(([id, group]) => <option key={id} value={id}>{group.label}</option>)}</select></label><small>With this enabled, tap empty ground in World View and choose Spawn mob group.</small></fieldset>}
+    {tab === 'battle' && (
+      <fieldset className="battle-debug mob-spawn-controls">
+        <legend>World encounter spawning</legend>
+        <label>
+          <input
+            type="checkbox"
+            checked={mobSpawnEnabled}
+            onChange={event => onMobSpawnEnabled(event.target.checked)}
+          />
+          Enable mob spawning on World View
+        </label>
+        <label>
+          Mob group / Boss
+          <select
+            disabled={!mobSpawnEnabled}
+            value={selectedBossId || 'kotaro'}
+            onChange={event => onSelectedBossId?.(event.target.value)}
+          >
+            {getAllBosses().map(boss => (
+              <option key={boss.id} value={boss.id}>
+                {boss.name} ({boss.title || 'Boss'})
+              </option>
+            ))}
+            <option value="random">Random Boss</option>
+          </select>
+        </label>
+        <small>With this enabled, tap empty ground in World View and select/summon any configured boss mob directly from the map HUD.</small>
+      </fieldset>
+    )}
     {sandboxOpen && <BattleSandbox layout={{ hexGap: battleSettings.boardHexGap, teamGap: battleSettings.boardTeamGap, columns: battleSettings.boardColumns, rowsPerTeam: battleSettings.boardRows }} range={battleSettings} activeAxies={activeAxies} onSaveLayout={saveBoardLayout} onSaveRange={saveRange} onClose={() => setSandboxOpen(false)} />}
     <ResetGameControl />
   </section>;

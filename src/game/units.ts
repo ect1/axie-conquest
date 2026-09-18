@@ -50,7 +50,7 @@ export function commandWorldAction(unit: WorldUnit, action: WorldAction, object:
   // World markers meet at the target; tactical ranges stay inside the battle simulation.
   const destination = { x: object.x, z: object.z };
   const route = createRoute(destination, position);
-  const activity: UnitActivity = { action, targetId: object.id, targetLabel: object.kind === 'garrison' ? 'Garrison' : object.kind === 'boss' ? 'Boss mob' : object.kind[0].toUpperCase() + object.kind.slice(1) };
+  const activity: UnitActivity = { action, targetId: object.id, targetLabel: object.bossName ?? (object.kind === 'garrison' ? 'Garrison' : object.kind === 'boss' ? 'Boss mob' : object.kind[0].toUpperCase() + object.kind.slice(1)) };
   const { activity: _activity, ...idleUnit } = unit;
   return settleUnit({ ...idleUnit, position, status: 'moving', order: { kind: 'move', origin: position, destination, startedAt: now, arrivesAt: now + (route.distance === 0 ? 0 : marchTravelTimeMs(route, unit.speed)), activity } }, now);
 }

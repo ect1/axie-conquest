@@ -6,13 +6,13 @@ import { BabylonAxieInstance, BabylonAxieMixer } from './axie/babylon-mixer';
 import type { Battle, Fighter } from './battle';
 import { BattleRangeSettings } from './battle-range';
 import { BATTLE_OVERLAYS, BattleOverlays } from './battle-debug';
-import { BabylonMascotMixer, type BabylonMascotInstance } from './mascot/mascot-mixer';
+import { BabylonMascotMixer, type BabylonMascotInstance, MASCOT_CONFIGS } from './mascot/mascot-mixer';
 import { AXIE_CLASSES, STARTER_HEROES } from './heroes';
 import type { SandboxBattleEvent, SandboxBattleUnit } from './sandbox-battle';
 
 export type BattleBoardLayout = { hexGap: number; teamGap: number; columns: number; rowsPerTeam: number };
 export type SandboxTroopKind = 'soldier' | 'infantry' | 'archer';
-export type BattleBoardAssignment = { slotId: string; side: 'player' | 'enemy'; name: string; axie?: ApiAxie; mob?: 'chimera-pack'; troopKind?: SandboxTroopKind; quantity?: number };
+export type BattleBoardAssignment = { slotId: string; side: 'player' | 'enemy'; name: string; axie?: ApiAxie; mob?: 'chimera-pack'; troopKind?: SandboxTroopKind; quantity?: number; mascotId?: string; isBoss?: boolean };
 
 type UnitRecord = {
   root: TransformNode;
@@ -48,9 +48,9 @@ export function createBattleBoardScene(
   const ground = MeshBuilder.CreateGround('battlefield terrain', { width: 50, height: 54, subdivisions: 2 }, scene);
   const turf = new StandardMaterial('battlefield turf', scene); turf.diffuseColor = Color3.FromHexString('#527a48'); turf.specularColor = Color3.Black(); ground.material = turf; ground.isPickable = false;
 
-  const playerFill = new StandardMaterial('player hex fill', scene); playerFill.diffuseColor = Color3.FromHexString('#397f72'); playerFill.emissiveColor = Color3.FromHexString('#075d55'); playerFill.alpha = 0.45;
-  const enemyFill = new StandardMaterial('enemy hex fill', scene); enemyFill.diffuseColor = Color3.FromHexString('#985949'); enemyFill.emissiveColor = Color3.FromHexString('#703227'); enemyFill.alpha = 0.45;
-  const neutralFill = new StandardMaterial('neutral hex fill', scene); neutralFill.diffuseColor = Color3.FromHexString('#727b79'); neutralFill.emissiveColor = Color3.FromHexString('#35413f'); neutralFill.alpha = 0.52;
+  const playerFill = new StandardMaterial('player hex fill', scene); playerFill.diffuseColor = Color3.FromHexString('#254d3d'); playerFill.alpha = 0.95;
+  const enemyFill = new StandardMaterial('enemy hex fill', scene); enemyFill.diffuseColor = Color3.FromHexString('#4a2824'); enemyFill.alpha = 0.95;
+  const neutralFill = new StandardMaterial('neutral hex fill', scene); neutralFill.diffuseColor = Color3.FromHexString('#2a3733'); neutralFill.alpha = 0.95;
 
   const modelAbort = new AbortController();
   const axieMixer = new BabylonAxieMixer(scene);
@@ -112,6 +112,8 @@ export function createBattleBoardScene(
     appearance?: ApiAxie;
     troopKind?: string;
     mob?: string;
+    mascotId?: string;
+    isBoss?: boolean;
   }): UnitRecord {
     const existing = unitNodes.get(spec.id);
     if (existing) return existing;
@@ -128,7 +130,7 @@ export function createBattleBoardScene(
     healthBars.set(spec.id, { background: healthBackground, fill: healthFill });
 
     const hero = STARTER_HEROES.find(h => h.id === spec.heroId);
-    const color = hero ? AXIE_CLASSES[hero.class]?.color ?? '#83cbe0' : spec.side === 'player' ? '#83cbe0' : '#bb685b';
+    const color = hero ? AXIE_CLASSES[hero.class]?.color ?? '#83cbe0' : spec.isBoss ? '#f59e0b' : spec.side === 'player' ? '#83cbe0' : '#bb685b';
     const material = new StandardMaterial(`unit mat ${spec.id}`, scene);
     material.diffuseColor = Color3.FromHexString(color);
     material.emissiveColor = Color3.FromHexString(color).scale(0.18);
@@ -142,6 +144,8 @@ export function createBattleBoardScene(
     unitNodes.set(spec.id, record);
 
     const axieAppearance = spec.appearance ?? spec.axie;
+    const mascotKey = spec.mascotId ?? (spec.troopKind && MASCOT_CONFIGS[spec.troopKind] ? spec.troopKind : undefined);
+
     if (axieAppearance || spec.heroId) {
       for (const side of [-1, 1]) {
         const ear = MeshBuilder.CreateCylinder('Axie ear', { height: 0.52, diameterBottom: 0.28, diameterTop: 0, tessellation: 6 }, scene);
@@ -168,37 +172,41 @@ export function createBattleBoardScene(
       }).catch(err => {
         errors.push(`Axie #${spec.heroId ?? axieAppearance?.id}: ${err instanceof Error ? err.message : 'Model failed to load'}`);
       });
-    } else if (spec.troopKind === 'archer') {
-      const cap = MeshBuilder.CreateCylinder('archer cap', { height: 0.18, diameter: 0.78, tessellation: 12 }, scene); cap.parent = unit; cap.position.y = 1.22; cap.material = material; cap.isPickable = false;
-      const bow = MeshBuilder.CreateTorus('archer bow', { diameter: 0.92, thickness: 0.07, tessellation: 16 }, scene); bow.parent = unit; bow.position.set(0.48, 0.72, 0); bow.rotation.x = Math.PI / 2; bow.material = material; bow.isPickable = false;
-      fallback.push(cap, bow);
+    } else if (mascotKey) {
+      if (mascotKey === 'archer' || spec.troopKind === 'archer') {
+        const cap = MeshBuilder.CreateCylinder('archer cap', { height: 0.18, diameter: 0.78, tessellation: 12 }, scene); cap.parent = unit; cap.position.y = 1.22; cap.material = material; cap.isPickable = false;
+        const bow = MeshBuilder.CreateTorus('archer bow', { diameter: 0.92, thickness: 0.07, tessellation: 16 }, scene); bow.parent = unit; bow.position.set(0.48, 0.72, 0); bow.rotation.x = Math.PI / 2; bow.material = material; bow.isPickable = false;
+        fallback.push(cap, bow);
 
-      void mascotMixer.create('archer').then(avatar => {
-        if (unit.isDisposed()) { avatar.dispose(); return; }
-        avatar.root.parent = unit;
-        avatar.root.position.y = -0.18;
-        avatar.update('holding', 0);
-        record.avatar = avatar;
-        fallback.forEach(mesh => mesh.setEnabled(false));
-      }).catch(err => {
-        errors.push(`archer: ${err instanceof Error ? err.message : 'Model failed to load'}`);
-      });
-    } else if (spec.troopKind === 'soldier' || spec.troopKind === 'infantry') {
-      const isSoldier = spec.troopKind === 'soldier';
-      const cap = MeshBuilder.CreateCylinder('soldier cap', { height: 0.18, diameter: 0.78, tessellation: 12 }, scene); cap.parent = unit; cap.position.y = 1.22; cap.material = material; cap.isPickable = false;
-      const shield = MeshBuilder.CreateCylinder('soldier shield', { height: 0.12, diameter: 0.58, tessellation: 12 }, scene); shield.parent = unit; shield.position.set(0, 0.7, 0.62); shield.rotation.x = Math.PI / 2; shield.material = material; shield.isPickable = false;
-      fallback.push(cap, shield);
+        void mascotMixer.create('archer').then(avatar => {
+          if (unit.isDisposed()) { avatar.dispose(); return; }
+          avatar.root.parent = unit;
+          avatar.root.position.y = -0.18;
+          avatar.update('holding', 0);
+          record.avatar = avatar;
+          fallback.forEach(mesh => mesh.setEnabled(false));
+        }).catch(err => {
+          errors.push(`archer: ${err instanceof Error ? err.message : 'Model failed to load'}`);
+        });
+      } else {
+        const cap = MeshBuilder.CreateCylinder(`${mascotKey} cap`, { height: 0.18, diameter: 0.78, tessellation: 12 }, scene); cap.parent = unit; cap.position.y = 1.22; cap.material = material; cap.isPickable = false;
+        const shield = MeshBuilder.CreateCylinder(`${mascotKey} shield`, { height: 0.12, diameter: 0.58, tessellation: 12 }, scene); shield.parent = unit; shield.position.set(0, 0.7, 0.62); shield.rotation.x = Math.PI / 2; shield.material = material; shield.isPickable = false;
+        fallback.push(cap, shield);
 
-      void mascotMixer.create(isSoldier ? 'soldier' : 'infantry').then(avatar => {
-        if (unit.isDisposed()) { avatar.dispose(); return; }
-        avatar.root.parent = unit;
-        avatar.root.position.y = -0.18;
-        avatar.update('holding', 0);
-        record.avatar = avatar;
-        fallback.forEach(mesh => mesh.setEnabled(false));
-      }).catch(err => {
-        errors.push(`${spec.troopKind}: ${err instanceof Error ? err.message : 'Model failed to load'}`);
-      });
+        void mascotMixer.create(mascotKey).then(avatar => {
+          if (unit.isDisposed()) { avatar.dispose(); return; }
+          avatar.root.parent = unit;
+          avatar.root.position.y = spec.isBoss || mascotKey === 'kotaro' || mascotKey === 'paladill' ? 0 : -0.18;
+          if (spec.isBoss || mascotKey === 'kotaro' || mascotKey === 'paladill') {
+            avatar.root.scaling.setAll(0.9);
+          }
+          avatar.update('holding', 0);
+          record.avatar = avatar;
+          fallback.forEach(mesh => mesh.setEnabled(false));
+        }).catch(err => {
+          errors.push(`${mascotKey}: ${err instanceof Error ? err.message : 'Model failed to load'}`);
+        });
+      }
     } else {
       for (const side of [-1, 1]) {
         const horn = MeshBuilder.CreateCylinder('Chimera horn', { height: 0.65, diameterBottom: 0.22, diameterTop: 0, tessellation: 6 }, scene);
@@ -258,6 +266,8 @@ export function createBattleBoardScene(
         axie: assignment.axie,
         mob: assignment.mob,
         troopKind: assignment.troopKind,
+        mascotId: assignment.mascotId,
+        isBoss: assignment.isBoss,
       });
 
       if (showRange && range) {
@@ -293,6 +303,8 @@ export function createBattleBoardScene(
         heroId: fighter.heroId,
         appearance: fighter.appearance,
         troopKind: fighter.troopKind,
+        mascotId: fighter.mascotId,
+        isBoss: fighter.isBoss,
       });
 
       record.root.position.x = bx;

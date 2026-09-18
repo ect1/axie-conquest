@@ -12,6 +12,8 @@ import { BUILDING_DEFINITIONS, BuildableKind, BuildingKind, Building, Cell, FOOT
 import { createMilitaryService, getTrainingMessage } from './military-service';
 import { CAPITAL_CITY_ID } from './cities';
 import { Coordinate, WorldTarget } from './routes';
+import { getBossConfig } from './bosses';
+import { BabylonMascotMixer, type BabylonMascotInstance, MASCOT_CONFIGS } from './mascot/mascot-mixer';
 
 type Events = { fighterSelect?: (id: string) => void; watchBattle?: (sessionId?: string) => void; troops: (troops: Troops) => void; change: (b: Building[]) => void; preview: (c: Cell | null) => void; select: (b: Building | null) => void; unitSelect: (id: string) => void; target: (target: WorldTarget | null) => void; message: (s: string) => void; viewMode: (mode: 'base' | 'world') => void };
 export type BaseView = { focusBattle: (targetSession?: BattleSession) => void; setBattle: (session: BattleSession | null, selectedId?: string | null) => void; setBattles: (sessions: readonly BattleSession[]) => void; refreshMilitary: () => void; setUnits: (orders: WorldUnit[], selectedId: string | null) => void; setSelectedTarget: (id: string | null) => void; focusCoordinate: (coordinate: Coordinate) => void; regenerateWorld: (settings: GenerationSettings) => WorldObject[]; loadWorld: (objects: WorldObject[]) => void; removeWorld: () => void; train: (kind: TroopKind) => boolean; rotate: (id: string) => boolean; move: (id: string) => boolean; remove: (id: string) => boolean; begin: (kind: BuildableKind) => void; cancel: () => void; confirm: () => boolean; setGridVisible: (visible: boolean) => void; setWorldView: (enabled: boolean) => void; setRoute: (route: { origin: Coordinate; destination: Coordinate } | null) => void; zoom: (factor: number) => void; home: () => void; dispose: () => void };
@@ -28,6 +30,8 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
   const worldFight = createWorldFight(scene);
   let worldPinned = false;
   let marchOrders: WorldUnit[] | null = null, marchSelection: string | null = null;
+  const mascotMixer = new BabylonMascotMixer(scene);
+  const worldMascotAvatars = new Map<string, BabylonMascotInstance>();
   function setUnits(orders: WorldUnit[], selectedId: string | null) {
     marchSelection = selectedId;
     if (marchOrders === orders) return;
@@ -336,6 +340,8 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
     catch { events.message('World saved for this session only; browser storage unavailable.'); }
   }
   function removeWorld() {
+    worldMascotAvatars.forEach(avatar => avatar.dispose());
+    worldMascotAvatars.clear();
     generatedRoots.forEach(root => root.dispose());
     generatedRoots.length = 0;
     targetRings.clear(); worldObjectsById.clear(); worldCombatDebugs.clear();
@@ -362,15 +368,54 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
       }
     } else if (object.kind === 'stone' || object.kind === 'boss') {
       const boss = object.kind === 'boss';
-      const body = MeshBuilder.CreateSphere(boss ? 'chimera boss' : 'stone deposit', { diameter: 3, segments: 6 }, scene);
-      body.parent = root; body.position.y = 1.3; body.material = boss ? accents.barracks : rockMat;
-      if (boss) {
-        for (const x of [-0.7, 0.7]) {
-          box('boss eyes', 0.35, 0.35, 0.2, x, 1.6, -1.3, gold, root);
-          const horn = MeshBuilder.CreateCylinder('boss horn', { diameterBottom: 0.6, diameterTop: 0, height: 1.2, tessellation: 5 }, scene);
-          horn.parent = root; horn.position.set(x, 2.9, 0); horn.material = stone;
+      if (boss && object.bossId) {
+        const bossConfig = getBossConfig(object.bossId);
+        const mascotId = bossConfig?.leader.mascotId ?? (MASCOT_CONFIGS[object.bossId] ? object.bossId : 'kotaro');
+        const fallback = MeshBuilder.CreateSphere('chimera boss fallback', { diameter: 2.6, segments: 6 }, scene);
+        fallback.parent = root; fallback.position.y = 1.3; fallback.material = accents.barracks;
+        const horns: TransformNode[] = [];
+        for (const x of [-0.6, 0.6]) {
+          horns.push(box('boss eyes', 0.3, 0.3, 0.2, x, 1.5, -1.1, gold, root));
+          const horn = MeshBuilder.CreateCylinder('boss horn', { diameterBottom: 0.5, diameterTop: 0, height: 1.0, tessellation: 5 }, scene);
+          horn.parent = root; horn.position.set(x, 2.7, 0); horn.material = stone;
+          horns.push(horn);
         }
-      } else box('stone outcrop', 1.3, 0.85, 1.2, 1, 0.5, -1, rockMat, root);
+
+        mascotMixer.create(mascotId).then(avatar => {
+          if (root.isDisposed()) { avatar.dispose(); return; }
+          avatar.root.parent = root;
+          avatar.root.position.y = 0.08;
+          avatar.root.rotation.y = Math.PI / 4;
+          avatar.root.scaling.setAll(1.4);
+          avatar.update('holding', 0);
+          worldMascotAvatars.set(object.id, avatar);
+
+          fallback.dispose();
+          horns.forEach(h => h.dispose());
+
+          const targetLabel = object.bossName ?? WORLD_DEFINITIONS[object.kind].name;
+          const mapObjectDesc = `${targetLabel}: ${object.state}${object.state === 'defended' ? ' - Attack to battle the defenders' : ' - Gathering and loot collection unavailable'}`;
+          avatar.root.getChildMeshes().forEach(mesh => {
+            mesh.isPickable = true;
+            mesh.metadata = {
+              mapObject: mapObjectDesc,
+              worldTarget: { x: object.x, z: object.z, id: object.id, label: targetLabel }
+            };
+          });
+        }).catch(err => {
+          console.warn('[scene] Failed to load boss mascot model:', err);
+        });
+      } else {
+        const body = MeshBuilder.CreateSphere(boss ? 'chimera boss' : 'stone deposit', { diameter: 3, segments: 6 }, scene);
+        body.parent = root; body.position.y = 1.3; body.material = boss ? accents.barracks : rockMat;
+        if (boss) {
+          for (const x of [-0.7, 0.7]) {
+            box('boss eyes', 0.35, 0.35, 0.2, x, 1.6, -1.3, gold, root);
+            const horn = MeshBuilder.CreateCylinder('boss horn', { diameterBottom: 0.6, diameterTop: 0, height: 1.2, tessellation: 5 }, scene);
+            horn.parent = root; horn.position.set(x, 2.9, 0); horn.material = stone;
+          }
+        } else box('stone outcrop', 1.3, 0.85, 1.2, 1, 0.5, -1, rockMat, root);
+      }
     } else if (object.kind === 'oil') {
       const barrel = MeshBuilder.CreateCylinder('world oil barrel', { diameter: 2.5, height: 2.6, tessellation: 12 }, scene);
       barrel.parent = root; barrel.position.y = 1.35; barrel.material = oilPaint;
@@ -382,8 +427,9 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
       box('site door', 0.7, 1, 0.1, 0, 0.55, -1.35, dark, root);
       box('loot crate', 0.6, 0.6, 0.6, 1.5, 0.4, -1.5, gold, root);
     }
-    const description = `${WORLD_DEFINITIONS[object.kind].name}: ${object.state}${object.state === 'defended' ? ' - Attack to battle the defenders' : ' - Gathering and loot collection unavailable'}`;
-    root.getChildMeshes().forEach(mesh => { mesh.isPickable = true; mesh.metadata = { mapObject: description, worldTarget: { x: object.x, z: object.z, id: object.id, label: WORLD_DEFINITIONS[object.kind].name } }; });
+    const label = object.bossName ?? WORLD_DEFINITIONS[object.kind].name;
+    const description = `${label}: ${object.state}${object.state === 'defended' ? ' - Attack to battle the defenders' : ' - Gathering and loot collection unavailable'}`;
+    root.getChildMeshes().forEach(mesh => { mesh.isPickable = true; mesh.metadata = { mapObject: description, worldTarget: { x: object.x, z: object.z, id: object.id, label } }; });
   }
   let buildings: Building[];
   try {
@@ -626,6 +672,9 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
       canvas.removeEventListener('pointerdown', down); canvas.removeEventListener('pointermove', move);
       canvas.removeEventListener('pointerup', up); canvas.removeEventListener('pointercancel', up);
       canvas.removeEventListener('wheel', wheel); window.removeEventListener('resize', resize);
+      worldMascotAvatars.forEach(avatar => avatar.dispose());
+      worldMascotAvatars.clear();
+      mascotMixer.dispose();
       worldFight.dispose(); clearMarches(); scene.dispose(); engine.dispose();
     },
   };

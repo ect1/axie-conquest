@@ -56,5 +56,5 @@ export function createOffensiveMarchOrder(target: WorldTarget, formationIndex: n
 export function marchProgress(order: OffensiveMarchOrder, now: number): number {
   return Math.max(0, Math.min(1, (now - (order.startedAt ?? now)) / Math.max(1, (order.arrivesAt ?? now) - (order.startedAt ?? now))));
 }
-export function targetFromObject(object: WorldObject): WorldTarget { return { x: object.x, z: object.z, id: object.id, label: WORLD_LABELS[object.kind] }; }
+export function targetFromObject(object: WorldObject): WorldTarget { return { x: object.x, z: object.z, id: object.id, label: object.bossName ? `${object.bossName} (${WORLD_LABELS[object.kind]})` : WORLD_LABELS[object.kind] }; }
 const WORLD_LABELS: Record<WorldObject['kind'], string> = { farm: 'Farmstead', lumber: 'Lumber camp', stone: 'Stone quarry', oil: 'Oil field', boss: 'Chimera lair', village: 'Village', garrison: 'Garrison' };
