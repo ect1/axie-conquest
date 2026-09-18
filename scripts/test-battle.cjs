@@ -247,6 +247,54 @@ for (const point of [{ x: 24, z: 0 }, { x: 40, z: -16 }, { x: 40, z: 0 }, { x: 4
     assert.ok(Math.hypot(actual.x - expected.x, actual.z - expected.z) < 1e-9, 'combat begins at the actual formation position');
   }
 }
+// Test simultaneous battles against two different enemies
+const targetB = { id: 'test-boss', kind: 'boss', state: 'defended', x: 60, z: 20, loot: { apple: 1 } };
+const marchB = { ...attacking, id: 'army-2', name: 'Alpha Strike', position: { x: 60, z: 20 }, formationIndex: 1, activity: { action: 'attack', targetId: targetB.id, targetLabel: 'Boss' } };
+const sessionB = save.createBattleSession(marchB, targetB);
+const multiStorage = storageFor();
+const multiSave = { active: session, sessions: [session, sessionB], report: null };
+multiStorage.setItem(save.BATTLE_SAVE_KEY, JSON.stringify(multiSave));
+
+const restoredMulti = save.restoreBattleSave(multiStorage.getItem(save.BATTLE_SAVE_KEY), troops);
+assert.equal(restoredMulti.sessions.length, 2, 'both simultaneous battles restore in active state');
+assert.equal(restoredMulti.sessions[0].army.id, attacking.id);
+assert.equal(restoredMulti.sessions[1].army.id, marchB.id);
+
+// When battle A finishes, commit its outcome while battle B is still fighting
+const multiOutcome = save.commitBattleOutcome(multiStorage, completed, [attacking, marchB], troops, [formation, formation], [target, targetB], 10000);
+assert.equal(multiOutcome.sessions.length, 1, 'finishing battle A leaves battle B active');
+assert.equal(multiOutcome.sessions[0].army.id, marchB.id);
+assert.equal(save.restoreBattleSave(multiStorage.getItem(save.BATTLE_SAVE_KEY), multiOutcome.troops).sessions.length, 1);
+assert.equal(save.restoreBattleSave(multiStorage.getItem(save.BATTLE_SAVE_KEY), multiOutcome.troops).active.army.id, marchB.id, 'battle B remains active in storage');
+
+// Finish battle B as well
+const completedB = { ...sessionB, battle: run(sessionB.battle) };
+const multiOutcomeB = save.commitBattleOutcome(multiStorage, completedB, multiOutcome.units, multiOutcome.troops, multiOutcome.formations, multiOutcome.objects, 10050);
+assert.equal(multiOutcomeB.sessions.length, 0, 'finishing battle B cleans up all active battles');
+assert.equal(save.restoreBattleSave(multiStorage.getItem(save.BATTLE_SAVE_KEY), multiOutcome.troops).active, null);
+// Test joint reinforcement battle against the same enemy
+const reinforceArmy = { ...attacking, id: 'army-reinforce', name: 'Arrow Storm', position: { x: 40, z: 0 }, formationIndex: 1, activity: { action: 'attack', targetId: target.id, targetLabel: 'Garrison' } };
+let jointSession = save.createBattleSession(attacking, target);
+jointSession = save.reinforceBattleSession(jointSession, reinforceArmy);
+assert.equal(jointSession.armies.length, 2, 'joint session contains both armies');
+assert.ok(jointSession.battle.fighters.some(f => f.armyId === reinforceArmy.id), 'reinforcing army fighters are on the board');
+
+const jointStorage = storageFor();
+jointStorage.setItem(save.BATTLE_SAVE_KEY, JSON.stringify({ active: jointSession, sessions: [jointSession], report: null }));
+const restoredJoint = save.restoreBattleSave(jointStorage.getItem(save.BATTLE_SAVE_KEY), troops);
+assert.equal(restoredJoint.active.armies.length, 2, 'restored battle session retains both participant armies');
+
+const completedJoint = { ...jointSession, battle: run(jointSession.battle) };
+const jointOutcome = save.commitBattleOutcome(jointStorage, completedJoint, [attacking, reinforceArmy], troops, [formation, formation], [target], 10100);
+assert.equal(jointOutcome.sessions.length, 0, 'joint battle concludes cleanly');
+assert.equal(jointOutcome.units.length, 2);
+assert.equal(jointOutcome.report.armyName, `${attacking.name} + ${reinforceArmy.name}`);
+assert.ok(jointOutcome.report.armies && jointOutcome.report.armies.length === 2, 'report contains breakdown for both formations');
+assert.equal(jointOutcome.report.armies[0].id, attacking.id);
+assert.equal(jointOutcome.report.armies[1].id, reinforceArmy.id);
+assert.ok(jointOutcome.report.members.some(m => m.formationName === attacking.name), 'member breakdown tags primary formation');
+assert.ok(jointOutcome.report.members.some(m => m.formationName === reinforceArmy.name), 'member breakdown tags reinforcing formation');
+
 const denied = storageFor(1);
 assert.throws(() => save.commitBattleOutcome(denied, completed, [attacking], troops, [formation], [target], 10000), /Interrupted/);
 assert.deepEqual([...denied.data], [['unrelated', 'keep']], 'journal failure makes no partial writes');

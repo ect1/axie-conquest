@@ -24,6 +24,7 @@ export type FighterState = 'holding' | 'approaching' | 'charging' | 'attacking' 
 export type Fighter = {
   appearance?: ApiAxie;
   id: string; memberId: string; side: 'player' | 'enemy'; name: string; heroId?: string; troopKind?: UnitMember['troopKind'];
+  armyId?: string; formationIndex?: number;
   initialCount: number; hp: number; maxHp: number; stats: CombatStats; x: number; z: number; facing: number;
   cooldown: number; targetId: string | null; state: FighterState;
   searchAtZ?: number;
@@ -95,6 +96,7 @@ export function createBattle(army: WorldUnit, enemyCount = 18, roster: readonly 
 
     return {
       id: `player:${member.id}`, memberId: member.id, side: 'player',
+      armyId: army.id, formationIndex: army.formationIndex,
       ...(appearance ? { appearance: structuredClone(appearance) } : {}),
       name: appearance?.name ?? hero?.name ?? member.troopKind ?? 'Squad',
       heroId: member.heroId, troopKind: member.troopKind, initialCount: member.count,
@@ -137,6 +139,86 @@ export function createBattle(army: WorldUnit, enemyCount = 18, roster: readonly 
   }
 
   return { version: 1, layoutVersion: 2, tick: 0, fighters: members, leaderId: members.find(f => f.heroId === army.leaderId)?.id ?? null, skillCooldown: 0, retreating: false, result: null, events: [] };
+}
+export function reinforceBattle(battle: Battle, army: WorldUnit, roster: readonly ApiAxie[] = []): Battle {
+  const leader = STARTER_HEROES.find(hero => hero.id === army.leaderId);
+  const modifiers = leaderTalent(leader)?.modifiers ?? NO_MODIFIERS;
+
+  const boardRows = activeBattleSettings.boardRows ?? 3;
+  const boardColumns = activeBattleSettings.boardColumns ?? 5;
+  const neutralRows = Math.round(activeBattleSettings.boardTeamGap ?? 1);
+  const hexGap = (activeBattleSettings.boardHexGap ?? 0.35) * 0.22;
+  const slots = createHexGridSlots({
+    columns: boardColumns,
+    hexGap,
+    bands: [
+      { id: 'enemy', rows: boardRows },
+      { id: 'neutral', rows: neutralRows },
+      { id: 'player', rows: boardRows },
+    ],
+  });
+
+  const playerSlots = slots.filter(s => s.band === 'player');
+  const occupied = new Set<string>();
+  for (const f of battle.fighters) {
+    if (f.side === 'player') {
+      const nearest = playerSlots.find(s => Math.hypot(-s.x - f.x, -s.z - f.z) < 0.5);
+      if (nearest) occupied.add(`${nearest.row}:${nearest.column}`);
+    }
+  }
+
+  const reinforcingFighters: Fighter[] = army.members.map((member, index) => {
+    const hero = STARTER_HEROES.find(h => h.id === member.heroId);
+    const appearance = roster.find(axie => axie.id === member.heroId);
+    const troopKind = member.troopKind ?? 'infantry';
+    const profile = hero ? baseCombatStats(activeBattleSettings, 'axie') : troopKind === 'infantry' ? baseCombatStats(activeBattleSettings, 'soldier') : troopKind === 'archer' ? baseCombatStats(activeBattleSettings, 'archer') : TROOP_COMBAT_STATS.scout;
+    const attackInterval = 'attackSpeed' in profile ? 1 / profile.attackSpeed : profile.interval;
+    const projectileSpeed = 'projectileSpeed' in profile ? profile.projectileSpeed : troopKind === 'archer' ? activeBattleSettings.baseArcherProjectileSpeed : undefined;
+    const isRanged = hero ? (hero.class === 'bird' || hero.class === 'dawn') : troopKind === 'archer';
+    const attackRange = isRanged ? activeBattleSettings.rangedAttackRange : activeBattleSettings.meleeAttackRange;
+    const base: CombatStats = hero
+      ? { ...profile, speed: profile.speed * hero.stats.speed / 100, range: attackRange, interval: attackInterval, radius: activeBattleSettings.bodyRadius, ...(isRanged ? { projectileSpeed: activeBattleSettings.baseArcherProjectileSpeed } : {}) }
+      : { ...TROOP_COMBAT_STATS[troopKind], health: profile.health, attack: profile.attack, defense: profile.defense, speed: profile.speed, interval: attackInterval, range: attackRange, radius: activeBattleSettings.bodyRadius, ...(projectileSpeed ? { projectileSpeed } : {}) };
+    const stats = { ...base, range: base.range * activeBattleSettings.attackRangeMultiplier, radius: base.radius * activeBattleSettings.bodyRadiusMultiplier, health: base.health * modifiers.health, attack: base.attack * modifiers.attack, defense: base.defense * modifiers.defense, speed: base.speed * modifiers.speed, ...(base.projectileSpeed ? { projectileSpeed: base.projectileSpeed } : {}) };
+
+    const match = /^hex-(\d+)-(\d+)$/.exec(member.id);
+    const formationRow = match ? parseInt(match[1], 10) : Math.floor(index / boardColumns);
+    const formationCol = match ? parseInt(match[2], 10) : index % boardColumns;
+    const targetBoardRow = boardRows + neutralRows + formationRow;
+    const prefKey = `${targetBoardRow}:${formationCol}`;
+
+    let slot = !occupied.has(prefKey) ? playerSlots.find(s => s.row === targetBoardRow && s.column === formationCol) : undefined;
+    if (!slot) {
+      slot = playerSlots.find(s => !occupied.has(`${s.row}:${s.column}`));
+    }
+
+    let posX: number;
+    let posZ: number;
+    if (slot) {
+      occupied.add(`${slot.row}:${slot.column}`);
+      posX = -slot.x;
+      posZ = -slot.z;
+    } else {
+      posX = (index - army.members.length / 2) * 1.5;
+      posZ = -13;
+    }
+
+    const uniqueId = `player:${army.id}:${member.id}`;
+    return {
+      id: uniqueId, memberId: member.id, side: 'player',
+      armyId: army.id, formationIndex: army.formationIndex,
+      ...(appearance ? { appearance: structuredClone(appearance) } : {}),
+      name: appearance?.name ?? hero?.name ?? member.troopKind ?? 'Squad',
+      heroId: member.heroId, troopKind: member.troopKind, initialCount: member.count,
+      hp: stats.health * member.count * (member.healthRatio ?? 1), maxHp: stats.health * member.count,
+      stats, x: posX, z: posZ, facing: teamFacing('player'), cooldown: 0, targetId: null, state: 'approaching'
+    };
+  });
+
+  return {
+    ...battle,
+    fighters: [...battle.fighters, ...reinforcingFighters],
+  };
 }
 export function createSandboxArmy(kind: 'balanced' | 'infantry' | 'archer'): WorldUnit {
   const formation = createEmptyFormation();

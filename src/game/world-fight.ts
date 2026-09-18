@@ -1,9 +1,19 @@
 import { Color3, DynamicTexture, Mesh, MeshBuilder, Scene, StandardMaterial, TransformNode } from '@babylonjs/core';
+import type { Fighter } from './battle';
 import type { BattleSession } from './battle-save';
 
-/** Camera-facing aggregate bars and one clash sprite; live combat creates no arena fighters. */
+type IndicatorInstance = {
+  root: TransformNode;
+  clash: Mesh;
+  watchBadge: Mesh;
+  attacker: { back: Mesh; fill: Mesh };
+  defender: { back: Mesh; fill: Mesh };
+  lastSession: string;
+  lastTick: number;
+};
+
+/** Camera-facing aggregate bars and clash sprites for all active world battles. */
 export function createWorldFight(scene: Scene) {
-  const root = new TransformNode('world battle indicator', scene);
   const material = (name: string, color: string) => {
     const value = new StandardMaterial(name, scene);
     value.diffuseColor = Color3.FromHexString(color); value.emissiveColor = value.diffuseColor;
@@ -13,16 +23,6 @@ export function createWorldFight(scene: Scene) {
   const friendly = material('attacker health', '#6be08b');
   const enemy = material('defender health', '#e16d61');
   const empty = material('battle health empty', '#26332f');
-  function healthBar(name: string, fillMaterial: StandardMaterial) {
-    const back = MeshBuilder.CreatePlane(`${name} background`, { width: 4.4, height: 0.48 }, scene);
-    const fill = MeshBuilder.CreatePlane(name, { width: 4, height: 0.24 }, scene);
-    back.parent = root; fill.parent = back; back.material = empty; fill.material = fillMaterial;
-    back.billboardMode = Mesh.BILLBOARDMODE_ALL; fill.position.z = -0.02;
-    back.isPickable = false; fill.isPickable = false;
-    return { back, fill };
-  }
-  const attacker = healthBar('attacker formation health', friendly);
-  const defender = healthBar('defender formation health', enemy);
 
   const clashTexture = new DynamicTexture('world fight sprite texture', { width: 128, height: 128 }, scene, false);
   clashTexture.hasAlpha = true;
@@ -37,9 +37,6 @@ export function createWorldFight(scene: Scene) {
   const clashMaterial = new StandardMaterial('world fight sprite material', scene);
   clashMaterial.diffuseTexture = clashTexture; clashMaterial.opacityTexture = clashTexture;
   clashMaterial.emissiveColor = Color3.White(); clashMaterial.disableLighting = true; clashMaterial.backFaceCulling = false;
-  const clash = MeshBuilder.CreatePlane('world fight sprite', { size: 2.7 }, scene);
-  clash.parent = root; clash.material = clashMaterial; clash.billboardMode = Mesh.BILLBOARDMODE_ALL;
-  clash.isPickable = true; clash.metadata = { action: 'watchBattle' };
 
   const badgeTexture = new DynamicTexture('world fight watch badge texture', { width: 256, height: 72 }, scene, false);
   badgeTexture.hasAlpha = true;
@@ -58,58 +55,104 @@ export function createWorldFight(scene: Scene) {
   const badgeMaterial = new StandardMaterial('world fight watch badge mat', scene);
   badgeMaterial.diffuseTexture = badgeTexture; badgeMaterial.opacityTexture = badgeTexture;
   badgeMaterial.emissiveColor = Color3.White(); badgeMaterial.disableLighting = true; badgeMaterial.backFaceCulling = false;
-  const watchBadge = MeshBuilder.CreatePlane('world fight watch badge', { width: 4.4, height: 1.25 }, scene);
-  watchBadge.parent = root; watchBadge.material = badgeMaterial; watchBadge.billboardMode = Mesh.BILLBOARDMODE_ALL;
-  watchBadge.isPickable = false; watchBadge.metadata = { action: 'watchBattle' };
 
-  const setAllEnabled = (enabled: boolean) => {
-    root.setEnabled(enabled);
-    clash.setEnabled(enabled);
-    clash.isVisible = enabled;
-    clash.isPickable = enabled;
-    watchBadge.setEnabled(enabled);
-    watchBadge.isVisible = enabled;
-    watchBadge.isPickable = enabled;
-    attacker.back.setEnabled(enabled);
-    attacker.back.isVisible = enabled;
-    attacker.fill.setEnabled(enabled);
-    attacker.fill.isVisible = enabled;
-    defender.back.setEnabled(enabled);
-    defender.back.isVisible = enabled;
-    defender.fill.setEnabled(enabled);
-    defender.fill.isVisible = enabled;
-  };
+  function healthBar(parent: TransformNode, name: string, fillMaterial: StandardMaterial) {
+    const back = MeshBuilder.CreatePlane(`${name} background`, { width: 4.4, height: 0.48 }, scene);
+    const fill = MeshBuilder.CreatePlane(name, { width: 4, height: 0.24 }, scene);
+    back.parent = parent; fill.parent = back; back.material = empty; fill.material = fillMaterial;
+    back.billboardMode = Mesh.BILLBOARDMODE_ALL; fill.position.z = -0.02;
+    back.isPickable = false; fill.isPickable = false;
+    return { back, fill };
+  }
 
-  setAllEnabled(false);
-  let lastSession = '', lastTick = -3;
+  const indicators = new Map<string, IndicatorInstance>();
+
+  function createIndicator(id: string): IndicatorInstance {
+    const root = new TransformNode(`world battle indicator ${id}`, scene);
+    const attacker = healthBar(root, `attacker health ${id}`, friendly);
+    const defender = healthBar(root, `defender health ${id}`, enemy);
+
+    const clash = MeshBuilder.CreatePlane(`world fight sprite ${id}`, { size: 2.7 }, scene);
+    clash.parent = root; clash.material = clashMaterial; clash.billboardMode = Mesh.BILLBOARDMODE_ALL;
+    clash.isPickable = true; clash.metadata = { action: 'watchBattle', sessionId: id };
+
+    const watchBadge = MeshBuilder.CreatePlane(`world fight watch badge ${id}`, { width: 4.4, height: 1.25 }, scene);
+    watchBadge.parent = root; watchBadge.material = badgeMaterial; watchBadge.billboardMode = Mesh.BILLBOARDMODE_ALL;
+    watchBadge.isPickable = true; watchBadge.metadata = { action: 'watchBattle', sessionId: id };
+
+    clash.position.set(0, 2, 0);
+    attacker.back.position.set(0, 4, 0);
+    defender.back.position.set(0, 3.4, 0);
+    watchBadge.position.set(0, 4.85, 0);
+
+    return { root, clash, watchBadge, attacker, defender, lastSession: '', lastTick: -3 };
+  }
+
+  function setIndicatorEnabled(ind: IndicatorInstance, enabled: boolean) {
+    ind.root.setEnabled(enabled);
+    ind.clash.setEnabled(enabled); ind.clash.isVisible = enabled; ind.clash.isPickable = enabled;
+    ind.watchBadge.setEnabled(enabled); ind.watchBadge.isVisible = enabled; ind.watchBadge.isPickable = enabled;
+    ind.attacker.back.setEnabled(enabled); ind.attacker.back.isVisible = enabled;
+    ind.attacker.fill.setEnabled(enabled); ind.attacker.fill.isVisible = enabled;
+    ind.defender.back.setEnabled(enabled); ind.defender.back.isVisible = enabled;
+    ind.defender.fill.setEnabled(enabled); ind.defender.fill.isVisible = enabled;
+  }
+
   return {
-    update(session: BattleSession | null, visible: boolean) {
-      const active = !!session && visible;
-      setAllEnabled(active);
-      if (!active || !session) return;
-      const pulse = 1 + Math.sin(performance.now() / 170) * 0.08;
-      clash.scaling.setAll(pulse); clash.rotation.z = Math.sin(performance.now() / 360) * 0.08;
-      const badgePulse = 1 + Math.sin(performance.now() / 250) * 0.04;
-      watchBadge.scaling.setAll(badgePulse);
-      const key = `${session.army.id}:${session.startedAt}`;
-      if (key === lastSession && session.battle.tick - lastTick < 3 && !session.battle.result) return;
-      lastSession = key; lastTick = session.battle.tick;
-      const players = session.battle.fighters.filter(fighter => fighter.side === 'player');
-      const enemies = session.battle.fighters.filter(fighter => fighter.side === 'enemy');
-      const ratio = (fighters: typeof players) => {
-        const maximum = fighters.reduce((sum, fighter) => sum + fighter.maxHp, 0);
-        return maximum ? fighters.reduce((sum, fighter) => sum + fighter.hp, 0) / maximum : 0;
-      };
-      root.position.set(session.target.x, 0, session.target.z); clash.position.set(0, 2, 0);
-      attacker.back.position.set(0, 4, 0); defender.back.position.set(0, 3.4, 0);
-      watchBadge.position.set(0, 4.85, 0);
-      for (const [bar, value] of [[attacker, ratio(players)], [defender, ratio(enemies)]] as const) {
-        bar.fill.scaling.x = Math.max(0.001, value);
-        bar.fill.position.x = -2 * (1 - value);
+    update(sessionsInput: readonly BattleSession[] | BattleSession | null, visible: boolean) {
+      const list = Array.isArray(sessionsInput) ? sessionsInput : sessionsInput ? [sessionsInput] : [];
+      const activeKeys = new Set<string>();
+
+      for (const session of list) {
+        if (!session) continue;
+        const key = session.id || `${session.army.id}:${session.startedAt ?? 0}`;
+        activeKeys.add(key);
+
+        let ind = indicators.get(key);
+        if (!ind) {
+          ind = createIndicator(key);
+          indicators.set(key, ind);
+        }
+
+        setIndicatorEnabled(ind, visible);
+        if (!visible) continue;
+
+        const pulse = 1 + Math.sin(performance.now() / 170) * 0.08;
+        ind.clash.scaling.setAll(pulse); ind.clash.rotation.z = Math.sin(performance.now() / 360) * 0.08;
+        const badgePulse = 1 + Math.sin(performance.now() / 250) * 0.04;
+        ind.watchBadge.scaling.setAll(badgePulse);
+
+        ind.root.position.set(session.target.x, 0, session.target.z);
+        ind.clash.metadata = { action: 'watchBattle', sessionId: key };
+        ind.watchBadge.metadata = { action: 'watchBattle', sessionId: key };
+
+        if (key === ind.lastSession && session.battle.tick - ind.lastTick < 3 && !session.battle.result) continue;
+        ind.lastSession = key; ind.lastTick = session.battle.tick;
+
+        const players = session.battle.fighters.filter((fighter: Fighter) => fighter.side === 'player');
+        const enemies = session.battle.fighters.filter((fighter: Fighter) => fighter.side === 'enemy');
+        const ratio = (fighters: Fighter[]) => {
+          const maximum = fighters.reduce((sum: number, fighter: Fighter) => sum + fighter.maxHp, 0);
+          return maximum ? fighters.reduce((sum: number, fighter: Fighter) => sum + fighter.hp, 0) / maximum : 0;
+        };
+
+        for (const [bar, value] of [[ind.attacker, ratio(players)], [ind.defender, ratio(enemies)]] as const) {
+          bar.fill.scaling.x = Math.max(0.001, value);
+          bar.fill.position.x = -2 * (1 - value);
+        }
       }
+
+      indicators.forEach((ind, k) => {
+        if (!activeKeys.has(k)) {
+          ind.root.dispose();
+          indicators.delete(k);
+        }
+      });
     },
     dispose() {
-      root.dispose(); friendly.dispose(); enemy.dispose(); empty.dispose();
+      indicators.forEach(ind => ind.root.dispose());
+      indicators.clear();
+      friendly.dispose(); enemy.dispose(); empty.dispose();
       clashMaterial.dispose(); clashTexture.dispose();
       badgeMaterial.dispose(); badgeTexture.dispose();
     },

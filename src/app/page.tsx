@@ -9,7 +9,7 @@ import MailDialog from './mail-dialog';
 import DeveloperPanel from './developer-panel';
 import BattleSpectatorModal from './battle-spectator';
 import { activateCommanderSkill, Battle, MAX_BATTLE_TICKS, stepBattle } from '@/game/battle';
-import { BATTLE_SAVE_KEY, BATTLE_TRANSACTION_KEY, BattleSession, BattleReport, createBattleSession, restoreBattleSave, readBattleReports, recoverBattleTransaction, commitBattleOutcome } from '@/game/battle-save';
+import { BATTLE_SAVE_KEY, BATTLE_TRANSACTION_KEY, BattleSession, BattleReport, createBattleSession, reinforceBattleSession, restoreBattleSave, readBattleReports, recoverBattleTransaction, commitBattleOutcome } from '@/game/battle-save';
 import { beginReplay, recordReplay } from '@/game/battle-replay';
 import { createMobGroup, DEFAULT_GENERATION, GenerationSettings, getWorldObjectActions, restoreWorld, SpawnableMobGroup, WORLD_SAVE_KEY, WorldAction, WorldObject } from '@/game/world';
 import type { BaseView } from '@/game/scene';
@@ -28,17 +28,18 @@ type AxieApiResponse = { data?: { axies?: { results?: unknown } }; error?: strin
 
 export default function Home() {
   const unitStats = activeUnitGlobalStats;
-  const [battleSession, setBattleSession] = useState<BattleSession | null>(null);
+  const [battleSessions, setBattleSessions] = useState<BattleSession[]>([]);
+  const battleSessionsRef = useRef<BattleSession[]>([]);
   const [spectatorSession, setSpectatorSession] = useState<BattleSession | null>(null);
   const [spectating, setSpectating] = useState(false);
   const [battlePaused, setBattlePaused] = useState(true);
   const [battleSpeed, setBattleSpeed] = useState<1 | 2 | 0.5>(1);
   const [battleDebug, setBattleDebug] = useState(false);
-  const battleRef = useRef<BattleSession | null>(null);
   const [battleReport, setBattleReport] = useState<BattleReport | null>(null);
   const [battleReports, setBattleReports] = useState<BattleReport[]>([]);
   const [battleError, setBattleError] = useState('');
   const [selectedFighterId, setSelectedFighterId] = useState<string | null>(null);
+  const battleSession = spectatorSession || battleSessions[0] || null;
   const [loadError, setLoadError] = useState('');
   const canvas = useRef<HTMLCanvasElement>(null);
   const view = useRef<BaseView | null>(null);
@@ -105,7 +106,7 @@ export default function Home() {
     return () => controller.abort();
   }, []);
   useEffect(() => { if (ready) view.current?.setUnits(units, selectedUnitId); }, [units, selectedUnitId, ready]);
-  useEffect(() => { if (ready) view.current?.setBattle(battleSession, selectedFighterId ?? battleSession?.battle.leaderId ?? null); }, [battleSession, selectedFighterId, ready]);
+  useEffect(() => { if (ready) view.current?.setBattles(battleSessions); }, [battleSessions, ready]);
   useEffect(() => { if (ready) view.current?.setSelectedTarget(target?.id ?? null); }, [target, ready]);
   useEffect(() => { if (!ready) return; setUnits(current => { const next = current.map(u => settleUnit(u, now)).filter(u => u.status !== 'home'); return next.length !== current.length || next.some((u, i) => u !== current[i]) ? next : current; }); }, [now, ready]);
   useEffect(() => { if (!ready) return; try { localStorage.setItem(UNITS_SAVE_KEY, JSON.stringify(units)); } catch { setMessage('Browser storage unavailable; units last this session.'); } }, [units, ready]);
@@ -138,7 +139,7 @@ export default function Home() {
       }
       try { recoverBattleTransaction(localStorage); }
       catch (error) { setLoadError(`Cannot recover the last battle save: ${(error as Error).message}`); return; }
-      view.current = createBase(canvas.current, { watchBattle: () => { setSpectatorSession(battleRef.current); setSpectating(true); }, fighterSelect: setSelectedFighterId, change: setBuildings, preview: setCell, unitSelect: id => { setSelectedUnitId(id); setTarget(null); setRouteAction(null); setSelectedAction(null); }, target: next => { setTarget(next); setRouteAction(next ? 'choose' : null); setSelectedAction(null); setFormationIndex(null); if (next?.id) setSelectedUnitId(null); if (next) { setSelected(null); setDeveloper(false); setMilitary(false); setTraining(false); setHeroes(false); setInventory(false); setCatalog(false); } }, viewMode: mode => { setWorldView(mode === 'world'); if (mode !== 'world') { setSelectedUnitId(null); setTarget(null); setRouteAction(null); setSelectedAction(null); } }, select: building => { setSelected(building); if (building) { setDeveloper(false); setMilitary(false); setTraining(false); setHeroes(false); setInventory(false); } }, message: setMessage, troops: setTroops });
+      view.current = createBase(canvas.current, { watchBattle: (sessionId) => { const session = battleSessionsRef.current.find(s => (s.id || s.army.id) === sessionId) || battleSessionsRef.current[0]; if (session) { setSpectatorSession(session); setSpectating(true); } }, fighterSelect: setSelectedFighterId, change: setBuildings, preview: setCell, unitSelect: id => { setSelectedUnitId(id); setTarget(null); setRouteAction(null); setSelectedAction(null); }, target: next => { setTarget(next); setRouteAction(next ? 'choose' : null); setSelectedAction(null); setFormationIndex(null); if (next?.id) setSelectedUnitId(null); if (next) { setSelected(null); setDeveloper(false); setMilitary(false); setTraining(false); setHeroes(false); setInventory(false); setCatalog(false); } }, viewMode: mode => { setWorldView(mode === 'world'); if (mode !== 'world') { setSelectedUnitId(null); setTarget(null); setRouteAction(null); setSelectedAction(null); } }, select: building => { setSelected(building); if (building) { setDeveloper(false); setMilitary(false); setTraining(false); setHeroes(false); setInventory(false); } }, message: setMessage, troops: setTroops });
       let initialObjects: WorldObject[];
       let savedObjects: WorldObject[] | null = null;
       try { savedObjects = restoreWorld(localStorage.getItem(WORLD_SAVE_KEY)); } catch { savedObjects = null; }
@@ -154,7 +155,8 @@ export default function Home() {
         const savedBattle = restoreBattleSave(localStorage.getItem(BATTLE_SAVE_KEY), available);
         setBattleReport(savedBattle.report);
         setBattleReports(readBattleReports(localStorage.getItem(BATTLE_SAVE_KEY)));
-        battleRef.current = savedBattle.active; setBattleSession(savedBattle.active);
+        const initialSessions = savedBattle.sessions ?? (savedBattle.active ? [savedBattle.active] : []);
+        battleSessionsRef.current = initialSessions; setBattleSessions(initialSessions);
         const raw = localStorage.getItem(UNITS_SAVE_KEY);
         setUnits(raw === null ? migrateMarches(localStorage.getItem('axie-conquest-routes-v1'), CAPITAL_CITY_ID, available, unitStats.marchSpeed, Date.now()) : restoreUnits(raw, available, Date.now()));
       } catch { /* Keep session defaults if storage is unavailable. */ }
@@ -169,128 +171,275 @@ export default function Home() {
   }, [catalog, placing, ready, selected, worldView]);
   useEffect(() => { if (catalog) setInventory(false); }, [catalog]);
   useEffect(() => {
-    if (!ready || battleRef.current || battleError) return;
-    const attacker = units.find(unit => !unit.order && unit.activity?.action === 'attack');
-    if (!attacker) return;
-    const enemy = worldObjects.find(object => object.id === attacker.activity?.targetId && object.state === 'defended');
-    if (!enemy) {
-      setUnits(current => current.map(unit => unit.id === attacker.id ? { ...unit, activity: undefined } : unit));
-      setMessage('The attack target is no longer defended.'); return;
+    if (!ready || battleError) return;
+    const activeAttackerIds = new Set(battleSessionsRef.current.map(s => s.army.id));
+    const arrivedAttackers = units.filter(unit => !unit.order && unit.activity?.action === 'attack' && !activeAttackerIds.has(unit.id));
+    if (!arrivedAttackers.length) return;
+
+    const newSessions: BattleSession[] = [];
+    let unitsChanged = false;
+    let nextUnits = [...units];
+
+    for (const attacker of arrivedAttackers) {
+      const targetId = attacker.activity!.targetId;
+      const enemy = worldObjects.find(object => object.id === targetId && object.state === 'defended');
+      if (!enemy) {
+        nextUnits = nextUnits.map(u => u.id === attacker.id ? { ...u, activity: undefined } : u);
+        unitsChanged = true;
+        setMessage('The attack target is no longer defended.');
+        continue;
+      }
+
+      // Check if target is already engaged by an active battle (in current sessions or newly created in this loop)
+      const existingActiveIndex = battleSessionsRef.current.findIndex(s => s.target.id === targetId && !s.battle.result);
+      const newActiveIndex = newSessions.findIndex(s => s.target.id === targetId && !s.battle.result);
+
+      if (existingActiveIndex >= 0) {
+        const existingSession = battleSessionsRef.current[existingActiveIndex];
+        const reinforced = reinforceBattleSession(existingSession, attacker, apiAxies);
+        battleSessionsRef.current[existingActiveIndex] = reinforced;
+        setBattleSessions([...battleSessionsRef.current]);
+        view.current?.setBattles(battleSessionsRef.current);
+        setMessage(`${attacker.name} reinforced the battle at ${existingSession.target.kind}!`);
+        continue;
+      }
+
+      if (newActiveIndex >= 0) {
+        const existingSession = newSessions[newActiveIndex];
+        newSessions[newActiveIndex] = reinforceBattleSession(existingSession, attacker, apiAxies);
+        setMessage(`${attacker.name} reinforced the battle at ${existingSession.target.kind}!`);
+        continue;
+      }
+
+      const session = createBattleSession(attacker, enemy, apiAxies);
+      newSessions.push(session);
     }
-    const session = createBattleSession(attacker, enemy, apiAxies);
-    try {
-      localStorage.setItem(BATTLE_SAVE_KEY, JSON.stringify({ active: session, report: battleReport, reports: battleReports }));
-      battleRef.current = session; setBattleSession(session);
-      setSelectedUnitId(attacker.id); setTarget(null); setRouteAction(null);
-      setBattlePaused(false);
-    } catch { setBattleError('Battle could not start because browser storage is unavailable. Free storage and retry.'); }
-  }, [units, worldObjects, ready, battleError, battleReport, apiAxies]);
+
+    if (unitsChanged) {
+      setUnits(nextUnits);
+    }
+
+    if (newSessions.length > 0) {
+      const allSessions = [...battleSessionsRef.current, ...newSessions];
+      try {
+        localStorage.setItem(BATTLE_SAVE_KEY, JSON.stringify({ active: allSessions[0] ?? null, sessions: allSessions, report: battleReport, reports: battleReports }));
+        battleSessionsRef.current = allSessions;
+        setBattleSessions(allSessions);
+        view.current?.setBattles(allSessions);
+        setSelectedUnitId(newSessions[0].army.id);
+        setTarget(null);
+        setRouteAction(null);
+        setBattlePaused(false);
+      } catch {
+        setBattleError('Battle could not start because browser storage is unavailable. Free storage and retry.');
+      }
+    }
+  }, [units, worldObjects, ready, battleError, battleReport, battleReports, apiAxies]);
+
   useEffect(() => {
-    if (!battleSession || battleError || battlePaused) return;
+    if (!battleSessions.length || battleError || battlePaused) return;
     const intervalMs = Math.round(100 / battleSpeed);
     const timer = window.setInterval(() => {
-      const session = battleRef.current;
-      if (!session || session.battle.result || document.hidden) return;
-      const stepped = stepBattle(session.battle), skilled = activateCommanderSkill(stepped);
-      updateBattle(skilled === stepped ? stepped : { ...skilled, events: [...stepped.events, ...skilled.events] });
+      const currentSessions = battleSessionsRef.current;
+      if (!currentSessions.length || document.hidden) return;
+
+      let anyRunning = false;
+      const updatedSessions: BattleSession[] = [];
+      const finishedSessions: BattleSession[] = [];
+
+      for (const session of currentSessions) {
+        if (session.battle.result) {
+          updatedSessions.push(session);
+          finishedSessions.push(session);
+          continue;
+        }
+        anyRunning = true;
+        const stepped = stepBattle(session.battle);
+        const skilled = activateCommanderSkill(stepped);
+        const nextBattle = skilled === stepped ? stepped : { ...skilled, events: [...stepped.events, ...skilled.events] };
+        const updated = {
+          ...session,
+          battle: nextBattle,
+          replay: recordReplay(session.replay ?? beginReplay(session.battle), nextBattle),
+        };
+        updatedSessions.push(updated);
+        if (nextBattle.result) {
+          finishedSessions.push(updated);
+        }
+      }
+
+      if (anyRunning) {
+        battleSessionsRef.current = updatedSessions;
+        view.current?.setBattles(updatedSessions);
+        setSpectatorSession(current => {
+          if (!current) return null;
+          return updatedSessions.find(s => (s.id || s.army.id) === (current.id || current.army.id)) ?? current;
+        });
+
+        const shouldSave = updatedSessions.some(s => s.battle.tick % 20 === 0 || s.battle.result);
+        if (shouldSave) {
+          try {
+            localStorage.setItem(BATTLE_SAVE_KEY, JSON.stringify({
+              active: updatedSessions[0] ?? null,
+              sessions: updatedSessions,
+              report: battleReport,
+              reports: battleReports,
+            }));
+          } catch { /* Storage error handling */ }
+        }
+
+        const shouldUpdateUi = updatedSessions.some(s => s.battle.tick % 2 === 0 || s.battle.result);
+        if (shouldUpdateUi) {
+          setBattleSessions([...updatedSessions]);
+        }
+      }
+
+      for (const finished of finishedSessions) {
+        finishBattle(finished);
+      }
     }, intervalMs);
     return () => window.clearInterval(timer);
-  }, [battleSession?.army.id, battleError, battlePaused, battleSpeed]);
+  }, [battleSessions.length, battleError, battlePaused, battleSpeed, battleReport, battleReports]);
+
   const toggleBattlePause = useCallback(() => {
     setBattlePaused(prev => !prev);
   }, []);
+
   const stepBattleOnce = useCallback(() => {
-    const session = battleRef.current;
+    const session = spectatorSession || battleSessionsRef.current[0];
     if (!session || session.battle.result) return;
     const stepped = stepBattle(session.battle), skilled = activateCommanderSkill(stepped);
-    updateBattle(skilled === stepped ? stepped : { ...skilled, events: [...stepped.events, ...skilled.events] });
-  }, []);
+    const nextBattle = skilled === stepped ? stepped : { ...skilled, events: [...stepped.events, ...skilled.events] };
+    updateSingleBattle(session, nextBattle, true);
+  }, [spectatorSession]);
+
   const restartBattle = useCallback(() => {
-    const session = battleRef.current || spectatorSession;
+    const session = spectatorSession || battleSessionsRef.current[0];
     if (!session) return;
     const restarted = createBattleSession(session.army, session.target, apiAxies);
-    battleRef.current = restarted;
-    setBattleSession(restarted);
+    const nextSessions = battleSessionsRef.current.map(s => (s.id || s.army.id) === (session.id || session.army.id) ? restarted : s);
+    battleSessionsRef.current = nextSessions;
+    setBattleSessions(nextSessions);
     setSpectatorSession(restarted);
     setBattlePaused(battleDebug);
-    view.current?.setBattle(restarted, null);
+    view.current?.setBattles(nextSessions);
     try {
-      localStorage.setItem(BATTLE_SAVE_KEY, JSON.stringify({ active: restarted, report: battleReport, reports: battleReports }));
+      localStorage.setItem(BATTLE_SAVE_KEY, JSON.stringify({ active: nextSessions[0] ?? null, sessions: nextSessions, report: battleReport, reports: battleReports }));
     } catch { /* LocalStorage error handling */ }
   }, [apiAxies, battleReport, battleReports, battleDebug, spectatorSession]);
+
   useEffect(() => {
     const flush = () => {
-      if (!battleRef.current) return;
-      try { localStorage.setItem(BATTLE_SAVE_KEY, JSON.stringify({ active: battleRef.current, report: battleReport, reports: battleReports })); }
+      const current = battleSessionsRef.current;
+      if (!current.length) return;
+      try { localStorage.setItem(BATTLE_SAVE_KEY, JSON.stringify({ active: current[0] ?? null, sessions: current, report: battleReport, reports: battleReports })); }
       catch { setBattleError('Battle paused: progress could not be saved. Free browser storage and retry.'); }
     };
     const hidden = () => { if (document.hidden) flush(); };
     window.addEventListener('pagehide', flush); document.addEventListener('visibilitychange', hidden);
     return () => { window.removeEventListener('pagehide', flush); document.removeEventListener('visibilitychange', hidden); };
   }, [battleReport, battleReports]);
+
   useEffect(() => {
-    if (!battleSession || !ready) return;
-    // Preserve the world camera on combat start; focus only when restoring from city view.
-    if (!worldView) { view.current?.setWorldView(true); setWorldView(true); view.current?.focusBattle(); }
-  }, [battleSession?.target.id, ready]);
+    if (!battleSessions.length || !ready) return;
+    if (!worldView) { view.current?.setWorldView(true); setWorldView(true); view.current?.focusBattle(battleSessions[0]); }
+  }, [battleSessions.length, ready]);
+
   useEffect(() => {
-    if (battleSession?.battle.result && !battleError) finishBattle();
-  }, [battleSession?.battle.result, battleError]);
-  function updateBattle(battle: Battle, forceSave = false) {
-    const session = battleRef.current;
-    if (!session) return;
-    const next = { ...session, battle, replay: recordReplay(session.replay ?? beginReplay(session.battle), battle) };
-    battleRef.current = next;
-    view.current?.setBattle(next, null);
-    setSpectatorSession(next);
+    const finished = battleSessions.find(s => s.battle.result);
+    if (finished && !battleError) finishBattle(finished);
+  }, [battleSessions, battleError]);
+
+  function updateSingleBattle(session: BattleSession, battle: Battle, forceSave = false) {
+    const next: BattleSession = { ...session, battle, replay: recordReplay(session.replay ?? beginReplay(session.battle), battle) };
+    const nextSessions = battleSessionsRef.current.map(s => (s.id || s.army.id) === (session.id || session.army.id) ? next : s);
+    battleSessionsRef.current = nextSessions;
+    view.current?.setBattles(nextSessions);
+    if (spectatorSession && (spectatorSession.id || spectatorSession.army.id) === (session.id || session.army.id)) {
+      setSpectatorSession(next);
+    }
     try {
-      if (forceSave || battle.result || battle.tick % 20 === 0) localStorage.setItem(BATTLE_SAVE_KEY, JSON.stringify({ active: next, report: battleReport, reports: battleReports }));
-      if (forceSave || battle.result || battle.tick % 2 === 0) setBattleSession(next);
+      if (forceSave || battle.result || battle.tick % 20 === 0) {
+        localStorage.setItem(BATTLE_SAVE_KEY, JSON.stringify({ active: nextSessions[0] ?? null, sessions: nextSessions, report: battleReport, reports: battleReports }));
+      }
+      if (forceSave || battle.result || battle.tick % 2 === 0) {
+        setBattleSessions([...nextSessions]);
+      }
       setBattleError('');
-    } catch { setBattleSession(next); setBattleError('Battle paused: progress could not be saved. Free browser storage and retry.'); }
+    } catch {
+      setBattleSessions([...nextSessions]);
+      setBattleError('Battle paused: progress could not be saved. Free browser storage and retry.');
+    }
   }
-  function finishBattle() {
-    const session = battleRef.current;
+
+  function finishBattle(sessionToFinish?: BattleSession) {
+    const session = sessionToFinish || battleSessionsRef.current.find(s => s.battle.result) || battleSessionsRef.current[0];
     if (!session?.battle.result) return;
     try {
       const outcome = commitBattleOutcome(localStorage, session, units, troops, formations, worldObjects, Date.now());
-      setSpectatorSession(session);
-      battleRef.current = null; setBattleSession(null); setBattleError('');
-      view.current?.setBattle(null, null);
-      setSelectedFighterId(null); setSelectedUnitId(session.army.id); setTarget(null); setRouteAction(null);
-      setTroops(outcome.troops); setUnits(outcome.units); setFormations(outcome.formations); setWorldObjects(outcome.objects); setBattleReport(outcome.report);
+      const remainingSessions = (outcome.sessions ?? battleSessionsRef.current.filter(s => (s.id || s.army.id) !== (session.id || session.army.id)));
+      battleSessionsRef.current = remainingSessions;
+      setBattleSessions(remainingSessions);
+      view.current?.setBattles(remainingSessions);
+
+      if (spectatorSession && (spectatorSession.id || spectatorSession.army.id) === (session.id || session.army.id)) {
+        setSpectatorSession(session);
+      }
+
+      setBattleError('');
+      setSelectedFighterId(null);
+      setSelectedUnitId(session.army.id);
+      setTarget(null);
+      setRouteAction(null);
+      setTroops(outcome.troops);
+      setUnits(outcome.units);
+      setFormations(outcome.formations);
+      setWorldObjects(outcome.objects);
+      setBattleReport(outcome.report);
       setBattleReports(outcome.reports);
-      view.current?.loadWorld(outcome.objects); view.current?.refreshMilitary();
+      view.current?.loadWorld(outcome.objects);
+      view.current?.refreshMilitary();
       setMessage(`${outcome.report.result}: ${outcome.report.losses.infantry} infantry and ${outcome.report.losses.archer} archers lost. ${outcome.report.result === 'victory' ? 'Formation ready for orders.' : 'Survivors returning home.'}`);
-    } catch { setBattleError('Battle outcome could not be fully saved. Retry to complete recovery; progress is kept in the battle journal.'); }
+    } catch {
+      setBattleError('Battle outcome could not be fully saved. Retry to complete recovery; progress is kept in the battle journal.');
+    }
   }
-  function retreatBattle() {
-    const session = battleRef.current;
+
+  function retreatBattle(targetSession?: BattleSession) {
+    const session = targetSession || spectatorSession || battleSessionsRef.current[0];
     if (!session || session.battle.result) return;
     const retreatingBattle: Battle = { ...session.battle, retreating: true };
     if (battlePaused || session.battle.tick >= MAX_BATTLE_TICKS) {
       retreatingBattle.result = 'retreated';
     }
-    updateBattle(retreatingBattle, true);
-    if (retreatingBattle.result) finishBattle();
-    else setMessage('Formation is retreating from combat.');
+    updateSingleBattle(session, retreatingBattle, true);
+    if (retreatingBattle.result) finishBattle({ ...session, battle: retreatingBattle });
+    else setMessage(`${session.army.name} is retreating from combat.`);
   }
-  function abortBattle() {
-    const session = battleRef.current || spectatorSession;
+
+  function abortBattle(targetSession?: BattleSession) {
+    const session = targetSession || spectatorSession || battleSessionsRef.current[0];
     if (!session) return;
-    battleRef.current = null;
-    setBattleSession(null);
-    setSpectatorSession(null);
+    const remaining = battleSessionsRef.current.filter(s => (s.id || s.army.id) !== (session.id || session.army.id));
+    battleSessionsRef.current = remaining;
+    setBattleSessions(remaining);
+    view.current?.setBattles(remaining);
+    if (spectatorSession && (spectatorSession.id || spectatorSession.army.id) === (session.id || session.army.id)) {
+      setSpectatorSession(null);
+      setSpectating(false);
+    }
     setBattleError('');
-    setSpectating(false);
-    view.current?.setBattle(null, null);
     setSelectedFighterId(null);
     try {
-      localStorage.removeItem(BATTLE_SAVE_KEY);
+      if (remaining.length) {
+        localStorage.setItem(BATTLE_SAVE_KEY, JSON.stringify({ active: remaining[0], sessions: remaining, report: battleReport, reports: battleReports }));
+      } else {
+        localStorage.removeItem(BATTLE_SAVE_KEY);
+      }
       localStorage.removeItem(BATTLE_TRANSACTION_KEY);
     } catch { /* Ignore storage access errors */ }
     setUnits(current => current.map(unit => unit.id === session.army.id ? { ...unit, activity: undefined, order: null, status: 'holding' } : unit));
-    setMessage('Active battle ended and formation returned to holding.');
+    setMessage(`Active battle ended and ${session.army.name} returned to holding.`);
   }
   const size = getBuildingDimensions(buildingKind, moving?.rotation);
   const valid = cell !== null && (moving ? canMoveBuilding(moving.id, cell, buildings) : canPlace(cell, buildings, size.width, size.depth));
@@ -384,7 +533,7 @@ export default function Home() {
       if (index !== null) {
         const active = units.find(unit => unit.kind === 'army' && unit.cityId === selectedCity.id && unit.formationIndex === index);
         if (active) {
-          if (active.id === battleRef.current?.army.id) throw new Error('This formation is fighting. Use Retreat in the battle controls.');
+          if (battleSessionsRef.current.some(s => (s.armies ?? [s.army]).some(a => a.id === active.id) && !s.battle.result)) throw new Error('This formation is fighting. Use Retreat in the battle controls.');
           const redirected = action === 'march'
             ? commandUnit(active, 'move', dispatchedAt, target)
             : commandWorldAction(active, action, object!, dispatchedAt);
@@ -431,7 +580,7 @@ export default function Home() {
   function issueCommand(kind: 'move' | 'hold' | 'return') {
     const unit = units.find(u => u.id === selectedUnitId);
     if (!unit) return;
-    if (unit.id === battleRef.current?.army.id) { setMessage('This formation is fighting. Use Retreat in the battle controls.'); return; }
+    if (battleSessionsRef.current.some(s => (s.armies ?? [s.army]).some(a => a.id === unit.id))) { setMessage('This formation is fighting. Use Retreat in the battle controls.'); return; }
     try {
       const next = commandUnit(unit, kind, Date.now(), target ?? undefined);
       setUnits(current => current.map(u => u.id === next.id ? next : u));
@@ -480,76 +629,105 @@ export default function Home() {
     {training && <TrainingDialog buildings={buildings} troops={troops} ready={ready} onTrain={kind => { view.current?.train(kind); }} onClose={() => setTraining(false)} />}
     {developer && <DeveloperPanel settings={generation} onSettings={setGeneration} objects={worldObjects} status={generationStatus} ready={ready} mobSpawnEnabled={mobSpawnEnabled} onMobSpawnEnabled={setMobSpawnEnabled} mobGroup={mobGroup} onMobGroup={setMobGroup} activeAxies={apiAxies.filter(axie => selectedCity.deployedAxieIds.includes(axie.id))} debugBattle={battleDebug} onDebugBattleChange={setBattleDebug} activeBattleSession={battleSession} onAbortBattle={abortBattle} onClose={() => setDeveloper(false)} onRegenerate={regenerate} onRemove={() => { view.current?.removeWorld(); try { localStorage.setItem(WORLD_SAVE_KEY, '[]'); } catch { /* Keep the removal in memory when storage is unavailable. */ } setWorldObjects([]); setGenerationStatus('All generated objects removed.'); }} />}
     {mail && <MailDialog battleReports={battleReports} onClose={() => setMail(false)} />}
-    {battleSession && !spectating && (
+    {battleSessions.length > 0 && !spectating && (
       <aside
         style={{
           position: 'fixed',
           top: '72px',
           right: '16px',
           zIndex: 40,
-          background: 'rgba(24, 30, 28, 0.92)',
-          backdropFilter: 'blur(8px)',
-          border: `1px solid ${battlePaused ? '#f1c40f' : 'rgba(255, 90, 90, 0.5)'}`,
-          borderRadius: '8px',
-          padding: '8px 12px',
           display: 'flex',
-          alignItems: 'center',
-          gap: '10px',
-          boxShadow: '0 4px 16px rgba(0,0,0,0.5)',
+          flexDirection: 'column',
+          gap: '8px',
+          maxWidth: '92vw',
+          pointerEvents: 'auto',
         }}
         aria-label="Active combat indicator"
       >
-        <span
-          style={{
-            display: 'inline-block',
-            width: '8px',
-            height: '8px',
-            borderRadius: '50%',
-            background: battlePaused ? '#f1c40f' : '#e04040',
-            boxShadow: battlePaused ? 'none' : '0 0 8px #e04040',
-          }}
-        />
-        <div style={{ display: 'flex', flexDirection: 'column' }}>
-          <strong style={{ fontSize: '0.85rem' }}>
-            {battlePaused && battleSession.battle.tick === 0
-              ? '⚔️ Ready to Engage'
-              : battlePaused
-              ? '⏸ Battle Paused'
-              : '⚔️ Combat in progress'}
-          </strong>
-          <small style={{ opacity: 0.8 }}>{battleSession.army.name}</small>
-        </div>
-        {battlePaused && battleSession.battle.tick > 0 && !battleSession.battle.result && (
-          <button
-            className="secondary"
-            style={{ fontSize: '0.8rem', padding: '4px 10px' }}
-            onClick={() => setBattlePaused(false)}
-          >
-            Resume
-          </button>
-        )}
-        <button
-          className="secondary"
-          style={{ fontSize: '0.8rem', padding: '4px 10px', color: '#ff907d' }}
-          onClick={retreatBattle}
-        >
-          Retreat
-        </button>
-        <button
-          className="primary"
-          style={{ fontSize: '0.8rem', padding: '4px 10px' }}
-          onClick={() => {
-            setSpectatorSession(battleRef.current);
-            setSpectating(true);
-          }}
-        >
-          Watch Battle
-        </button>
+        {battleSessions.map(session => {
+          const isFinished = !!session.battle.result;
+          const players = session.battle.fighters.filter(f => f.side === 'player');
+          const maxHp = players.reduce((sum, f) => sum + f.maxHp, 0);
+          const hp = players.reduce((sum, f) => sum + f.hp, 0);
+          const ratio = maxHp ? Math.round((hp / maxHp) * 100) : 0;
+          return (
+            <div
+              key={session.id || session.army.id}
+              style={{
+                background: 'rgba(24, 30, 28, 0.92)',
+                backdropFilter: 'blur(8px)',
+                border: `1px solid ${isFinished ? '#888' : battlePaused ? '#f1c40f' : 'rgba(255, 90, 90, 0.5)'}`,
+                borderRadius: '8px',
+                padding: '8px 12px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '10px',
+                boxShadow: '0 4px 16px rgba(0,0,0,0.5)',
+              }}
+            >
+              <span
+                style={{
+                  display: 'inline-block',
+                  width: '8px',
+                  height: '8px',
+                  borderRadius: '50%',
+                  background: isFinished ? '#888' : battlePaused ? '#f1c40f' : '#e04040',
+                  boxShadow: isFinished || battlePaused ? 'none' : '0 0 8px #e04040',
+                  flexShrink: 0,
+                }}
+              />
+              <div style={{ display: 'flex', flexDirection: 'column', minWidth: '130px' }}>
+                <strong style={{ fontSize: '0.85rem' }}>
+                  {isFinished
+                    ? `⚔️ ${session.battle.result}`
+                    : battlePaused && session.battle.tick === 0
+                    ? '⚔️ Ready to Engage'
+                    : battlePaused
+                    ? '⏸ Battle Paused'
+                    : '⚔️ Combat in progress'}
+                </strong>
+                <small style={{ opacity: 0.85, fontSize: '0.75rem' }}>
+                  {(session.armies && session.armies.length > 1 ? session.armies.map(a => a.name).join(' + ') : session.army.name)} · {ratio}% HP
+                </small>
+              </div>
+              {battlePaused && session.battle.tick > 0 && !session.battle.result && (
+                <button
+                  className="secondary"
+                  style={{ fontSize: '0.8rem', padding: '4px 10px' }}
+                  onClick={() => setBattlePaused(false)}
+                >
+                  Resume
+                </button>
+              )}
+              {!isFinished && (
+                <button
+                  className="secondary"
+                  style={{ fontSize: '0.8rem', padding: '4px 10px', color: '#ff907d' }}
+                  onClick={() => retreatBattle(session)}
+                >
+                  Retreat
+                </button>
+              )}
+              <button
+                className="primary"
+                style={{ fontSize: '0.8rem', padding: '4px 10px' }}
+                onClick={() => {
+                  setSpectatorSession(session);
+                  setSpectating(true);
+                }}
+              >
+                Watch Battle
+              </button>
+            </div>
+          );
+        })}
       </aside>
     )}
-    {spectating && (battleSession || spectatorSession) && (
+    {spectating && (spectatorSession || battleSessions[0]) && (
       <BattleSpectatorModal
-        session={(battleSession || spectatorSession)!}
+        session={(spectatorSession || battleSessions[0])!}
+        allSessions={battleSessions}
+        onSelectSession={setSpectatorSession}
         isPaused={battlePaused}
         onTogglePause={toggleBattlePause}
         onStep={stepBattleOnce}
@@ -560,7 +738,7 @@ export default function Home() {
           setSpectating(false);
           setSpectatorSession(null);
         }}
-        onRetreat={retreatBattle}
+        onRetreat={() => retreatBattle(spectatorSession || battleSessions[0])}
         debug={battleDebug}
         onFinish={() => {
           setSpectating(false);

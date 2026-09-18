@@ -8,6 +8,8 @@ import { BattleOverlays } from '@/game/battle-debug';
 
 type Props = {
   session: BattleSession;
+  allSessions?: readonly BattleSession[];
+  onSelectSession?: (session: BattleSession) => void;
   isPaused: boolean;
   onTogglePause: () => void;
   onStep: () => void;
@@ -22,6 +24,8 @@ type Props = {
 
 export default function BattleSpectatorModal({
   session,
+  allSessions,
+  onSelectSession,
   isPaused,
   onTogglePause,
   onStep,
@@ -111,7 +115,7 @@ export default function BattleSpectatorModal({
       sceneRef.current?.dispose();
       sceneRef.current = null;
     };
-  }, [overlays, showAll, selectedId]);
+  }, [overlays, showAll, selectedId, session.id || session.army.id]);
 
   function toggleOverlay(key: keyof BattleOverlays) {
     setOverlays(prev => ({ ...prev, [key]: !prev[key] }));
@@ -136,6 +140,36 @@ export default function BattleSpectatorModal({
         onClose();
       }}
     >
+      {allSessions && allSessions.length > 1 && (
+        <div
+          style={{
+            display: 'flex',
+            gap: '8px',
+            padding: '10px 16px',
+            background: 'rgba(0, 0, 0, 0.4)',
+            borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
+            overflowX: 'auto',
+            alignItems: 'center',
+          }}
+        >
+          <span style={{ fontSize: '0.75rem', opacity: 0.7, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            Active Battles:
+          </span>
+          {allSessions.map(s => {
+            const isCurrent = (s.id || s.army.id) === (session.id || session.army.id);
+            return (
+              <button
+                key={s.id || s.army.id}
+                className={isCurrent ? 'primary' : 'secondary'}
+                style={{ fontSize: '0.8rem', padding: '4px 10px', whiteSpace: 'nowrap' }}
+                onClick={() => onSelectSession?.(s)}
+              >
+                ⚔️ {s.army.name}
+              </button>
+            );
+          })}
+        </div>
+      )}
       <header className="battle-header">
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>

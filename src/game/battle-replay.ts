@@ -45,12 +45,31 @@ export function beginReplay(battle: Battle): BattleReplay {
 
 /** Record observations without running duplicate simulations. Samples every 2 ticks or on resolution. */
 export function recordReplay(replay: BattleReplay, battle: Battle): BattleReplay {
-  if (battle.tick <= replay.frames[replay.frames.length - 1].tick) return replay;
-  const pending = [...replay.pending, ...battle.events];
-  if (battle.tick % 2 && !battle.result) return { ...replay, pending };
+  let nextReplay = replay;
+  if (battle.fighters.length > replay.initial.fighters.length) {
+    const addedFighters = battle.fighters.slice(replay.initial.fighters.length);
+    const paddedFrames = replay.frames.map(f => ({
+      ...f,
+      units: [
+        ...f.units,
+        ...addedFighters.map(af => [0, af.x, af.z - 10, af.facing, 0, -1] as RecordedUnit),
+      ],
+    }));
+    nextReplay = {
+      ...replay,
+      initial: {
+        ...replay.initial,
+        fighters: [...replay.initial.fighters, ...addedFighters.map(af => structuredClone(af))],
+      },
+      frames: paddedFrames,
+    };
+  }
+  if (battle.tick <= nextReplay.frames[nextReplay.frames.length - 1].tick) return nextReplay;
+  const pending = [...nextReplay.pending, ...battle.events];
+  if (battle.tick % 2 && !battle.result) return { ...nextReplay, pending };
   return {
-    ...replay,
-    frames: [...replay.frames, frame(battle, pending)],
+    ...nextReplay,
+    frames: [...nextReplay.frames, frame(battle, pending)],
     pending: [],
     result: battle.result,
   };
@@ -66,7 +85,9 @@ export function replayBattleAt(replay: BattleReplay, index: number): Battle {
     events: current.events,
     result: clamped >= replay.frames.length - 1 ? replay.result : null,
     fighters: replay.initial.fighters.map((fighter, i) => {
-      const [hp, x, z, facing, stateIndex, targetIndex] = current.units[i];
+      const unit = current.units[i];
+      if (!unit) return { ...fighter, hp: 0, state: 'holding', targetId: null };
+      const [hp, x, z, facing, stateIndex, targetIndex] = unit;
       return {
         ...fighter,
         hp,

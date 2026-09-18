@@ -22,11 +22,22 @@ export default function MailDialog({ onClose, battleReports }: { onClose: () => 
       <div id="mail-content" role="tabpanel" aria-labelledby={`mail-tab-${category}`} tabIndex={0}>
         {category === 0 && report ? <>
           <nav className="battle-mail-list" aria-label="Battle reports">{battleReports.map((entry, index) => <button key={entry.id ?? index} aria-pressed={selected === index} onClick={() => setSelected(index)}><strong>{entry.result} · {entry.target}</strong><small>{entry.completedAt ? new Date(entry.completedAt).toLocaleString() : 'Earlier battle'}</small></button>)}</nav>
-          <article className="battle-mail-report"><h3>{report.result} at {report.target}</h3><p>{report.armyName ?? 'Your formation'}</p>
+          <article className="battle-mail-report"><h3>{report.result} at {report.target}</h3><p><strong>{report.armyName ?? 'Your formation'}</strong>{report.armies && report.armies.length > 1 ? ' (Joint Assault)' : ''}</p>
             <p>{report.seconds.toFixed(1)} seconds{report.location ? ` · Location ${report.location.x.toFixed(1)}, ${report.location.z.toFixed(1)}` : ''}</p>
             <p>Lost: {report.losses.infantry} infantry, {report.losses.archer} archers. {report.survivors} surviving members.</p>
+            {report.armies && report.armies.length > 1 && (
+              <div style={{ margin: '8px 0', padding: '6px 10px', background: 'rgba(255,255,255,0.05)', borderRadius: '6px' }}>
+                <small style={{ fontWeight: 600, display: 'block', marginBottom: '4px' }}>Combined Formations Breakdown:</small>
+                {report.armies.map(a => (
+                  <div key={a.id} style={{ fontSize: '0.8rem', display: 'flex', justifyContent: 'space-between', padding: '2px 0' }}>
+                    <span>{a.name}</span>
+                    <span>Dealt: {Math.round(a.damage)} · Lost: {a.losses.infantry} inf, {a.losses.archer} arc · Surv: {a.survivors}</span>
+                  </div>
+                ))}
+              </div>
+            )}
             <p>{report.result === 'victory' ? 'The site was defeated. Your formation remains in the world, ready for orders.' : 'The formation returned toward home. Knocked-out Axies recover there.'}</p>
-            {report.members && <div className="battle-report-table"><table><caption>Formation results</caption><thead><tr><th>Unit</th><th>Started</th><th>Survived</th><th>Damage</th></tr></thead><tbody>{report.members.map((member, i) => <tr key={i}><th>{member.name}<small>{member.side === 'player' ? 'Your formation' : 'Defenders'}</small></th><td>{member.starting}</td><td>{member.surviving}</td><td>{Math.round(member.damage)}</td></tr>)}</tbody></table><p>Commander skills used: {report.members.reduce((sum, m) => sum + m.skills, 0)} · Healing: {Math.round(report.members.reduce((sum, m) => sum + m.healing, 0))}</p></div>}
+            {report.members && <div className="battle-report-table"><table><caption>Formation results</caption><thead><tr><th>Unit</th><th>Started</th><th>Survived</th><th>Damage</th></tr></thead><tbody>{report.members.map((member, i) => <tr key={i}><th>{member.name}<small>{member.formationName ?? (member.side === 'player' ? 'Your formation' : 'Defenders')}</small></th><td>{member.starting}</td><td>{member.surviving}</td><td>{Math.round(member.damage)}</td></tr>)}</tbody></table><p>Commander skills used: {report.members.reduce((sum, m) => sum + m.skills, 0)} · Healing: {Math.round(report.members.reduce((sum, m) => sum + m.healing, 0))}</p></div>}
             <p>No resource rewards were granted by this battle.</p>
             {report.replay ? <button className="primary" onClick={() => setWatching(report)}>Watch Replay</button> : <p>Recording unavailable for this battle.</p>}
           </article>
