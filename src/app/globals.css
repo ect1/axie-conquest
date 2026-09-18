@@ -319,6 +319,7 @@ h2 { font: bold 19px Georgia, serif; margin: 3px 0 0; }
 .world-mode .inventory.panel { display: block; }
 .world-mode .hud-actions .build-toggle:last-child { display: none; }
 .world-mode .heroes.panel { display: block; }
+.world-mode .portal-dialog.panel { display: block; }
 .world-toggle { position: absolute; z-index: 4; left: var(--edge-left); bottom: calc(var(--bottom) + 62px); border: 1px solid #ffffffb8; border-radius: 10px; padding: 10px 14px; color: #fffaf0; background: #294d43e8; box-shadow: 0 8px 20px #243f3855; font: 700 12px/1 system-ui, sans-serif; letter-spacing: .04em; cursor: pointer; }
 .world-toggle[aria-pressed="true"] { background: #a66a3eea; border-color: #ffe2a0; }
 @media (max-width: 700px) {

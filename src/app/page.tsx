@@ -32,6 +32,22 @@ import {
   normalizeOwnerAddress,
 } from '@/game/owner-address';
 import { resetGame } from '@/game/reset';
+import PortalDialog from './portal-dialog';
+import {
+  DEFAULT_PORTAL_CONFIG,
+  PORTAL_CONFIG_SAVE_KEY,
+  PORTAL_STATE_SAVE_KEY,
+  PortalInstance,
+  PortalMobSummoningConfig,
+  PortalRuntimeState,
+  createInitialPortalState,
+  enemyMarchPosition,
+  generateNewPortalCoordinate,
+  generateWaveFormation,
+  restorePortalConfig,
+  restorePortalState,
+  stepPortalSystem,
+} from '@/game/portal';
 
 type InventoryTab = 'resources' | 'equipment' | 'other';
 type AxieApiResponse = { data?: { axies?: { results?: unknown } }; error?: string };
@@ -94,6 +110,72 @@ export default function Home() {
   const [mobGroup, setMobGroup] = useState<SpawnableMobGroup>('chimera-pack');
   const [selectedBossId, setSelectedBossId] = useState<string>('kotaro');
   const [now, setNow] = useState(Date.now);
+  const [portalConfig, setPortalConfig] = useState<PortalMobSummoningConfig>(() => {
+    try {
+      return restorePortalConfig(localStorage.getItem(PORTAL_CONFIG_SAVE_KEY));
+    } catch {
+      return DEFAULT_PORTAL_CONFIG;
+    }
+  });
+  const [portalState, setPortalState] = useState<PortalRuntimeState>(() => {
+    try {
+      return restorePortalState(localStorage.getItem(PORTAL_STATE_SAVE_KEY), DEFAULT_PORTAL_CONFIG);
+    } catch {
+      return createInitialPortalState(DEFAULT_PORTAL_CONFIG);
+    }
+  });
+  const [selectedPortalId, setSelectedPortalId] = useState<string | null>(null);
+
+  function triggerPortalWave(portalId?: string) {
+    const time = Date.now();
+    const targetPortal = portalId ? portalState.portals.find(p => p.id === portalId) : portalState.portals[0];
+    if (!targetPortal) return;
+
+    const updated = portalState.portals.map(p => {
+      if (p.id === targetPortal.id) {
+        return { ...p, nextAttackTime: time - 1 };
+      }
+      return p;
+    });
+    setPortalState({ ...portalState, portals: updated });
+    setMessage(`Wave triggered for ${targetPortal.name}!`);
+  }
+
+  function summonNewPortalManual() {
+    const time = Date.now();
+    const newCoord = generateNewPortalCoordinate(portalState.portals);
+    const newIdx = portalState.portals.length + 1;
+    const startLevel = portalConfig.portalLevelScaling.newPortalIndependentLevel ? 1 : (portalState.portals[0]?.level ?? 1);
+    const newPortal: PortalInstance = {
+      id: `portal-${newIdx}`,
+      name: `Rift Portal ${newIdx}`,
+      level: startLevel,
+      coordinate: newCoord,
+      cycleState: 'initial_countdown',
+      nextAttackTime: time + portalConfig.initialAttackInSeconds * 1000,
+      upcomingFormation: generateWaveFormation(startLevel, portalConfig),
+      createdAt: time,
+    };
+    const nextState = {
+      ...portalState,
+      portals: [...portalState.portals, newPortal],
+    };
+    setPortalState(nextState);
+    try {
+      localStorage.setItem(PORTAL_STATE_SAVE_KEY, JSON.stringify(nextState));
+    } catch { /* ignore */ }
+    setMessage(`Summoned ${newPortal.name} at ${newCoord.x}, ${newCoord.z}!`);
+  }
+
+  function resetPortalsManual() {
+    const initial = createInitialPortalState(portalConfig);
+    setPortalState(initial);
+    try {
+      localStorage.setItem(PORTAL_STATE_SAVE_KEY, JSON.stringify(initial));
+    } catch { /* ignore */ }
+    setMessage('All portals reset to level 1.');
+  }
+
   const [showIntro, setShowIntro] = useState(true);
   const [ownerAddress, setOwnerAddress] = useState<string>(getPersistedOwner);
 
@@ -198,7 +280,7 @@ export default function Home() {
       }
       try { recoverBattleTransaction(localStorage); }
       catch (error) { setLoadError(`Cannot recover the last battle save: ${(error as Error).message}`); return; }
-      view.current = createBase(canvas.current, { watchBattle: (sessionId) => { const session = battleSessionsRef.current.find(s => (s.id || s.army.id) === sessionId) || battleSessionsRef.current[0]; if (session) { setSpectatorSession(session); setSpectating(true); } }, fighterSelect: setSelectedFighterId, change: setBuildings, preview: setCell, unitSelect: id => { setSelectedUnitId(id); setTarget(null); setRouteAction(null); setSelectedAction(null); }, target: next => { setTarget(next); setRouteAction(next ? 'choose' : null); setSelectedAction(null); setFormationIndex(null); if (next?.id) setSelectedUnitId(null); if (next) { setSelected(null); setDeveloper(false); setMilitary(false); setTraining(false); setHeroes(false); setInventory(false); setCatalog(false); } }, viewMode: mode => { setWorldView(mode === 'world'); if (mode !== 'world') { setSelectedUnitId(null); setTarget(null); setRouteAction(null); setSelectedAction(null); } }, select: building => { setSelected(building); if (building) { setDeveloper(false); setMilitary(false); setTraining(false); setHeroes(false); setInventory(false); } }, message: setMessage, troops: setTroops });
+      view.current = createBase(canvas.current, { watchBattle: (sessionId) => { const session = battleSessionsRef.current.find(s => (s.id || s.army.id) === sessionId) || battleSessionsRef.current[0]; if (session) { setSpectatorSession(session); setSpectating(true); } }, fighterSelect: setSelectedFighterId, change: setBuildings, preview: setCell, unitSelect: id => { setSelectedUnitId(id); setSelectedPortalId(null); setTarget(null); setRouteAction(null); setSelectedAction(null); }, portalSelect: portalId => { setSelectedPortalId(portalId); setSelectedUnitId(null); setSelected(null); setTarget(null); setDeveloper(false); setMilitary(false); setTraining(false); setHeroes(false); setInventory(false); }, target: next => { setTarget(next); setRouteAction(next ? 'choose' : null); setSelectedAction(null); setFormationIndex(null); if (next?.id) setSelectedUnitId(null); if (next) { setSelected(null); setDeveloper(false); setMilitary(false); setTraining(false); setHeroes(false); setInventory(false); setCatalog(false); } }, viewMode: mode => { setWorldView(mode === 'world'); if (mode !== 'world') { setSelectedUnitId(null); setTarget(null); setRouteAction(null); setSelectedAction(null); } }, select: building => { setSelected(building); if (building) { setDeveloper(false); setMilitary(false); setTraining(false); setHeroes(false); setInventory(false); } }, message: setMessage, troops: setTroops });
       let initialObjects: WorldObject[];
       let savedObjects: WorldObject[] | null = null;
       try { savedObjects = restoreWorld(localStorage.getItem(WORLD_SAVE_KEY)); } catch { savedObjects = null; }
@@ -222,6 +304,7 @@ export default function Home() {
       const requested = Object.values(DEFAULT_GENERATION.counts).reduce((sum, count) => sum + count, 0);
       setGenerationStatus(savedObjects !== null ? `${initialObjects.length} saved objects restored.` : `${initialObjects.length} / ${requested} generated.`);
       setReady(true);
+      view.current?.setPortalState(portalState, selectedUnitId);
     }).catch(() => setMessage('Unable to open the 3D view. Please enable WebGL and reload.'));
     return () => { disposed = true; view.current?.dispose(); view.current = null; };
   }, [showIntro]);
@@ -229,6 +312,34 @@ export default function Home() {
     if (ready && !worldView) view.current?.setGridVisible((catalog && !selected) || placing);
   }, [catalog, placing, ready, selected, worldView]);
   useEffect(() => { if (catalog) setInventory(false); }, [catalog]);
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setNow(Date.now());
+    }, 250);
+    return () => window.clearInterval(timer);
+  }, []);
+  useEffect(() => {
+    if (!ready) return;
+    const { state: nextState, newMarchesSpawned, arrivedMarchesCount } = stepPortalSystem(
+      now,
+      portalState,
+      portalConfig,
+      { x: 0, z: 0 }
+    );
+    try {
+      localStorage.setItem(PORTAL_STATE_SAVE_KEY, JSON.stringify(nextState));
+    } catch { /* session only */ }
+    setPortalState(nextState);
+    view.current?.setPortalState(nextState, selectedUnitId);
+    if (newMarchesSpawned.length > 0) {
+      newMarchesSpawned.forEach(march => {
+        setMessage(`⚠️ Hostile March detected! ${march.name} approaching Everleaf Haven.`);
+      });
+    }
+    if (arrivedMarchesCount > 0) {
+      setMessage('Hostile enemy march reached city gates and disappeared.');
+    }
+  }, [now, ready, portalConfig]);
   useEffect(() => {
     if (!ready || battleError) return;
     const activeAttackerIds = new Set(battleSessionsRef.current.map(s => s.army.id));
@@ -652,7 +763,12 @@ export default function Home() {
     } catch (error) { setMessage((error as Error).message); }
   }
   const selectedUnit = units.find(u => u.id === selectedUnitId);
-  const selectedPosition = selectedUnit ? unitPosition(selectedUnit, now) : null;
+  const selectedEnemyMarch = portalState.activeEnemyMarches.find(m => m.id === selectedUnitId);
+  const selectedPosition = selectedUnit
+    ? unitPosition(selectedUnit, now)
+    : selectedEnemyMarch
+    ? enemyMarchPosition(selectedEnemyMarch, now)
+    : null;
   const selectedObject = target?.id ? worldObjects.find(object => object.id === target.id) : undefined;
   const targetActions = selectedObject ? getWorldObjectActions(selectedObject) : [];
 
@@ -680,7 +796,140 @@ export default function Home() {
     </header>
     <aside className="chapter"><span className="eyebrow">CHAPTER 01 / ROOTS OF A KINGDOM</span><h1>A home worth<br />growing.</h1><p>Raise your first farm.<br />Bring life back to Lunacia.</p><div className="objective"><span className={farms ? 'complete' : ''}>{farms ? '✓' : '○'}</span><div>Plant the foundations<small>{farms ? 'First farm established' : 'Build your first farm'}</small></div></div></aside>
     <div className="map-controls"><button aria-label="Zoom in" onClick={() => view.current?.zoom(0.85)}>+</button><button aria-label="Zoom out" onClick={() => view.current?.zoom(1.18)}>−</button><button aria-label="Center on main hall" onClick={() => view.current?.home()}>⌂</button></div>
-    <aside className="march-list" aria-label="World units"><strong>World units</strong>{units.map(unit => { const position = unitPosition(unit, now); const activity = unit.order?.activity ?? unit.activity; return <button key={unit.id} aria-pressed={selectedUnitId === unit.id} aria-label={`Focus camera on ${unit.name} at ${position.x.toFixed(1)}, ${position.z.toFixed(1)}`} onClick={() => { setSelectedUnitId(unit.id); setTarget(null); setRouteAction(null); setSelectedAction(null); if (!worldView) { view.current?.setWorldView(true); setWorldView(true); } view.current?.focusCoordinate(position); }}><strong>{unit.name}</strong><small>{activity ? `${activity.action} · ${activity.targetLabel}` : settleUnit(unit, now).status} {unit.order ? `· ${formatDuration(unit.order.arrivesAt - now)}` : ''}</small><span className="unit-coordinate">⌖ {position.x.toFixed(1)}, {position.z.toFixed(1)} · View unit</span></button>; })}{!units.length && <small>No units deployed</small>}</aside>
+    <aside className="march-list" aria-label="World units">
+      <strong>World units</strong>
+      {portalState.activeEnemyMarches.map(march => {
+        const position = enemyMarchPosition(march, now);
+        const etaMs = Math.max(0, march.arrivesAt - now);
+        return (
+          <button
+            key={march.id}
+            aria-pressed={selectedUnitId === march.id}
+            style={{
+              borderLeft: '4px solid #ef4444',
+              background: selectedUnitId === march.id ? '#fee2e2' : 'rgba(254, 242, 242, 0.7)',
+            }}
+            aria-label={`Focus camera on ${march.name}`}
+            onClick={() => {
+              setSelectedUnitId(march.id);
+              setSelectedPortalId(null);
+              setTarget(null);
+              setRouteAction(null);
+              setSelectedAction(null);
+              if (!worldView) {
+                view.current?.setWorldView(true);
+                setWorldView(true);
+              }
+              view.current?.focusCoordinate(position);
+            }}
+          >
+            <strong style={{ color: '#b91c1c' }}>⚠️ {march.name}</strong>
+            <small style={{ color: '#991b1b' }}>Hostile wave · ETA {formatDuration(etaMs)}</small>
+            <span className="unit-coordinate">⌖ {position.x.toFixed(1)}, {position.z.toFixed(1)} · View enemy</span>
+          </button>
+        );
+      })}
+      {units.map(unit => {
+        const position = unitPosition(unit, now);
+        const activity = unit.order?.activity ?? unit.activity;
+        return (
+          <button
+            key={unit.id}
+            aria-pressed={selectedUnitId === unit.id}
+            aria-label={`Focus camera on ${unit.name} at ${position.x.toFixed(1)}, ${position.z.toFixed(1)}`}
+            onClick={() => {
+              setSelectedUnitId(unit.id);
+              setSelectedPortalId(null);
+              setTarget(null);
+              setRouteAction(null);
+              setSelectedAction(null);
+              if (!worldView) {
+                view.current?.setWorldView(true);
+                setWorldView(true);
+              }
+              view.current?.focusCoordinate(position);
+            }}
+          >
+            <strong>{unit.name}</strong>
+            <small>{activity ? `${activity.action} · ${activity.targetLabel}` : settleUnit(unit, now).status} {unit.order ? `· ${formatDuration(unit.order.arrivesAt - now)}` : ''}</small>
+            <span className="unit-coordinate">⌖ {position.x.toFixed(1)}, {position.z.toFixed(1)} · View unit</span>
+          </button>
+        );
+      })}
+      {!units.length && !portalState.activeEnemyMarches.length && <small>No units deployed</small>}
+    </aside>
+    {worldView && selectedEnemyMarch && (
+      <section
+        className="selection world-action panel"
+        style={{
+          border: '2px solid #ef4444',
+          background: 'rgba(28, 16, 20, 0.95)',
+          color: '#fef2f2',
+          boxShadow: '0 8px 30px rgba(220, 38, 38, 0.3)',
+          right: 'var(--edge-right)',
+          left: 'auto',
+          marginInline: 0,
+          marginLeft: 'auto',
+          marginRight: 0,
+          width: 'min(380px, 94vw)',
+          zIndex: 20,
+        }}
+        aria-label="Selected hostile march"
+      >
+        <button
+          className="close"
+          aria-label="Deselect hostile march"
+          onClick={() => setSelectedUnitId(null)}
+          style={{ background: '#7f1d1d', color: '#fecaca', border: '1px solid #dc2626' }}
+        >
+          &times;
+        </button>
+        <span className="eyebrow" style={{ color: '#f87171' }}>
+          ⚠️ HOSTILE MARCH · WAVE {selectedEnemyMarch.level}
+        </span>
+        <h2 style={{ color: '#ffffff' }}>{selectedEnemyMarch.name}</h2>
+        <p style={{ color: '#fca5a5' }}>
+          Origin: {selectedEnemyMarch.portalName} ➔ Destination: Everleaf Haven
+        </p>
+        <div
+          style={{
+            background: 'rgba(127, 29, 29, 0.45)',
+            border: '1.5px solid #ef4444',
+            borderRadius: '8px',
+            padding: '8px 12px',
+            margin: '8px 0',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+          }}
+        >
+          <span style={{ fontSize: '12px', fontWeight: 'bold', color: '#fca5a5' }}>ETA ARRIVAL:</span>
+          <strong style={{ fontSize: '16px', color: '#ffffff' }}>
+            {formatDuration(Math.max(0, selectedEnemyMarch.arrivesAt - now))}
+          </strong>
+        </div>
+        <p style={{ fontSize: '11px', color: '#fecaca' }}>
+          Current Position: {enemyMarchPosition(selectedEnemyMarch, now).x.toFixed(1)}, {enemyMarchPosition(selectedEnemyMarch, now).z.toFixed(1)} · March Speed: {selectedEnemyMarch.speed} tiles/s
+        </p>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px', margin: '8px 0' }}>
+          <div style={{ background: 'rgba(131, 24, 67, 0.35)', border: '1px solid #db2777', borderRadius: '6px', padding: '6px', textAlign: 'center' }}>
+            <span style={{ fontSize: '10px', color: '#fbcfe8', display: 'block' }}>👑 Boss Mascot</span>
+            <strong style={{ fontSize: '14px', color: '#ffffff' }}>{selectedEnemyMarch.formation.totalMascot}</strong>
+          </div>
+          <div style={{ background: 'rgba(30, 41, 59, 0.5)', border: '1px solid #64748b', borderRadius: '6px', padding: '6px', textAlign: 'center' }}>
+            <span style={{ fontSize: '10px', color: '#cbd5e1', display: 'block' }}>⚔️ Soldiers</span>
+            <strong style={{ fontSize: '14px', color: '#ffffff' }}>{selectedEnemyMarch.formation.totalSoldier}</strong>
+          </div>
+          <div style={{ background: 'rgba(20, 83, 45, 0.35)', border: '1px solid #16a34a', borderRadius: '6px', padding: '6px', textAlign: 'center' }}>
+            <span style={{ fontSize: '10px', color: '#bbf7d0', display: 'block' }}>🏹 Archers</span>
+            <strong style={{ fontSize: '14px', color: '#ffffff' }}>{selectedEnemyMarch.formation.totalArcher}</strong>
+          </div>
+        </div>
+        <small style={{ color: '#fca5a5', display: 'block', marginTop: '6px' }}>
+          Hostiles will disappear upon reaching the city gates. (Battle and defense systems under development).
+        </small>
+      </section>
+    )}
     {worldView && selectedUnit && selectedUnit.id !== battleSession?.army.id && <section className="selection world-action panel" aria-label="Selected unit"><button className="close" aria-label="Deselect unit" onClick={() => setSelectedUnitId(null)}>&times;</button><span className="eyebrow">{selectedUnit.kind} · {settleUnit(selectedUnit, now).status}</span><h2>{selectedUnit.name}</h2><p>Position {selectedPosition!.x.toFixed(1)}, {selectedPosition!.z.toFixed(1)} · {selectedUnit.members.reduce((n, m) => n + m.count, 0)} members</p>{(selectedUnit.order?.activity ?? selectedUnit.activity) ? <p>{(selectedUnit.order?.activity ?? selectedUnit.activity)!.action} · {(selectedUnit.order?.activity ?? selectedUnit.activity)!.targetLabel}{selectedUnit.order ? ` · ${formatDuration(selectedUnit.order.arrivesAt - now)}` : ' · Arrived'}</p> : <p>{target ? `Move to ${target.x.toFixed(1)}, ${target.z.toFixed(1)}` : 'Tap empty ground to choose a destination.'}</p>}<div className="placement-actions"><button className="primary" disabled={!target || !!target.id} onClick={() => issueCommand('move')}>Move</button><button className="secondary" disabled={!selectedUnit.order && !selectedUnit.activity} onClick={() => issueCommand('hold')}>Hold</button><button className="secondary" disabled={selectedUnit.status === 'returning'} onClick={() => issueCommand('return')}>Return to base</button></div></section>}
     {battleError && !battleSession && <section className="selection panel" role="alert"><p>{battleError}</p><button className="primary" onClick={() => setBattleError('')}>Retry battle</button></section>}
     {loadError && <section className="selection panel" role="alert"><p>{loadError}</p><button className="primary" onClick={() => window.location.reload()}>Retry reload</button></section>}
@@ -695,6 +944,50 @@ export default function Home() {
     {!selectedUnit && target && routeAction === 'formation' && selectedAction && <section className="selection world-action panel" aria-label="World actions"><button className="close" aria-label="Close world actions" onClick={() => { setRouteAction('choose'); setFormationIndex(null); }}>&times;</button><span className="eyebrow">{selectedAction === 'march' ? `MARCH · ${target.label || 'DESTINATION'}` : `${selectedAction.toUpperCase()} · ${target.label}`}</span><h2>Choose formation</h2><p>At-home and deployed formations can take this order.</p>{formations.map((formation, index) => { const active = units.find(unit => unit.kind === 'army' && unit.cityId === selectedCity.id && unit.formationIndex === index); const issue = formationIssue(index); const origin = active ? unitPosition(active, now) : { x: 0, z: 0 }; const eta = marchTravelTimeMs(createRoute(target, origin), active?.speed ?? unitStats.marchSpeed); return <button key={index} className="building-card" aria-pressed={formationIndex === index} disabled={!!issue} onClick={() => setFormationIndex(index)}><strong>Formation {index + 1}{active ? ' · Deployed' : ' · At home'}{formationIndex === index ? ' · Selected' : ''}</strong><small>{issue || `${active ? `${settleUnit(active, now).status} · ${active.members.reduce((sum, member) => sum + member.count, 0)} members` : 'Ready to deploy'} · ETA ${formatDuration(eta)}`}</small></button>; })}{!formations.some(isValidFormation) && !units.some(unit => unit.kind === 'army') && <button className="secondary" onClick={() => { setTarget(null); setRouteAction(null); setSelectedAction(null); setMilitary(true); }}>Configure formations in Military</button>}<button className="primary" disabled={formationIndex === null || !!formationIssue(formationIndex)} onClick={() => { if (formationIndex !== null) deploy(formationIndex, selectedAction); }}>{selectedAction === 'march' ? 'Send march' : selectedAction === 'attack' ? 'Send attack' : selectedAction === 'occupy' ? 'Send occupiers' : 'Send gatherers'}</button></section>}
     {military && !placing && !selected && <MilitaryPanel troops={troops} units={units} cityId={selectedCity.id} now={now} axies={apiAxies} deployedIds={selectedCity.deployedAxieIds.filter(id => apiAxies.some(axie => axie.id === id))} formations={formations} onFormationsChange={setFormations} onClose={() => setMilitary(false)} />}
     {cityUnit && !placing && !selected && <CityUnitPanel city={{ ...selectedCity, troops }} axies={apiAxies} onClose={() => setCityUnit(false)} />}
+    <button
+      className="portal-toggle build-toggle"
+      style={{
+        position: 'absolute',
+        zIndex: 3,
+        right: 'var(--edge-right)',
+        bottom: 'calc(var(--bottom) + 162px)',
+        background: selectedPortalId ? '#7e22ce' : 'rgba(59, 7, 100, 0.88)',
+        border: '1.5px solid #a855f7',
+        color: '#f3e8ff',
+        boxShadow: '0 4px 16px rgba(88, 28, 135, 0.35)',
+        display: 'flex',
+        alignItems: 'center',
+        gap: '6px',
+      }}
+      onClick={() => {
+        if (selectedPortalId) {
+          setSelectedPortalId(null);
+        } else {
+          const targetPortal = portalState.portals[0];
+          if (targetPortal) {
+            setSelectedPortalId(targetPortal.id);
+            if (!worldView) {
+              view.current?.setWorldView(true);
+              setWorldView(true);
+            }
+            view.current?.focusCoordinate(targetPortal.coordinate);
+          }
+        }
+      }}
+      aria-expanded={!!selectedPortalId}
+      aria-label="Toggle Portal HUD"
+    >
+      <span>🌀 Portal</span>
+      {portalState.activeEnemyMarches.length > 0 ? (
+        <span style={{ background: '#ef4444', color: '#ffffff', padding: '1px 5px', borderRadius: '6px', fontSize: '10px', fontWeight: 800 }}>
+          ⚔️ {portalState.activeEnemyMarches.length}
+        </span>
+      ) : portalState.portals[0] ? (
+        <span style={{ background: 'rgba(147, 51, 234, 0.45)', color: '#f3e8ff', padding: '1px 5px', borderRadius: '4px', fontSize: '10px', fontWeight: 700 }}>
+          {Math.max(0, Math.ceil((portalState.portals[0].nextAttackTime - now) / 1000))}s
+        </span>
+      ) : null}
+    </button>
     <button className="city-toggle build-toggle" onClick={() => { setHeroes(false); setMilitary(false); setTraining(false); setInventory(false); setSelected(null); setCatalog(false); setCityUnit(current => !current); }} aria-expanded={cityUnit}><span>City</span></button>
     <button className="inventory-toggle build-toggle" onClick={toggleInventory} aria-expanded={inventory}><span>Inventory</span></button>
     {inventory && !catalog && !placing && !selected && <section className="inventory panel" aria-label="Inventory">
@@ -706,7 +999,47 @@ export default function Home() {
     </section>}
     {heroes && !placing && !selected && <HeroesPanel axies={apiAxies} deployedIds={selectedCity.deployedAxieIds.filter(id => apiAxies.some(axie => axie.id === id))} status={axieSyncStatus} error={axieSyncError} syncedAt={axieSyncedAt} onDeploy={id => setSelectedCity(city => city.deployedAxieIds.includes(id) ? city : { ...city, deployedAxieIds: [...city.deployedAxieIds.filter(deployedId => apiAxies.some(axie => axie.id === deployedId)), id] })} onEnlist={id => setSelectedCity(city => ({ ...city, deployedAxieIds: city.deployedAxieIds.filter(deployedId => deployedId !== id) }))} onClose={() => setHeroes(false)} />}
     {training && <TrainingDialog buildings={buildings} troops={troops} ready={ready} onTrain={kind => { view.current?.train(kind); }} onClose={() => setTraining(false)} />}
-    {developer && <DeveloperPanel settings={generation} onSettings={setGeneration} objects={worldObjects} status={generationStatus} ready={ready} mobSpawnEnabled={mobSpawnEnabled} onMobSpawnEnabled={setMobSpawnEnabled} mobGroup={mobGroup} onMobGroup={setMobGroup} selectedBossId={selectedBossId} onSelectedBossId={setSelectedBossId} activeAxies={apiAxies.filter(axie => selectedCity.deployedAxieIds.includes(axie.id))} debugBattle={battleDebug} onDebugBattleChange={setBattleDebug} activeBattleSession={battleSession} onAbortBattle={abortBattle} onClose={() => setDeveloper(false)} onRegenerate={regenerate} onRemove={() => { view.current?.removeWorld(); try { localStorage.setItem(WORLD_SAVE_KEY, '[]'); } catch { /* Keep the removal in memory when storage is unavailable. */ } setWorldObjects([]); setGenerationStatus('All generated objects removed.'); }} />}
+    {developer && <DeveloperPanel
+      settings={generation}
+      onSettings={setGeneration}
+      objects={worldObjects}
+      status={generationStatus}
+      ready={ready}
+      mobSpawnEnabled={mobSpawnEnabled}
+      onMobSpawnEnabled={setMobSpawnEnabled}
+      mobGroup={mobGroup}
+      onMobGroup={setMobGroup}
+      selectedBossId={selectedBossId}
+      onSelectedBossId={setSelectedBossId}
+      activeAxies={apiAxies.filter(axie => selectedCity.deployedAxieIds.includes(axie.id))}
+      debugBattle={battleDebug}
+      onDebugBattleChange={setBattleDebug}
+      activeBattleSession={battleSession}
+      onAbortBattle={abortBattle}
+      portalConfig={portalConfig}
+      onPortalConfigChange={newConfig => {
+        setPortalConfig(newConfig);
+        try {
+          localStorage.setItem(PORTAL_CONFIG_SAVE_KEY, JSON.stringify(newConfig));
+        } catch { /* ignore */ }
+      }}
+      portalState={portalState}
+      onTriggerPortalWave={id => triggerPortalWave(id)}
+      onSummonNewPortal={() => summonNewPortalManual()}
+      onResetPortals={() => resetPortalsManual()}
+      onClose={() => setDeveloper(false)}
+      onRegenerate={regenerate}
+      onRemove={() => { view.current?.removeWorld(); try { localStorage.setItem(WORLD_SAVE_KEY, '[]'); } catch { /* Keep the removal in memory when storage is unavailable. */ } setWorldObjects([]); setGenerationStatus('All generated objects removed.'); }}
+    />}
+    {selectedPortalId && (
+      <PortalDialog
+        portal={portalState.portals.find(p => p.id === selectedPortalId) ?? portalState.portals[0]}
+        config={portalConfig}
+        now={now}
+        onClose={() => setSelectedPortalId(null)}
+        onTriggerWave={id => triggerPortalWave(id)}
+      />
+    )}
     {mail && <MailDialog battleReports={battleReports} onClose={() => setMail(false)} />}
     {battleSessions.length > 0 && !spectating && (
       <aside

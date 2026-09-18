@@ -14,9 +14,11 @@ import { CAPITAL_CITY_ID } from './cities';
 import { Coordinate, WorldTarget } from './routes';
 import { getBossConfig } from './bosses';
 import { BabylonMascotMixer, type BabylonMascotInstance, MASCOT_CONFIGS } from './mascot/mascot-mixer';
+import { PortalSceneManager } from './portal-scene';
+import type { PortalRuntimeState } from './portal';
 
-type Events = { fighterSelect?: (id: string) => void; watchBattle?: (sessionId?: string) => void; troops: (troops: Troops) => void; change: (b: Building[]) => void; preview: (c: Cell | null) => void; select: (b: Building | null) => void; unitSelect: (id: string) => void; target: (target: WorldTarget | null) => void; message: (s: string) => void; viewMode: (mode: 'base' | 'world') => void };
-export type BaseView = { focusBattle: (targetSession?: BattleSession) => void; setBattle: (session: BattleSession | null, selectedId?: string | null) => void; setBattles: (sessions: readonly BattleSession[]) => void; refreshMilitary: () => void; setUnits: (orders: WorldUnit[], selectedId: string | null) => void; setSelectedTarget: (id: string | null) => void; focusCoordinate: (coordinate: Coordinate) => void; regenerateWorld: (settings: GenerationSettings) => WorldObject[]; loadWorld: (objects: WorldObject[]) => void; removeWorld: () => void; train: (kind: TroopKind) => boolean; rotate: (id: string) => boolean; move: (id: string) => boolean; remove: (id: string) => boolean; begin: (kind: BuildableKind) => void; cancel: () => void; confirm: () => boolean; setGridVisible: (visible: boolean) => void; setWorldView: (enabled: boolean) => void; setRoute: (route: { origin: Coordinate; destination: Coordinate } | null) => void; zoom: (factor: number) => void; home: () => void; dispose: () => void };
+type Events = { fighterSelect?: (id: string) => void; watchBattle?: (sessionId?: string) => void; troops: (troops: Troops) => void; change: (b: Building[]) => void; preview: (c: Cell | null) => void; select: (b: Building | null) => void; unitSelect: (id: string) => void; portalSelect?: (portalId: string) => void; target: (target: WorldTarget | null) => void; message: (s: string) => void; viewMode: (mode: 'base' | 'world') => void };
+export type BaseView = { focusBattle: (targetSession?: BattleSession) => void; setBattle: (session: BattleSession | null, selectedId?: string | null) => void; setBattles: (sessions: readonly BattleSession[]) => void; setPortalState: (state: PortalRuntimeState | null, selectedId?: string | null) => void; refreshMilitary: () => void; setUnits: (orders: WorldUnit[], selectedId: string | null) => void; setSelectedTarget: (id: string | null) => void; focusCoordinate: (coordinate: Coordinate) => void; regenerateWorld: (settings: GenerationSettings) => WorldObject[]; loadWorld: (objects: WorldObject[]) => void; removeWorld: () => void; train: (kind: TroopKind) => boolean; rotate: (id: string) => boolean; move: (id: string) => boolean; remove: (id: string) => boolean; begin: (kind: BuildableKind) => void; cancel: () => void; confirm: () => boolean; setGridVisible: (visible: boolean) => void; setWorldView: (enabled: boolean) => void; setRoute: (route: { origin: Coordinate; destination: Coordinate } | null) => void; zoom: (factor: number) => void; home: () => void; dispose: () => void };
 const SAVE_KEY = 'axie-conquest-base-v2';
 const HALF_WIDTH = GRID_WIDTH / 2;
 const HALF_DEPTH = GRID_DEPTH / 2;
@@ -32,6 +34,11 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
   let marchOrders: WorldUnit[] | null = null, marchSelection: string | null = null;
   const mascotMixer = new BabylonMascotMixer(scene);
   const worldMascotAvatars = new Map<string, BabylonMascotInstance>();
+  const portalScene = new PortalSceneManager(scene, {
+    onSelectPortal: events.portalSelect,
+    onSelectMarch: events.unitSelect,
+  });
+  let activePortalState: PortalRuntimeState | null = null;
   function setUnits(orders: WorldUnit[], selectedId: string | null) {
     marchSelection = selectedId;
     if (marchOrders === orders) return;
@@ -532,9 +539,13 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
     }
     else {
       const rect = canvas.getBoundingClientRect();
-      const hit = scene.pick(e.clientX - rect.left, e.clientY - rect.top, mesh => mesh.isEnabled(true) && mesh.isVisible && mesh.isPickable && (!!mesh.metadata?.fighterId || !!mesh.metadata?.buildingId || !!mesh.metadata?.mapObject || !!mesh.metadata?.unitId || (mesh.metadata?.action === 'watchBattle' && liveBattles.length > 0)));
+      const hit = scene.pick(e.clientX - rect.left, e.clientY - rect.top, mesh => mesh.isEnabled(true) && mesh.isVisible && mesh.isPickable && (!!mesh.metadata?.fighterId || !!mesh.metadata?.buildingId || !!mesh.metadata?.mapObject || !!mesh.metadata?.unitId || !!mesh.metadata?.portalId || (mesh.metadata?.action === 'watchBattle' && liveBattles.length > 0)));
       if (hit?.pickedMesh?.metadata?.action === 'watchBattle' && liveBattles.length > 0) {
         events.watchBattle?.(hit.pickedMesh.metadata.sessionId);
+        return;
+      }
+      if (typeof hit?.pickedMesh?.metadata?.portalId === 'string') {
+        events.portalSelect?.(hit.pickedMesh.metadata.portalId);
         return;
       }
       if (typeof hit?.pickedMesh?.metadata?.fighterId === 'string') { events.fighterSelect?.(hit.pickedMesh.metadata.fighterId); return; }
@@ -562,7 +573,18 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
   canvas.addEventListener('pointerup', up); canvas.addEventListener('pointercancel', up);
   canvas.addEventListener('wheel', wheel, { passive: false });
   const resize = () => engine.resize(); window.addEventListener('resize', resize);
-  engine.runRenderLoop(() => { if (lastWorldBattleSettings !== activeBattleSettings) { lastWorldBattleSettings = activeBattleSettings; refreshWorldCombatDebugs(); } updateOverview(); worldFight.update(liveBattles, overviewActive); scene.render(); });
+  engine.runRenderLoop(() => {
+    if (lastWorldBattleSettings !== activeBattleSettings) {
+      lastWorldBattleSettings = activeBattleSettings;
+      refreshWorldCombatDebugs();
+    }
+    updateOverview();
+    worldFight.update(liveBattles, overviewActive);
+    if (activePortalState) {
+      portalScene.update(activePortalState);
+    }
+    scene.render();
+  });
   function persist(message: string) {
     try { localStorage.setItem(SAVE_KEY, JSON.stringify(buildings)); events.message(message); }
     catch { events.message(`${message} Browser storage unavailable; progress lasts this session.`); }
@@ -609,6 +631,15 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
     setBattles(sessions) {
       liveBattles = sessions;
       worldFight.update(liveBattles, overviewActive);
+    },
+    setPortalState(state, selectedId) {
+      activePortalState = state;
+      if (selectedId !== undefined) {
+        portalScene.setSelectedId(selectedId);
+      }
+      if (state) {
+        portalScene.update(state);
+      }
     },
     setUnits,
     setSelectedTarget,
@@ -675,7 +706,7 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
       worldMascotAvatars.forEach(avatar => avatar.dispose());
       worldMascotAvatars.clear();
       mascotMixer.dispose();
-      worldFight.dispose(); clearMarches(); scene.dispose(); engine.dispose();
+      worldFight.dispose(); portalScene.dispose(); clearMarches(); scene.dispose(); engine.dispose();
     },
   };
 }

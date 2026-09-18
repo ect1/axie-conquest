@@ -46,3 +46,16 @@
   - [x] Attach socket-local parts, ground imported bodies, and sample idle/run/attack skeletal clips from replay time.
   - [x] Wait for model loading before replay starts and display model-loading failures.
   - [x] Cover real GLB assembly, animation, renderer loading, save restoration, and reset with regression checks.
+
+- [x] Implement Portal Mob Summoner system with periodic waves attacking the city.
+  - [x] Model config-driven rules from `portal-config.json` with power-law mob and stat scaling.
+  - [x] Implement randomized 3x5 tactical formation partitioning for Mascots, Soldiers, and Archers.
+  - [x] Render 3D void rift portal with purple neon vortex, orbiting shards, and dynamic billboard sprite countdown.
+  - [x] Support tapping portal to display right-side Portal HUD dialog with tactical grid and scaled stats.
+  - [x] Add right-side Portal HUD toggle button alongside City and Inventory controls.
+  - [x] Render marching hostiles with red selection rings and right-side Hostile March HUD displaying ETA countdown.
+  - [x] Cleanly despawn hostiles when they reach the city destination without triggering damage or defense systems.
+  - [x] Support live editing, wave triggers, new portal summons, and resets in Developer HUD Portal tab.
+  - [x] Summon additional independent portals every 10 levels (`summonNewPortalEveryLevel`).
+  - [x] Eagerly register portal storage keys and reset callbacks in `RESETTABLE_MODULES` (`src/game/reset.ts`).
+  - [x] Add automated test coverage in `scripts/test-portal.cjs` and verify clean regression test suite.

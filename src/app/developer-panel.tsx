@@ -8,6 +8,14 @@ import type { BattleSession } from '@/game/battle-save';
 import type { ApiAxie } from '@/game/axie-roster';
 
 import { getAllBosses } from '@/game/bosses';
+import {
+  DEFAULT_PORTAL_CONFIG,
+  PORTAL_CONFIG_SAVE_KEY,
+  PortalMobSummoningConfig,
+  PortalRuntimeState,
+  sanitizePortalConfig,
+  setActivePortalConfig,
+} from '@/game/portal';
 
 type Props = {
   settings: GenerationSettings; onSettings: (settings: GenerationSettings) => void;
@@ -21,13 +29,48 @@ type Props = {
   onDebugBattleChange?: (enabled: boolean) => void;
   activeBattleSession?: BattleSession | null;
   onAbortBattle?: () => void;
+  portalConfig?: PortalMobSummoningConfig;
+  onPortalConfigChange?: (config: PortalMobSummoningConfig) => void;
+  portalState?: PortalRuntimeState;
+  onTriggerPortalWave?: (portalId?: string) => void;
+  onSummonNewPortal?: () => void;
+  onResetPortals?: () => void;
 };
 
-export default function DeveloperPanel({ settings, onSettings, objects, status, ready, unitStats = DEFAULT_UNIT_GLOBAL_STATS, onUnitStats = stats => setActiveUnitGlobalStats(stats), onClose, onRegenerate, onRemove, mobSpawnEnabled, onMobSpawnEnabled, mobGroup, onMobGroup, selectedBossId, onSelectedBossId, activeAxies, debugBattle = false, onDebugBattleChange, activeBattleSession, onAbortBattle }: Props) {
-  const [tab, setTab] = useState<'world' | 'units' | 'battle'>('world');
+export default function DeveloperPanel({
+  settings,
+  onSettings,
+  objects,
+  status,
+  ready,
+  unitStats = DEFAULT_UNIT_GLOBAL_STATS,
+  onUnitStats = stats => setActiveUnitGlobalStats(stats),
+  onClose,
+  onRegenerate,
+  onRemove,
+  mobSpawnEnabled,
+  onMobSpawnEnabled,
+  mobGroup,
+  onMobGroup,
+  selectedBossId,
+  onSelectedBossId,
+  activeAxies,
+  debugBattle = false,
+  onDebugBattleChange,
+  activeBattleSession,
+  onAbortBattle,
+  portalConfig = DEFAULT_PORTAL_CONFIG,
+  onPortalConfigChange,
+  portalState,
+  onTriggerPortalWave,
+  onSummonNewPortal,
+  onResetPortals,
+}: Props) {
+  const [tab, setTab] = useState<'world' | 'units' | 'battle' | 'portal'>('world');
   const [sandboxOpen, setSandboxOpen] = useState(false);
   const [localStats, setLocalStats] = useState(unitStats);
   const [battleSettings, setBattleSettings] = useState<BattleSettings>(DEFAULT_BATTLE_SETTINGS);
+  const [localPortalConfig, setLocalPortalConfig] = useState<PortalMobSummoningConfig>(portalConfig);
   const [applyStatus, setApplyStatus] = useState('');
   useEffect(() => { try { const saved = JSON.parse(localStorage.getItem('axie-conquest-unit-stats-v1') || 'null'); if (saved && Number.isFinite(saved.marchSpeed) && saved.marchSpeed > 0) { const next = { marchSpeed: saved.marchSpeed }; setLocalStats(next); setActiveUnitGlobalStats(next); onUnitStats(next); } } catch { /* Use code defaults. */ } }, []);
   useEffect(() => {
@@ -55,10 +98,39 @@ export default function DeveloperPanel({ settings, onSettings, objects, status, 
       setApplyStatus('Debug setting applied for this session.');
     }
   }
+  useEffect(() => {
+    setLocalPortalConfig(portalConfig);
+  }, [portalConfig]);
+
+  function savePortalSettings() {
+    const sanitized = sanitizePortalConfig(localPortalConfig);
+    setLocalPortalConfig(sanitized);
+    setActivePortalConfig(sanitized);
+    onPortalConfigChange?.(sanitized);
+    try {
+      localStorage.setItem(PORTAL_CONFIG_SAVE_KEY, JSON.stringify(sanitized));
+      setApplyStatus('Portal settings saved.');
+    } catch {
+      setApplyStatus('Portal settings applied for this session.');
+    }
+  }
+
+  function resetPortalToDefaults() {
+    setLocalPortalConfig({ ...DEFAULT_PORTAL_CONFIG });
+    setActivePortalConfig({ ...DEFAULT_PORTAL_CONFIG });
+    onPortalConfigChange?.({ ...DEFAULT_PORTAL_CONFIG });
+    try {
+      localStorage.setItem(PORTAL_CONFIG_SAVE_KEY, JSON.stringify(DEFAULT_PORTAL_CONFIG));
+      setApplyStatus('Portal settings reverted to JSON defaults.');
+    } catch {
+      setApplyStatus('Reverted for this session.');
+    }
+  }
+
   return <section className="developer panel" aria-label="Developer">
     <div className="catalog-heading"><div><span className="eyebrow">WORLD GENERATION</span><h2>Developer</h2></div><button className="close" aria-label="Close developer tab" onClick={onClose}>&times;</button></div>
     <p>Populate the full {WORLD_WIDTH} × {WORLD_DEPTH} map. Attack defended sites to fight chimeras. Gathering and loot collection are still unavailable.</p>
-    <div className="city-tabs" role="tablist" aria-label="Developer categories"><button role="tab" aria-selected={tab === 'world'} className={tab === 'world' ? 'active' : ''} onClick={() => setTab('world')}>World</button><button role="tab" aria-selected={tab === 'units'} className={tab === 'units' ? 'active' : ''} onClick={() => setTab('units')}>Unit global stats</button><button role="tab" aria-selected={tab === 'battle'} className={tab === 'battle' ? 'active' : ''} onClick={() => setTab('battle')}>Battle</button></div>
+    <div className="city-tabs" role="tablist" aria-label="Developer categories"><button role="tab" aria-selected={tab === 'world'} className={tab === 'world' ? 'active' : ''} onClick={() => setTab('world')}>World</button><button role="tab" aria-selected={tab === 'units'} className={tab === 'units' ? 'active' : ''} onClick={() => setTab('units')}>Unit global stats</button><button role="tab" aria-selected={tab === 'battle'} className={tab === 'battle' ? 'active' : ''} onClick={() => setTab('battle')}>Battle</button><button role="tab" aria-selected={tab === 'portal'} className={tab === 'portal' ? 'active' : ''} onClick={() => setTab('portal')}>Portal</button></div>
     {tab === 'units' && <div className="unit-global-stats"><p>Global movement values used to simulate marching.</p><label className="developer-distance">March speed (tiles / second)<input type="number" min={0.1} max={100} step={0.1} value={localStats.marchSpeed} onChange={event => setLocalStats({ marchSpeed: Math.max(0.1, Math.min(100, Number(event.target.value) || 0.1)) })} /></label><div className="placement-actions"><button className="primary" onClick={saveUnitStats}>Save unit stats</button></div><p><small>Higher speed reduces travel time. Edit <code>src/game/unit-stats.json</code> to change the code default.</small></p></div>}
     {tab === 'world' && <div className="developer-world"><div className="developer-counts">{WORLD_KINDS.map(kind => <label key={kind}><span>{WORLD_DEFINITIONS[kind].name}<small>{objects.filter(object => object.kind === kind).length} on map{kind === 'village' || kind === 'garrison' ? ' · Loot: 1 apple' : ''}</small></span><input type="number" min={0} max={100} step={1} value={settings.counts[kind]} onChange={event => onSettings({ ...settings, counts: { ...settings.counts, [kind]: Math.max(0, Math.min(100, Math.floor(Number(event.target.value) || 0))) } })} /></label>)}</div><label className="developer-distance">Minimum distance<input type="number" min={1} max={50} step={1} value={settings.spacing} onChange={event => onSettings({ ...settings, spacing: Math.max(1, Math.min(50, Math.floor(Number(event.target.value) || 1))) })} /></label><p><small>1–50 units of clear ground between objects. City, walls and map edges are protected. Counts: 0–100 per type.</small></p><div className="placement-actions"><button className="primary" disabled={!ready} onClick={onRegenerate}>{objects.length ? 'Regenerate' : 'Generate'}</button><button className="secondary" disabled={!ready || !objects.length} onClick={onRemove}>Remove all</button><button className="secondary" onClick={() => onSettings({ counts: { ...DEFAULT_GENERATION.counts }, spacing: DEFAULT_GENERATION.spacing })}>Defaults</button></div><p role="status">{status}</p></div>}
     {tab === 'battle' && <div className="battle-system"><p>Prototype the new tactical board before units and simulation are added. The middle lane is made of neutral gray hex slots, not empty ground.</p><label className="developer-distance">Gap between hexes<input type="number" min={0} max={3} step={0.05} value={battleSettings.boardHexGap} onChange={event => setBattleSettings({ ...battleSettings, boardHexGap: Math.max(0, Math.min(3, Number(event.target.value) || 0)) })} /></label><label className="developer-distance">Neutral hex rows<input type="number" min={0} max={4} step={1} value={battleSettings.boardTeamGap} onChange={event => setBattleSettings({ ...battleSettings, boardTeamGap: Math.max(0, Math.min(4, Math.round(Number(event.target.value) || 0))) })} /></label><div className="placement-actions"><button className="primary" onClick={applyBattleSettings}>Save board settings</button><button className="secondary" onClick={() => setBattleSettings(DEFAULT_BATTLE_SETTINGS)}>JSON defaults</button><button className="primary" onClick={() => { applyBattleSettings(); setSandboxOpen(true); }}>Open battle sandbox</button></div><p><small>Set hex gap to 0 for one connected board. Neutral rows split the two teams.</small></p><p role="status">{applyStatus || 'Open the sandbox to inspect the empty formation board.'}</p></div>}
@@ -138,6 +210,256 @@ export default function DeveloperPanel({ settings, onSettings, objects, status, 
         </label>
         <small>With this enabled, tap empty ground in World View and select/summon any configured boss mob directly from the map HUD.</small>
       </fieldset>
+    )}
+    {tab === 'portal' && (
+      <div className="developer-portal" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+        <p>Configure automatic enemy mob portal summoning waves attacking the city.</p>
+        
+        {/* Enable checkbox */}
+        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontWeight: 'bold' }}>
+          <input
+            type="checkbox"
+            checked={localPortalConfig.enabled}
+            onChange={e => setLocalPortalConfig({ ...localPortalConfig, enabled: e.target.checked })}
+          />
+          <span>Enable Portal Mob Summoning</span>
+        </label>
+
+        {/* Initial Portal Coordinates */}
+        <fieldset style={{ border: '1px solid #91a38c', borderRadius: '8px', padding: '10px' }}>
+          <legend style={{ fontWeight: 'bold', fontSize: '12px', color: '#294d43' }}>Initial Portal Coordinate</legend>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+            <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span>X:</span>
+              <input
+                type="number"
+                step={0.1}
+                value={localPortalConfig.initialPortalCoordinate.x}
+                onChange={e => setLocalPortalConfig({
+                  ...localPortalConfig,
+                  initialPortalCoordinate: { ...localPortalConfig.initialPortalCoordinate, x: Number(e.target.value) || 0 },
+                })}
+                style={{ width: '80px' }}
+              />
+            </label>
+            <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span>Y (Z):</span>
+              <input
+                type="number"
+                step={0.1}
+                value={localPortalConfig.initialPortalCoordinate.y}
+                onChange={e => setLocalPortalConfig({
+                  ...localPortalConfig,
+                  initialPortalCoordinate: { ...localPortalConfig.initialPortalCoordinate, y: Number(e.target.value) || 0 },
+                })}
+                style={{ width: '80px' }}
+              />
+            </label>
+          </div>
+        </fieldset>
+
+        {/* Timing Settings */}
+        <fieldset style={{ border: '1px solid #91a38c', borderRadius: '8px', padding: '10px' }}>
+          <legend style={{ fontWeight: 'bold', fontSize: '12px', color: '#294d43' }}>Wave Timing &amp; Exhaustion</legend>
+          <div style={{ display: 'grid', gap: '6px' }}>
+            <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span>Initial attack (seconds):</span>
+              <input
+                type="number"
+                min={1}
+                max={600}
+                value={localPortalConfig.initialAttackInSeconds}
+                onChange={e => setLocalPortalConfig({ ...localPortalConfig, initialAttackInSeconds: Math.max(1, Number(e.target.value) || 1) })}
+                style={{ width: '80px' }}
+              />
+            </label>
+            <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span>Attack interval (seconds):</span>
+              <input
+                type="number"
+                min={1}
+                max={300}
+                value={localPortalConfig.attackIntervalSeconds}
+                onChange={e => setLocalPortalConfig({ ...localPortalConfig, attackIntervalSeconds: Math.max(1, Number(e.target.value) || 1) })}
+                style={{ width: '80px' }}
+              />
+            </label>
+            <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span>Exhausted every N levels:</span>
+              <input
+                type="number"
+                min={1}
+                max={50}
+                value={localPortalConfig.exhaustedEveryMobLevel}
+                onChange={e => setLocalPortalConfig({ ...localPortalConfig, exhaustedEveryMobLevel: Math.max(1, Math.round(Number(e.target.value) || 1)) })}
+                style={{ width: '80px' }}
+              />
+            </label>
+            <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span>Exhausted duration (seconds):</span>
+              <input
+                type="number"
+                min={1}
+                max={600}
+                value={localPortalConfig.exhaustedSeconds}
+                onChange={e => setLocalPortalConfig({ ...localPortalConfig, exhaustedSeconds: Math.max(1, Number(e.target.value) || 1) })}
+                style={{ width: '80px' }}
+              />
+            </label>
+          </div>
+        </fieldset>
+
+        {/* Scaling & Multi-Portal Settings */}
+        <fieldset style={{ border: '1px solid #91a38c', borderRadius: '8px', padding: '10px' }}>
+          <legend style={{ fontWeight: 'bold', fontSize: '12px', color: '#294d43' }}>Scaling &amp; Multi-Portal Expansion</legend>
+          <div style={{ display: 'grid', gap: '6px' }}>
+            <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span>Starter mob count:</span>
+              <input
+                type="number"
+                min={1}
+                max={100}
+                value={localPortalConfig.starterMobCount}
+                onChange={e => setLocalPortalConfig({ ...localPortalConfig, starterMobCount: Math.max(1, Math.round(Number(e.target.value) || 1)) })}
+                style={{ width: '80px' }}
+              />
+            </label>
+            <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span>Max move speed:</span>
+              <input
+                type="number"
+                step={0.1}
+                min={0.5}
+                max={20}
+                value={localPortalConfig.maxMoveSpeed}
+                onChange={e => setLocalPortalConfig({ ...localPortalConfig, maxMoveSpeed: Math.max(0.5, Number(e.target.value) || 0.5) })}
+                style={{ width: '80px' }}
+              />
+            </label>
+            <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span>Stats multiplier / level:</span>
+              <input
+                type="number"
+                step={0.01}
+                min={1.0}
+                max={3.0}
+                value={localPortalConfig.portalLevelScaling.statsMultiplierPerLevel}
+                onChange={e => setLocalPortalConfig({
+                  ...localPortalConfig,
+                  portalLevelScaling: { ...localPortalConfig.portalLevelScaling, statsMultiplierPerLevel: Math.max(1.0, Number(e.target.value) || 1.0) }
+                })}
+                style={{ width: '80px' }}
+              />
+            </label>
+            <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span>Mobs count multiplier / level:</span>
+              <input
+                type="number"
+                step={0.01}
+                min={1.0}
+                max={3.0}
+                value={localPortalConfig.portalLevelScaling.mobsCountMultiplierPerLevel}
+                onChange={e => setLocalPortalConfig({
+                  ...localPortalConfig,
+                  portalLevelScaling: { ...localPortalConfig.portalLevelScaling, mobsCountMultiplierPerLevel: Math.max(1.0, Number(e.target.value) || 1.0) }
+                })}
+                style={{ width: '80px' }}
+              />
+            </label>
+            <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span>Summon new portal every level:</span>
+              <input
+                type="number"
+                min={1}
+                max={100}
+                value={localPortalConfig.portalLevelScaling.summonNewPortalEveryLevel}
+                onChange={e => setLocalPortalConfig({
+                  ...localPortalConfig,
+                  portalLevelScaling: { ...localPortalConfig.portalLevelScaling, summonNewPortalEveryLevel: Math.max(1, Math.round(Number(e.target.value) || 1)) }
+                })}
+                style={{ width: '80px' }}
+              />
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', marginTop: '4px' }}>
+              <input
+                type="checkbox"
+                checked={localPortalConfig.portalLevelScaling.newPortalIndependentLevel}
+                onChange={e => setLocalPortalConfig({
+                  ...localPortalConfig,
+                  portalLevelScaling: { ...localPortalConfig.portalLevelScaling, newPortalIndependentLevel: e.target.checked }
+                })}
+              />
+              <span style={{ fontSize: '11px' }}>New portals start at Level 1 (Independent)</span>
+            </label>
+          </div>
+        </fieldset>
+
+        {/* Mob Base Stats */}
+        <fieldset style={{ border: '1px solid #91a38c', borderRadius: '8px', padding: '10px' }}>
+          <legend style={{ fontWeight: 'bold', fontSize: '12px', color: '#294d43' }}>Mob Types Base Stats</legend>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px', fontSize: '11px' }}>
+            <div>
+              <strong style={{ color: '#ec4899', display: 'block', marginBottom: '4px' }}>👑 Mascot</strong>
+              <label style={{ display: 'flex', justifyContent: 'space-between' }}>HP: <input type="number" style={{ width: '45px' }} value={localPortalConfig.mobTypes.mascot.baseStats.health} onChange={e => setLocalPortalConfig({ ...localPortalConfig, mobTypes: { ...localPortalConfig.mobTypes, mascot: { baseStats: { ...localPortalConfig.mobTypes.mascot.baseStats, health: Number(e.target.value) || 1 } } } })} /></label>
+              <label style={{ display: 'flex', justifyContent: 'space-between', marginTop: '2px' }}>ATK: <input type="number" style={{ width: '45px' }} value={localPortalConfig.mobTypes.mascot.baseStats.attack} onChange={e => setLocalPortalConfig({ ...localPortalConfig, mobTypes: { ...localPortalConfig.mobTypes, mascot: { baseStats: { ...localPortalConfig.mobTypes.mascot.baseStats, attack: Number(e.target.value) || 1 } } } })} /></label>
+              <label style={{ display: 'flex', justifyContent: 'space-between', marginTop: '2px' }}>DEF: <input type="number" style={{ width: '45px' }} value={localPortalConfig.mobTypes.mascot.baseStats.defense} onChange={e => setLocalPortalConfig({ ...localPortalConfig, mobTypes: { ...localPortalConfig.mobTypes, mascot: { baseStats: { ...localPortalConfig.mobTypes.mascot.baseStats, defense: Number(e.target.value) || 1 } } } })} /></label>
+            </div>
+            <div>
+              <strong style={{ color: '#475569', display: 'block', marginBottom: '4px' }}>⚔️ Soldier</strong>
+              <label style={{ display: 'flex', justifyContent: 'space-between' }}>HP: <input type="number" style={{ width: '45px' }} value={localPortalConfig.mobTypes.soldier.baseStats.health} onChange={e => setLocalPortalConfig({ ...localPortalConfig, mobTypes: { ...localPortalConfig.mobTypes, soldier: { baseStats: { ...localPortalConfig.mobTypes.soldier.baseStats, health: Number(e.target.value) || 1 } } } })} /></label>
+              <label style={{ display: 'flex', justifyContent: 'space-between', marginTop: '2px' }}>ATK: <input type="number" style={{ width: '45px' }} value={localPortalConfig.mobTypes.soldier.baseStats.attack} onChange={e => setLocalPortalConfig({ ...localPortalConfig, mobTypes: { ...localPortalConfig.mobTypes, soldier: { baseStats: { ...localPortalConfig.mobTypes.soldier.baseStats, attack: Number(e.target.value) || 1 } } } })} /></label>
+              <label style={{ display: 'flex', justifyContent: 'space-between', marginTop: '2px' }}>DEF: <input type="number" style={{ width: '45px' }} value={localPortalConfig.mobTypes.soldier.baseStats.defense} onChange={e => setLocalPortalConfig({ ...localPortalConfig, mobTypes: { ...localPortalConfig.mobTypes, soldier: { baseStats: { ...localPortalConfig.mobTypes.soldier.baseStats, defense: Number(e.target.value) || 1 } } } })} /></label>
+            </div>
+            <div>
+              <strong style={{ color: '#16a34a', display: 'block', marginBottom: '4px' }}>🏹 Archer</strong>
+              <label style={{ display: 'flex', justifyContent: 'space-between' }}>HP: <input type="number" style={{ width: '45px' }} value={localPortalConfig.mobTypes.archer.baseStats.health} onChange={e => setLocalPortalConfig({ ...localPortalConfig, mobTypes: { ...localPortalConfig.mobTypes, archer: { baseStats: { ...localPortalConfig.mobTypes.archer.baseStats, health: Number(e.target.value) || 1 } } } })} /></label>
+              <label style={{ display: 'flex', justifyContent: 'space-between', marginTop: '2px' }}>ATK: <input type="number" style={{ width: '45px' }} value={localPortalConfig.mobTypes.archer.baseStats.attack} onChange={e => setLocalPortalConfig({ ...localPortalConfig, mobTypes: { ...localPortalConfig.mobTypes, archer: { baseStats: { ...localPortalConfig.mobTypes.archer.baseStats, attack: Number(e.target.value) || 1 } } } })} /></label>
+              <label style={{ display: 'flex', justifyContent: 'space-between', marginTop: '2px' }}>DEF: <input type="number" style={{ width: '45px' }} value={localPortalConfig.mobTypes.archer.baseStats.defense} onChange={e => setLocalPortalConfig({ ...localPortalConfig, mobTypes: { ...localPortalConfig.mobTypes, archer: { baseStats: { ...localPortalConfig.mobTypes.archer.baseStats, defense: Number(e.target.value) || 1 } } } })} /></label>
+            </div>
+          </div>
+        </fieldset>
+
+        {/* Action Buttons */}
+        <div className="placement-actions" style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+          <button className="primary" onClick={savePortalSettings}>Save portal settings</button>
+          <button className="secondary" onClick={resetPortalToDefaults}>JSON defaults</button>
+          {onTriggerPortalWave && (
+            <button className="primary" style={{ background: '#7e22ce' }} onClick={() => onTriggerPortalWave()}>
+              ⚡ Trigger wave now
+            </button>
+          )}
+          {onSummonNewPortal && (
+            <button className="secondary" onClick={onSummonNewPortal}>
+              🌀 Summon new portal
+            </button>
+          )}
+          {onResetPortals && (
+            <button className="secondary" style={{ color: '#b91c1c' }} onClick={onResetPortals}>
+              🔄 Reset all portals
+            </button>
+          )}
+        </div>
+
+        {/* Live Portals Monitor */}
+        {portalState && (
+          <fieldset style={{ border: '1px solid #7e22ce', borderRadius: '8px', padding: '10px', background: 'rgba(88, 28, 135, 0.08)' }}>
+            <legend style={{ fontWeight: 'bold', fontSize: '12px', color: '#7e22ce' }}>Active Portals Monitor ({portalState.portals.length})</legend>
+            <div style={{ display: 'grid', gap: '6px', fontSize: '11px' }}>
+              {portalState.portals.map(p => (
+                <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 6px', background: '#fff', borderRadius: '4px', border: '1px solid #e9d5ff' }}>
+                  <strong>{p.name} (Lv {p.level})</strong>
+                  <span>{p.cycleState === 'exhausted' ? '⏳ Exhausted' : p.cycleState === 'disabled' ? '⏸️ Paused' : '⚔️ Attacking'} · {Math.max(0, Math.ceil((p.nextAttackTime - Date.now()) / 1000))}s</span>
+                </div>
+              ))}
+              <div style={{ marginTop: '4px', color: '#64748b' }}>
+                Active enemy marches on map: <strong>{portalState.activeEnemyMarches.length}</strong>
+              </div>
+            </div>
+          </fieldset>
+        )}
+
+        <p role="status">{applyStatus}</p>
+      </div>
     )}
     {sandboxOpen && <BattleSandbox layout={{ hexGap: battleSettings.boardHexGap, teamGap: battleSettings.boardTeamGap, columns: battleSettings.boardColumns, rowsPerTeam: battleSettings.boardRows }} range={battleSettings} activeAxies={activeAxies} onSaveLayout={saveBoardLayout} onSaveRange={saveRange} onClose={() => setSandboxOpen(false)} />}
     <ResetGameControl />
