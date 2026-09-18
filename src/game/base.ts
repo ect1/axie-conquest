@@ -7,7 +7,7 @@ export const BUILDING_DEFINITIONS = {
   hall: { name: 'Main Hall', category: 'City center', icon: '\u2302', description: 'The heart of your settlement. Your Axies gather here to plan a brighter Lunacia.' },
   farm: { name: 'Everleaf Farm', category: 'Resource', icon: '\u{1F33E}', description: 'A little patch of abundance, tended by the Axies of Everleaf.' },
   lumber: { name: 'Lumber Mill', category: 'Resource', icon: '\u{1FAB5}', description: 'Axie woodworkers prepare timber to help Everleaf grow.' },
-  stone: { name: 'Storage', category: 'Storage', icon: '\u{1F4E6}', description: 'A secure storehouse for the timber, stone, and supplies that help Everleaf grow.' },
+  stone: { name: 'Stone Works', category: 'Resource', icon: '🪨', description: 'Axie stonecutters quarry stone and securely store supplies to help Everleaf grow.' },
   quarry: { name: 'Quarry', category: 'Resource', icon: '\u26CF', description: 'Axie stonecutters uncover the foundations of a growing settlement.' },
   barracks: { name: 'Barracks', category: 'Military', icon: '\u2694', description: 'A gathering ground for the defenders of Everleaf.' },
   tavern: { name: 'Tavern', category: 'Community', icon: '\u{1F37A}', description: 'A warm hearth where Axies share stories and forge friendships.' },
@@ -28,7 +28,7 @@ export function getBuildingDimensions(kind: BuildingKind, rotation: 0 | 1 | 2 | 
 export function isBuildableKind(value: unknown): value is BuildableKind {
   return typeof value === 'string' && BUILDABLE_KINDS.includes(value as BuildableKind);
 }
-export type Building = { id: string; kind: BuildingKind; x: number; z: number; rotation?: 0 | 1 | 2 | 3 };
+export type Building = { id: string; kind: BuildingKind; x: number; z: number; rotation?: 0 | 1 | 2 | 3; level?: number };
 export type Cell = { x: number; z: number };
 export const MAIN_HALL: Building = { id: 'main-hall', kind: 'hall', x: (GRID_WIDTH - FOOTPRINT) / 2, z: (GRID_DEPTH - FOOTPRINT) / 2 };
 export function canPlace(cell: Cell, buildings: Building[], width = FOOTPRINT, depth = width): boolean {
@@ -43,15 +43,17 @@ export function restoreBuildings(value: string | null, transposeLegacy = false):
     if (!Array.isArray(entries)) return result;
     const rotation = (entry: { rotation?: unknown }): Pick<Building, 'rotation'> =>
       entry.rotation === 0 || entry.rotation === 1 || entry.rotation === 2 || entry.rotation === 3 ? { rotation: entry.rotation } : {};
+    const level = (entry: { level?: unknown }): Pick<Building, 'level'> =>
+      typeof entry?.level === 'number' && Number.isInteger(entry.level) && entry.level >= 1 && entry.level <= 3 ? { level: entry.level } : {};
     // Restore the unique hall first so its current footprint is reserved, regardless of save order.
     if (!transposeLegacy) {
       const hall = entries.find(entry => entry?.kind === 'hall' && entry.id === MAIN_HALL.id && canPlace(entry, []));
-      if (hall) result[0] = { ...MAIN_HALL, x: hall.x, z: hall.z, ...rotation(hall) };
+      if (hall) result[0] = { ...MAIN_HALL, x: hall.x, z: hall.z, ...rotation(hall), ...level(hall) };
     }
     for (const saved of entries) {
       const entry = saved && transposeLegacy ? { ...saved, x: saved.z, z: saved.x } : saved;
       if (entry && isBuildableKind(entry.kind) && typeof entry.id === 'string' && !result.some(b => b.id === entry.id) && canPlace(entry, result, getBuildingDimensions(entry.kind, rotation(entry).rotation).width, getBuildingDimensions(entry.kind, rotation(entry).rotation).depth)) {
-        result.push({ id: entry.id, kind: entry.kind, x: entry.x, z: entry.z, ...rotation(entry) });
+        result.push({ id: entry.id, kind: entry.kind, x: entry.x, z: entry.z, ...rotation(entry), ...level(entry) });
       }
     }
   } catch { /* An invalid save starts a fresh settlement. */ }

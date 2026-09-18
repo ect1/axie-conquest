@@ -10,6 +10,7 @@ import { generateWorld, GenerationSettings, WorldObject, WORLD_DEFINITIONS, WORL
 import { ArcRotateCamera, Color3, Color4, DirectionalLight, Engine, HemisphericLight, MeshBuilder, Scene, StandardMaterial, TransformNode, Vector3 } from '@babylonjs/core';
 import { BUILDING_DEFINITIONS, BuildableKind, BuildingKind, Building, Cell, FOOTPRINT, GRID_DEPTH, GRID_WIDTH, MAIN_HALL, canPlace, getBuildingDimensions, getBuildingFootprint, restoreBuildings, canMoveBuilding, moveBuilding, removeBuilding, rotateBuilding, Troops, TroopKind } from './base';
 import { createMilitaryService, getTrainingMessage } from './military-service';
+import { isBuildingMovable } from './building-config';
 import { CAPITAL_CITY_ID } from './cities';
 import { Coordinate, WorldTarget } from './routes';
 import { getBossConfig } from './bosses';
@@ -18,7 +19,7 @@ import { PortalSceneManager } from './portal-scene';
 import type { PortalRuntimeState } from './portal';
 
 type Events = { fighterSelect?: (id: string) => void; watchBattle?: (sessionId?: string) => void; troops: (troops: Troops) => void; change: (b: Building[]) => void; preview: (c: Cell | null) => void; select: (b: Building | null) => void; unitSelect: (id: string) => void; portalSelect?: (portalId: string) => void; target: (target: WorldTarget | null) => void; message: (s: string) => void; viewMode: (mode: 'base' | 'world') => void };
-export type BaseView = { focusBattle: (targetSession?: BattleSession) => void; setBattle: (session: BattleSession | null, selectedId?: string | null) => void; setBattles: (sessions: readonly BattleSession[]) => void; setPortalState: (state: PortalRuntimeState | null, selectedId?: string | null) => void; refreshMilitary: () => void; setUnits: (orders: WorldUnit[], selectedId: string | null) => void; setSelectedTarget: (id: string | null) => void; focusCoordinate: (coordinate: Coordinate) => void; regenerateWorld: (settings: GenerationSettings) => WorldObject[]; loadWorld: (objects: WorldObject[]) => void; removeWorld: () => void; train: (kind: TroopKind) => boolean; rotate: (id: string) => boolean; move: (id: string) => boolean; remove: (id: string) => boolean; begin: (kind: BuildableKind) => void; cancel: () => void; confirm: () => boolean; setGridVisible: (visible: boolean) => void; setWorldView: (enabled: boolean) => void; setRoute: (route: { origin: Coordinate; destination: Coordinate } | null) => void; zoom: (factor: number) => void; home: () => void; dispose: () => void };
+export type BaseView = { focusBattle: (targetSession?: BattleSession) => void; setBattle: (session: BattleSession | null, selectedId?: string | null) => void; setBattles: (sessions: readonly BattleSession[]) => void; setPortalState: (state: PortalRuntimeState | null, selectedId?: string | null) => void; refreshMilitary: () => void; setUnits: (orders: WorldUnit[], selectedId: string | null) => void; setSelectedTarget: (id: string | null) => void; focusCoordinate: (coordinate: Coordinate) => void; regenerateWorld: (settings: GenerationSettings) => WorldObject[]; loadWorld: (objects: WorldObject[]) => void; removeWorld: () => void; train: (kind: TroopKind) => boolean; rotate: (id: string) => boolean; move: (id: string) => boolean; remove: (id: string) => boolean; upgrade: (id: string, nextLevel: number) => boolean; begin: (kind: BuildableKind) => void; cancel: () => void; confirm: () => boolean; setGridVisible: (visible: boolean) => void; setWorldView: (enabled: boolean) => void; setRoute: (route: { origin: Coordinate; destination: Coordinate } | null) => void; zoom: (factor: number) => void; home: () => void; dispose: () => void };
 const SAVE_KEY = 'axie-conquest-base-v2';
 const HALF_WIDTH = GRID_WIDTH / 2;
 const HALF_DEPTH = GRID_DEPTH / 2;
@@ -652,7 +653,7 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
     cancel,
     move(id) {
       const building = buildings.find(b => b.id === id);
-      if (!building) return false;
+      if (!building || !isBuildingMovable(building.kind)) return false;
       cancel(); movingId = id; buildingKind = building.kind; placing = true;
       gridRoot.setEnabled(true); refreshGrid(); preview({ x: building.x, z: building.z });
       events.select(null); return true;
@@ -676,6 +677,15 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
       buildingRoots.get(id)?.dispose(); buildingRoots.delete(id);
       buildings = next; refreshGrid(); events.select(null); events.change([...buildings]);
       persist(`${name} removed.`); return true;
+    },
+    upgrade(id, nextLevel) {
+      const target = buildings.find(b => b.id === id);
+      if (!target) return false;
+      target.level = nextLevel;
+      events.change([...buildings]);
+      events.select({ ...target });
+      persist(`${BUILDING_DEFINITIONS[target.kind]?.name || 'Building'} upgraded to Level ${nextLevel}.`);
+      return true;
     },
     confirm() {
       if (!placing || !candidate || !validCandidate(candidate)) return false;

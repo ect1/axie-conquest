@@ -36,12 +36,28 @@ small { display: block; font-size: 11px; color: #7d887d; }
 h2 { font: bold 19px Georgia, serif; margin: 3px 0 0; }
 .catalog-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
 .catalog-heading .eyebrow { display: none; }
+.catalog-tabs { display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px; padding: 3px; margin-bottom: 8px; border-radius: 11px; background: #e3e9da; }
+.catalog-tabs button { min-height: 36px; border: 0; border-radius: 8px; background: transparent; color: #576b5b; font-size: 11px; font-weight: 700; cursor: pointer; }
+.catalog-tabs button.active { background: #315f44; color: #fff6dc; box-shadow: 0 2px 6px #294b3826; }
 .close { border: 0; width: 44px; height: 44px; flex-shrink: 0; border-radius: 10px; background: #eaece2; font-size: 25px; }
 .building-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; max-height: min(232px, 32dvh); overflow-y: auto; overscroll-behavior: contain; padding: 3px; }
+.building-upgrades-list { display: flex; flex-direction: column; gap: 8px; max-height: min(280px, 38dvh); overflow-y: auto; overscroll-behavior: contain; padding: 3px; }
+.upgrade-item-card { background: #eef4e7; border: 1px solid #aec7a1; border-radius: 11px; padding: 9px 10px; display: flex; flex-direction: column; gap: 6px; }
+.upgrade-item-card.max-level { background: #f4f6f1; border-color: #cbd7c5; }
+.upgrade-item-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.upgrade-item-header strong { font-size: 13px; color: #213c2c; }
+.upgrade-item-header .level-badge { font-size: 10px; background: #315f44; color: #fff; padding: 2px 7px; border-radius: 6px; font-weight: 700; }
 .building-card { flex: 1; background: #e5edd7; border: 1px solid #aec7a1; border-radius: 11px; min-height: 64px; display: flex; align-items: center; padding: 8px; gap: 7px; text-align: left; min-width: 0; }
+.building-card.cannot-afford { opacity: 0.55; border-color: #d1b4a8; background: #ede3dd; }
+.building-costs { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; }
+.cost-tag { font-size: 9px; padding: 1px 5px; border-radius: 4px; background: #d7e4c7; color: #2e4a37; font-weight: 600; white-space: nowrap; }
+.cannot-afford .cost-tag { background: #ecdcd3; color: #783e34; }
+.building-stat-perk { margin: 6px 0; font-size: 11px; line-height: 1.4; color: #274b34; background: #eef4e7; padding: 6px 9px; border-radius: 8px; border: 1px solid #c9dec0; }
+.building-rate-badge { font-size: 10px; font-weight: 600; color: #15803d; margin-top: 3px; }
+.resources .rate-gain { color: #15803d; font-weight: 700; margin-left: 2px; }
 .building-art { font-size: 23px; flex-shrink: 0; }
 .building-card strong { font-size: 12px; display: block; }
-.building-card small { font-size: 10px; margin-top: 4px; }
+.building-card small { font-size: 10px; margin-top: 2px; }
 .building-card em, .coming { display: none; }
 .add { margin-left: auto; font-size: 25px; }
 .catalog-footer { margin-top: 8px; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 10px; font-size: 10px; color: #798272; }

@@ -15,7 +15,19 @@ import { createMobGroup, DEFAULT_GENERATION, GenerationSettings, getWorldObjectA
 import { getAllBosses, getBossConfig, registerDynamicBoss } from '@/game/bosses';
 import type { BaseView } from '@/game/scene';
 import CityUnitPanel from './city-unit-panel';
-import { CAPITAL_CITY_ID, CITIES_SAVE_KEY, CityState, createCapitalCity, restoreCities } from '@/game/cities';
+import { CAPITAL_CITY_ID, CITIES_SAVE_KEY, CityState, createCapitalCity, restoreCities, applyResourceProduction, calculateCityProductionRates } from '@/game/cities';
+import {
+  getBuildingConfig,
+  getBuildingLevelConfig,
+  isBuildingAvailable,
+  isBuildingMovable,
+  canAffordBuilding,
+  deductBuildingCost,
+  calculateDemolishRefund,
+  refundBuildingCost,
+  fetchLiveBuildingConfig,
+  type BuildingCost,
+} from '@/game/building-config';
 import { createEmptyFormations, Formation, OFFENSE_FORMATIONS_SAVE_KEY, restoreOffenseFormations, serializeOffenseFormations } from '@/game/offense-formations';
 import { BATTLE_SETTINGS_SAVE_KEY, restoreActiveBattleSettings } from '@/game/battle-settings';
 import { Coordinate, createRoute, formatDuration, isValidFormation, marchTravelTimeMs, WorldTarget } from '@/game/routes';
@@ -95,6 +107,7 @@ export default function Home() {
   const [inventoryTab, setInventoryTab] = useState<InventoryTab>('resources');
   const [troops, setTroops] = useState<Troops>({ ...EMPTY_TROOPS });
   const [catalog, setCatalog] = useState(false);
+  const [catalogTab, setCatalogTab] = useState<'build' | 'upgrade'>('build');
   const [buildingKind, setBuildingKind] = useState<BuildingKind>('farm');
   const [moving, setMoving] = useState<Building | null>(null);
   const [placing, setPlacing] = useState(false);
@@ -296,6 +309,21 @@ export default function Home() {
     setShowIntro(false);
   }
 
+  const [configVersion, setConfigVersion] = useState(0);
+  useEffect(() => {
+    let mounted = true;
+    const pollConfig = () => {
+      fetchLiveBuildingConfig().then(cfg => {
+        if (mounted && cfg) setConfigVersion(v => v + 1);
+      });
+    };
+    pollConfig();
+    const interval = setInterval(pollConfig, 2500);
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
+  }, []);
   useEffect(() => { const timer = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(timer); }, []);
   useEffect(() => {
     if (showIntro) return;
@@ -332,6 +360,16 @@ export default function Home() {
     if (!citiesLoaded || showIntro) return;
     try { localStorage.setItem(CITIES_SAVE_KEY, JSON.stringify([{ ...selectedCity, troops }])); } catch { /* City state remains usable for this session. */ }
   }, [selectedCity, troops, citiesLoaded, showIntro]);
+  useEffect(() => {
+    if (!ready || showIntro || !citiesLoaded) return;
+    setSelectedCity(prev => {
+      const updated = applyResourceProduction(prev.resources, buildings, 1);
+      if (updated === prev.resources) {
+        return prev;
+      }
+      return { ...prev, resources: updated };
+    });
+  }, [now, ready, showIntro, citiesLoaded, buildings]);
   useEffect(() => {
     if (!citiesLoaded || !apiAxies.length || formationsLoaded || showIntro) return;
     try { const board = restoreActiveBattleSettings(localStorage.getItem(BATTLE_SETTINGS_SAVE_KEY)); setFormations(restoreOffenseFormations(localStorage.getItem(OFFENSE_FORMATIONS_SAVE_KEY), selectedCity.deployedAxieIds.filter(id => apiAxies.some(axie => axie.id === id)), troops, { columns: board.boardColumns, rows: board.boardRows })); } catch { /* Use empty formations when storage is unavailable. */ }
@@ -779,14 +817,85 @@ export default function Home() {
   const usedCells = buildings.reduce((total, building) => { const size = getBuildingDimensions(building.kind, building.rotation); return total + size.width * size.depth; }, 0);
   function begin(kind: BuildableKind) { setHeroes(false); setMilitary(false); setTraining(false); setMoving(null); setBuildingKind(kind); setSelected(null); setPlacing(true); setCatalog(false); view.current?.begin(kind); }
   function cancel() { view.current?.cancel(); setPlacing(false); setCell(null); setCatalog(!moving); if (moving) setSelected(moving); setMoving(null); }
-  function confirm() { if (view.current?.confirm()) { setPlacing(false); setCell(null); setCatalog(!moving); setMoving(null); } }
+  function confirm() {
+    if (!moving) {
+      const cost = getBuildingLevelConfig(buildingKind, 1)?.cost ?? {};
+      if (!canAffordBuilding(selectedCity.resources, cost)) {
+        setMessage(`Not enough resources in ${selectedCity.name} to construct ${BUILDING_DEFINITIONS[buildingKind]?.name || 'this structure'}.`);
+        return;
+      }
+      if (view.current?.confirm()) {
+        setSelectedCity(city => ({
+          ...city,
+          resources: deductBuildingCost(city.resources, cost),
+        }));
+        setPlacing(false);
+        setCell(null);
+        setCatalog(false);
+        setMoving(null);
+      }
+    } else {
+      if (view.current?.confirm()) {
+        setPlacing(false);
+        setCell(null);
+        setCatalog(false);
+        setMoving(null);
+      }
+    }
+  }
   function moveSelected() {
-    if (!selected || !view.current?.move(selected.id)) return;
+    if (!selected) return;
+    if (!isBuildingMovable(selected.kind)) {
+      setMessage(`${BUILDING_DEFINITIONS[selected.kind]?.name || 'This building'} is fixed and cannot be moved.`);
+      return;
+    }
+    if (!view.current?.move(selected.id)) return;
     setMoving(selected); setBuildingKind(selected.kind); setSelected(null); setPlacing(true); setCatalog(false);
   }
   function removeSelected() {
-    if (selected && view.current?.remove(selected.id)) { setSelected(null); setCatalog(false); }
+    if (!selected) return;
+    const kind = selected.kind;
+    const refund = calculateDemolishRefund(kind, 1);
+    if (view.current?.remove(selected.id)) {
+      setSelectedCity(city => ({
+        ...city,
+        resources: refundBuildingCost(city.resources, refund),
+      }));
+      const refundTexts = Object.entries(refund)
+        .filter(([, amt]) => typeof amt === 'number' && amt > 0)
+        .map(([res, amt]) => `${amt} ${res}`);
+      setMessage(`${BUILDING_DEFINITIONS[kind]?.name || 'Building'} demolished.${refundTexts.length ? ` Refunded 50%: ${refundTexts.join(', ')}.` : ''}`);
+      setSelected(null);
+      setCatalog(false);
+    }
   }
+  function upgradeBuilding(buildingId: string, nextLevel: number, cost: BuildingCost) {
+    if (!canAffordBuilding(selectedCity.resources, cost)) {
+      setMessage(`Not enough resources in ${selectedCity.name} to upgrade.`);
+      return false;
+    }
+    const targetBuilding = buildings.find(b => b.id === buildingId);
+    if (!targetBuilding) return false;
+
+    const nextResources = deductBuildingCost(selectedCity.resources, cost);
+    setSelectedCity(city => ({ ...city, resources: nextResources }));
+
+    if (view.current?.upgrade(buildingId, nextLevel)) {
+      setMessage(`🎉 Upgraded ${BUILDING_DEFINITIONS[targetBuilding.kind]?.name || 'Building'} to Level ${nextLevel}!`);
+    } else {
+      const updatedBuildings = buildings.map(b => b.id === buildingId ? { ...b, level: nextLevel } : b);
+      setBuildings(updatedBuildings);
+      setSelected(prev => prev && prev.id === buildingId ? { ...prev, level: nextLevel } : prev);
+
+      try {
+        localStorage.setItem('axie-conquest-base-v2', JSON.stringify(updatedBuildings));
+      } catch { /* storage fallback */ }
+
+      setMessage(`🎉 Upgraded ${BUILDING_DEFINITIONS[targetBuilding.kind]?.name || 'Building'} to Level ${nextLevel}!`);
+    }
+    return true;
+  }
+  const upgradeSelected = upgradeBuilding;
   function renameCapital() {
     const name = nicknameDraft.trim().replace(/\s+/g, ' ').slice(0, 24);
     if (!name || name === selectedCity.name) return;
@@ -1011,7 +1120,39 @@ export default function Home() {
           <small>Lunacia · Your settlement</small>
         </div>
       </div>
-      <div className="resources"><div><span>🌾</span><strong>{farms}<small>FARMS</small></strong></div><div><span>▦</span><strong>{800 - usedCells}<small>FREE CELLS</small></strong></div><div className="power" aria-label="Power"><span>⚡</span><strong>POWER</strong></div><div className="level"><span>✦</span><strong>1<small>HALL LEVEL</small></strong></div></div>
+      {(() => {
+        const prodRates = calculateCityProductionRates(buildings);
+        const formatAmount = (amt: number) => (amt % 1 !== 0 ? amt.toFixed(1) : Math.floor(amt).toString());
+        return (
+          <div className="resources" aria-label="City resources">
+            <div title={`Food: ${selectedCity.resources.food.amount.toFixed(1)} / ${selectedCity.resources.food.capacity}${prodRates.food > 0 ? ` (+${(prodRates.food * 60).toFixed(0)}/min)` : ' (Build Farm to produce)'}`}>
+              <span>🌾</span>
+              <strong>
+                {formatAmount(selectedCity.resources.food.amount)}
+                <small>FOOD{prodRates.food > 0 ? <span className="rate-gain"> +{prodRates.food.toFixed(1)}/s</span> : ''}</small>
+              </strong>
+            </div>
+            <div title={`Lumber: ${selectedCity.resources.wood.amount.toFixed(1)} / ${selectedCity.resources.wood.capacity}${prodRates.wood > 0 ? ` (+${(prodRates.wood * 60).toFixed(0)}/min)` : ' (Build Lumber Mill to produce)'}`}>
+              <span>🪵</span>
+              <strong>
+                {formatAmount(selectedCity.resources.wood.amount)}
+                <small>LUMBER{prodRates.wood > 0 ? <span className="rate-gain"> +{prodRates.wood.toFixed(1)}/s</span> : ''}</small>
+              </strong>
+            </div>
+            <div title={`Stone: ${selectedCity.resources.stone.amount.toFixed(1)} / ${selectedCity.resources.stone.capacity}${prodRates.stone > 0 ? ` (+${(prodRates.stone * 60).toFixed(0)}/min)` : ' (Build Stone Works to produce)'}`}>
+              <span>🪨</span>
+              <strong>
+                {formatAmount(selectedCity.resources.stone.amount)}
+                <small>STONE{prodRates.stone > 0 ? <span className="rate-gain"> +{prodRates.stone.toFixed(1)}/s</span> : ''}</small>
+              </strong>
+            </div>
+            <div className="level" title={`City Hall Level ${buildings.find(b => b.kind === 'hall')?.level ?? 1}`}>
+              <span>✦</span>
+              <strong>{buildings.find(b => b.kind === 'hall')?.level ?? 1}<small>HALL LEVEL</small></strong>
+            </div>
+          </div>
+        );
+      })()}
     </header>
     <aside className="chapter"><span className="eyebrow">CHAPTER 01 / ROOTS OF A KINGDOM</span><h1>A home worth<br />growing.</h1><p>Raise your first farm.<br />Bring life back to Lunacia.</p><div className="objective"><span className={farms ? 'complete' : ''}>{farms ? '✓' : '○'}</span><div>Plant the foundations<small>{farms ? 'First farm established' : 'Build your first farm'}</small></div></div></aside>
     <div className="map-controls"><button aria-label="Zoom in" onClick={() => view.current?.zoom(0.85)}>+</button><button aria-label="Zoom out" onClick={() => view.current?.zoom(1.18)}>−</button><button aria-label="Center on main hall" onClick={() => view.current?.home()}>⌂</button></div>
@@ -1215,12 +1356,284 @@ export default function Home() {
     {battleError && !battleSession && <section className="selection panel" role="alert"><p>{battleError}</p><button className="primary" onClick={() => setBattleError('')}>Retry battle</button></section>}
     {loadError && <section className="selection panel" role="alert"><p>{loadError}</p><button className="primary" onClick={() => window.location.reload()}>Retry reload</button></section>}
     {!ready && !loadError && <div className="loading">Preparing your settlement…</div>}
-    {selected && !placing && <section className="selection panel"><button className="close" aria-label="Close building details" onClick={() => setSelected(null)}>×</button><span className="eyebrow">LEVEL 1 · {BUILDING_DEFINITIONS[selected.kind].category}</span><h2>{selected.kind === 'hall' ? selectedCity.name : BUILDING_DEFINITIONS[selected.kind].name}</h2>{selected.kind === 'hall' && <div className="city-nickname"><label htmlFor="city-nickname">City name</label><div><input id="city-nickname" value={nicknameDraft || selectedCity.name} maxLength={24} onChange={event => setNicknameDraft(event.target.value)} onFocus={event => { if (!nicknameDraft) setNicknameDraft(event.currentTarget.value); }} onKeyDown={event => { if (event.key === 'Enter') renameCapital(); }} /><button className="primary" disabled={!nicknameDraft.trim() || nicknameDraft.trim() === selectedCity.name} onClick={renameCapital}>Rename</button></div><small>You can update this name anytime.</small></div>}<p>{BUILDING_DEFINITIONS[selected.kind].description}</p><small>{getBuildingDimensions(selected.kind, selected.rotation).width} × {getBuildingDimensions(selected.kind, selected.rotation).depth} footprint · Cell {selected.x + 1}, {selected.z + 1}</small><div className="placement-actions"><button className="primary" onClick={moveSelected}>Move</button><button className="secondary" onClick={() => view.current?.rotate(selected.id)} aria-label="Rotate building 90 degrees">Rotate</button>{selected.kind !== 'hall' && <button className="secondary remove-action" onClick={removeSelected}>Remove</button>}</div></section>}
-    {placing ? <section className="placement panel"><div><span className="eyebrow">{moving ? 'MOVING' : 'PLACING'} / {BUILDING_DEFINITIONS[buildingKind].name}</span><h2>{valid ? 'Room to grow' : 'Choose another spot'}</h2><p aria-live="polite">{cell ? (valid ? `Clear land at ${cell.x + 1}, ${cell.z + 1}. Ready to ${moving ? 'move' : 'build'}.` : 'Blocked: overlaps a building or crosses the base edge.') : `Tap the land to position your ${BUILDING_DEFINITIONS[buildingKind].name}.`}</p><div className="legend"><span>🟩 Available</span><span>🟥 Blocked</span><span>{size.width} × {size.depth} cells</span></div></div><div className="placement-actions"><button className="secondary" onClick={cancel}>Cancel</button><button className="primary" disabled={!valid} onClick={confirm}>✓ {moving ? 'Confirm move' : `Build ${BUILDING_DEFINITIONS[buildingKind].name}`}</button></div></section> : catalog && !selected && <section className="catalog panel"><div className="catalog-heading"><div><span className="eyebrow">MAKE ROOM FOR POSSIBILITY</span><h2>Build your haven</h2></div><button className="close" aria-label="Close build menu" onClick={() => setCatalog(false)}>×</button></div><div className="building-options">{BUILDABLE_KINDS.map(kind => {
-      const definition = BUILDING_DEFINITIONS[kind];
-      const dimensions = getBuildingDimensions(kind);
-      return <button key={kind} className="building-card" onClick={() => begin(kind)} disabled={!ready}><span className="building-art" aria-hidden="true">{definition.icon}</span><span><strong>{definition.name}</strong><small>{definition.category} &middot; {dimensions.width} &times; {dimensions.depth}</small></span><span className="add" aria-hidden="true">+</span></button>;
-    })}</div><div className="catalog-footer">Prototype construction is free <span>40 × 20 base grid</span></div></section>}
+    {selected && !placing && (() => {
+      const curBuilding = buildings.find(b => b.id === selected.id) || selected;
+      const curLevel = curBuilding.level ?? 1;
+      const bConfig = getBuildingConfig(selected.kind);
+      const maxLevel = bConfig?.maxLevel ?? 3;
+      const lConfig = getBuildingLevelConfig(selected.kind, curLevel);
+      const movable = isBuildingMovable(selected.kind);
+      const refund = calculateDemolishRefund(selected.kind, curLevel);
+      const refundTexts = Object.entries(refund)
+        .filter(([, a]) => typeof a === 'number' && a > 0)
+        .map(([k, a]) => `${a} ${k}`)
+        .join(', ');
+
+      const canUpgrade = curLevel < maxLevel;
+      const nextLevel = curLevel + 1;
+      const nextConfig = canUpgrade ? getBuildingLevelConfig(selected.kind, nextLevel) : null;
+      const nextCost = nextConfig?.cost ?? {};
+      const req = nextConfig?.requirements;
+      const hallBuilding = buildings.find(b => b.kind === 'hall');
+      const hallLevel = hallBuilding?.level ?? 1;
+      const hallReqMet = !req?.cityHallLevel || hallLevel >= req.cityHallLevel;
+      const canAffordUpgrade = canUpgrade && canAffordBuilding(selectedCity.resources, nextCost);
+
+      return (
+        <section className="selection panel">
+          <button className="close" aria-label="Close building details" onClick={() => setSelected(null)}>×</button>
+          <span className="eyebrow">LEVEL {curLevel} · {BUILDING_DEFINITIONS[selected.kind].category} · {lConfig?.health ?? 800} HP</span>
+          <h2>{selected.kind === 'hall' ? selectedCity.name : BUILDING_DEFINITIONS[selected.kind].name}</h2>
+          {selected.kind === 'hall' && (
+            <div className="city-nickname">
+              <label htmlFor="city-nickname">City name</label>
+              <div>
+                <input id="city-nickname" value={nicknameDraft || selectedCity.name} maxLength={24} onChange={event => setNicknameDraft(event.target.value)} onFocus={event => { if (!nicknameDraft) setNicknameDraft(event.currentTarget.value); }} onKeyDown={event => { if (event.key === 'Enter') renameCapital(); }} />
+                <button className="primary" disabled={!nicknameDraft.trim() || nicknameDraft.trim() === selectedCity.name} onClick={renameCapital}>Rename</button>
+              </div>
+              <small>You can update this name anytime.</small>
+            </div>
+          )}
+          <p>{BUILDING_DEFINITIONS[selected.kind].description}</p>
+          {lConfig?.production && (
+            <p className="building-stat-perk">
+              ⚡ <strong>Production:</strong> +{lConfig.production.rateUnits} {lConfig.production.resource} every {lConfig.production.produceEverySeconds}s
+            </p>
+          )}
+          {lConfig?.capacityBonus && (
+            <p className="building-stat-perk">
+              📦 <strong>Storage:</strong> +{lConfig.capacityBonus.food ?? lConfig.capacityBonus.wood ?? lConfig.capacityBonus.stone ?? 500} all resource capacity
+            </p>
+          )}
+          {lConfig?.unlocks?.troops && (
+            <p className="building-stat-perk">
+              ⚔️ <strong>Military:</strong> Unlocks {lConfig.unlocks.troops.join(', ')} training
+            </p>
+          )}
+          <small>{getBuildingDimensions(selected.kind, selected.rotation).width} × {getBuildingDimensions(selected.kind, selected.rotation).depth} footprint · Cell {selected.x + 1}, {selected.z + 1}</small>
+
+          {canUpgrade && (
+            <div className="upgrade-card" style={{ marginTop: '10px', padding: '10px', background: '#eef4e7', borderRadius: '10px', border: '1px solid #c9dec0' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                <strong style={{ fontSize: '12px' }}>⬆️ Update / Upgrade to Level {nextLevel}</strong>
+                <span style={{ fontSize: '10px', color: '#4d6954' }}>Max Lv {maxLevel}</span>
+              </div>
+              {nextConfig?.production && (
+                <small style={{ display: 'block', color: '#274b34', marginBottom: '4px' }}>
+                  Next Production: +{nextConfig.production.rateUnits} {nextConfig.production.resource} / {nextConfig.production.produceEverySeconds}s
+                </small>
+              )}
+              {nextConfig?.capacityBonus && (
+                <small style={{ display: 'block', color: '#274b34', marginBottom: '4px' }}>
+                  Next Storage: +{nextConfig.capacityBonus.food ?? 1000} resource capacity
+                </small>
+              )}
+              <div className="building-costs" style={{ marginBottom: '8px' }}>
+                {nextCost.food ? <span className="cost-tag">🌾 {nextCost.food}</span> : null}
+                {nextCost.wood ? <span className="cost-tag">🪵 {nextCost.wood}</span> : null}
+                {nextCost.stone ? <span className="cost-tag">🪨 {nextCost.stone}</span> : null}
+                {nextConfig?.buildTimeSeconds ? <span className="cost-tag">⏱ {nextConfig.buildTimeSeconds}s</span> : null}
+              </div>
+              {!hallReqMet && (
+                <small style={{ color: '#b91c1c', display: 'block', marginBottom: '6px', fontWeight: 600 }}>
+                  ⚠️ Requires City Hall Level {req?.cityHallLevel} (current Lv {hallLevel})
+                </small>
+              )}
+              <button
+                className="primary"
+                style={{ width: '100%', minHeight: '38px', padding: '6px 12px' }}
+                disabled={!canAffordUpgrade || !hallReqMet}
+                onClick={() => upgradeSelected(selected.id, nextLevel, nextCost)}
+              >
+                {!canAffordUpgrade ? 'Insufficient Resources' : !hallReqMet ? `Requires City Hall Lv ${req?.cityHallLevel}` : `⬆️ Update to Level ${nextLevel}`}
+              </button>
+            </div>
+          )}
+          {!canUpgrade && (
+            <div style={{ marginTop: '8px', padding: '6px 10px', background: '#e2ece4', borderRadius: '8px', fontSize: '11px', color: '#2e5f41', fontWeight: 'bold' }}>
+              ★ Maximum Level Reached (Lv {curLevel})
+            </div>
+          )}
+
+          <div className="placement-actions" style={{ marginTop: '12px' }}>
+            {movable && <button className="primary" onClick={moveSelected}>Move</button>}
+            <button className="secondary" onClick={() => view.current?.rotate(selected.id)} aria-label="Rotate building 90 degrees">Rotate</button>
+            {selected.kind !== 'hall' && (
+              <button className="secondary remove-action" onClick={removeSelected} title={refundTexts ? `Refunds 50%: ${refundTexts}` : undefined}>
+                Remove {lConfig?.removeTimerSeconds ? `(${lConfig.removeTimerSeconds}s)` : ''}
+              </button>
+            )}
+          </div>
+        </section>
+      );
+    })()}
+    {placing ? <section className="placement panel"><div><span className="eyebrow">{moving ? 'MOVING' : 'PLACING'} / {BUILDING_DEFINITIONS[buildingKind].name}</span><h2>{valid ? 'Room to grow' : 'Choose another spot'}</h2><p aria-live="polite">{cell ? (valid ? `Clear land at ${cell.x + 1}, ${cell.z + 1}. Ready to ${moving ? 'move' : 'build'}.` : 'Blocked: overlaps a building or crosses the base edge.') : `Tap the land to position your ${BUILDING_DEFINITIONS[buildingKind].name}.`}</p><div className="legend"><span>🟩 Available</span><span>🟥 Blocked</span><span>{size.width} × {size.depth} cells</span></div></div><div className="placement-actions"><button className="secondary" onClick={cancel}>Cancel</button><button className="primary" disabled={!valid} onClick={confirm}>✓ {moving ? 'Confirm move' : `Build ${BUILDING_DEFINITIONS[buildingKind].name}`}</button></div></section> : catalog && !selected && <section className="catalog panel">
+      <div className="catalog-heading">
+        <div>
+          <span className="eyebrow">MAKE ROOM FOR POSSIBILITY</span>
+          <h2>{catalogTab === 'build' ? 'Build your haven' : 'Update your buildings'}</h2>
+        </div>
+        <button className="close" aria-label="Close build menu" onClick={() => setCatalog(false)}>×</button>
+      </div>
+      <div className="catalog-tabs">
+        <button className={catalogTab === 'build' ? 'active' : ''} onClick={() => setCatalogTab('build')}>
+          🏗️ Build New
+        </button>
+        <button className={catalogTab === 'upgrade' ? 'active' : ''} onClick={() => setCatalogTab('upgrade')}>
+          ⬆️ Update Buildings ({buildings.length})
+        </button>
+      </div>
+
+      {catalogTab === 'build' ? (
+        <div className="building-options">
+          {BUILDABLE_KINDS.filter(isBuildingAvailable).map(kind => {
+            const definition = BUILDING_DEFINITIONS[kind];
+            const dimensions = getBuildingDimensions(kind);
+            const level1 = getBuildingLevelConfig(kind, 1);
+            const cost = level1?.cost ?? {};
+            const affordable = canAffordBuilding(selectedCity.resources, cost);
+            return (
+              <button
+                key={kind}
+                className={`building-card ${!affordable ? 'cannot-afford' : ''}`}
+                onClick={() => begin(kind)}
+                disabled={!ready || !affordable}
+                title={!affordable ? 'Insufficient resources in selected city' : undefined}
+              >
+                <span className="building-art" aria-hidden="true">{definition.icon}</span>
+                <span>
+                  <strong>{definition.name}</strong>
+                  <small>{definition.category} &middot; {dimensions.width} &times; {dimensions.depth}</small>
+                  {level1?.production ? (
+                    <div className="building-rate-badge">
+                      ⚡ +{level1.production.rateUnits} {level1.production.resource} / {level1.production.produceEverySeconds}s
+                    </div>
+                  ) : level1?.capacityBonus ? (
+                    <div className="building-rate-badge" style={{ color: '#0369a1' }}>
+                      📦 +{level1.capacityBonus.food ?? 500} Storage
+                    </div>
+                  ) : null}
+                  <div className="building-costs">
+                    {cost.food ? <span className="cost-tag">🌾 {cost.food}</span> : null}
+                    {cost.wood ? <span className="cost-tag">🪵 {cost.wood}</span> : null}
+                    {cost.stone ? <span className="cost-tag">🪨 {cost.stone}</span> : null}
+                    {level1?.buildTimeSeconds ? <span className="cost-tag">⏱ {level1.buildTimeSeconds}s</span> : null}
+                  </div>
+                </span>
+                <span className="add" aria-hidden="true">+</span>
+              </button>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="building-upgrades-list">
+          {buildings.map(b => {
+            const definition = BUILDING_DEFINITIONS[b.kind];
+            const curLevel = b.level ?? 1;
+            const bConfig = getBuildingConfig(b.kind);
+            const maxLevel = bConfig?.maxLevel ?? 3;
+            const curConfig = getBuildingLevelConfig(b.kind, curLevel);
+            const canUpgrade = curLevel < maxLevel;
+            const nextLevel = curLevel + 1;
+            const nextConfig = canUpgrade ? getBuildingLevelConfig(b.kind, nextLevel) : null;
+            const nextCost = nextConfig?.cost ?? {};
+            const canAffordUpgrade = canUpgrade && canAffordBuilding(selectedCity.resources, nextCost);
+            const hallLevel = buildings.find(item => item.kind === 'hall')?.level ?? 1;
+            const req = nextConfig?.requirements;
+            const hallReqMet = !req?.cityHallLevel || hallLevel >= req.cityHallLevel;
+
+            return (
+              <div key={b.id} className={`upgrade-item-card ${!canUpgrade ? 'max-level' : ''}`}>
+                <div className="upgrade-item-header">
+                  <div>
+                    <strong>{definition?.name ?? b.kind}</strong>
+                    <small style={{ fontSize: '10px', color: '#55685a' }}>
+                      Cell {b.x + 1}, {b.z + 1}
+                    </small>
+                  </div>
+                  <span className="level-badge">Lv {curLevel} / {maxLevel}</span>
+                </div>
+
+                {curConfig?.production && (
+                  <div style={{ fontSize: '11px', color: '#166534', fontWeight: 600 }}>
+                    ⚡ Output: +{curConfig.production.rateUnits} {curConfig.production.resource} / {curConfig.production.produceEverySeconds}s (+{(curConfig.production.rateUnits / curConfig.production.produceEverySeconds).toFixed(1)}/s)
+                  </div>
+                )}
+                {curConfig?.capacityBonus && (
+                  <div style={{ fontSize: '11px', color: '#0369a1', fontWeight: 600 }}>
+                    📦 Storage: +{curConfig.capacityBonus.food ?? 500} capacity
+                  </div>
+                )}
+
+                {canUpgrade && nextConfig && (
+                  <div style={{ marginTop: '2px', padding: '6px 8px', background: '#ffffffa0', borderRadius: '8px', border: '1px dashed #b8cbb0' }}>
+                    <div style={{ fontSize: '11px', color: '#274b34', marginBottom: '4px' }}>
+                      <strong>Next (Lv {nextLevel}):</strong>{' '}
+                      {nextConfig.production
+                        ? `+${nextConfig.production.rateUnits} ${nextConfig.production.resource} / ${nextConfig.production.produceEverySeconds}s`
+                        : nextConfig.capacityBonus
+                        ? `+${nextConfig.capacityBonus.food ?? 1000} storage`
+                        : `${nextConfig.health} HP`}
+                    </div>
+                    <div className="building-costs" style={{ marginBottom: '6px' }}>
+                      {nextCost.food ? <span className="cost-tag">🌾 {nextCost.food}</span> : null}
+                      {nextCost.wood ? <span className="cost-tag">🪵 {nextCost.wood}</span> : null}
+                      {nextCost.stone ? <span className="cost-tag">🪨 {nextCost.stone}</span> : null}
+                      {nextConfig.buildTimeSeconds ? <span className="cost-tag">⏱ {nextConfig.buildTimeSeconds}s</span> : null}
+                    </div>
+                    {!hallReqMet && (
+                      <small style={{ color: '#b91c1c', display: 'block', marginBottom: '6px', fontWeight: 600 }}>
+                        ⚠️ Requires City Hall Lv {req?.cityHallLevel} (current Lv {hallLevel})
+                      </small>
+                    )}
+                    <div style={{ display: 'flex', gap: '6px' }}>
+                      <button
+                        className="primary"
+                        style={{ flex: 1, minHeight: '34px', padding: '4px 10px', fontSize: '11px' }}
+                        disabled={!canAffordUpgrade || !hallReqMet}
+                        onClick={() => upgradeBuilding(b.id, nextLevel, nextCost)}
+                      >
+                        {!canAffordUpgrade ? 'Insufficient Resources' : !hallReqMet ? `Requires Hall Lv ${req?.cityHallLevel}` : `⬆️ Update to Level ${nextLevel}`}
+                      </button>
+                      <button
+                        className="secondary"
+                        style={{ minHeight: '34px', padding: '4px 8px', fontSize: '11px' }}
+                        title="Locate building in settlement"
+                        onClick={() => {
+                          setSelected(b);
+                          setCatalog(false);
+                          view.current?.focusCoordinate({ x: b.x, z: b.z });
+                        }}
+                      >
+                        🎯 View
+                      </button>
+                    </div>
+                  </div>
+                )}
+                {!canUpgrade && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <small style={{ color: '#2e5f41', fontWeight: 'bold' }}>★ Maximum Level Reached</small>
+                    <button
+                      className="secondary"
+                      style={{ minHeight: '30px', padding: '2px 8px', fontSize: '10px' }}
+                      onClick={() => {
+                        setSelected(b);
+                        setCatalog(false);
+                        view.current?.focusCoordinate({ x: b.x, z: b.z });
+                      }}
+                    >
+                      🎯 View
+                    </button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <div className="catalog-footer">Selected city stores: 🌾 {Math.floor(selectedCity.resources.food.amount)} &middot; 🪵 {Math.floor(selectedCity.resources.wood.amount)} &middot; 🪨 {Math.floor(selectedCity.resources.stone.amount)} <span>40 × 20 base grid</span></div>
+    </section>}
     {!selectedUnit && target && routeAction === 'choose' && <section className="selection world-action panel" aria-label="World actions"><button className="close" aria-label="Close world actions" onClick={() => { setTarget(null); setRouteAction(null); setSelectedAction(null); }}>&times;</button><span className="eyebrow">{selectedObject ? `${selectedObject.state} · ${selectedObject.kind}` : 'WORLD TARGET'}</span><h2>{target.label || 'Uncharted land'}</h2><p>Coordinate {target.x.toFixed(1)}, {target.z.toFixed(1)} · Route {createRoute(target).distance} tiles</p>{selectedObject && <div className="world-object-actions">{targetActions.map(option => <div key={option.action}><button className={option.action === 'attack' ? 'primary' : 'secondary'} disabled={!option.enabled} onClick={() => chooseWorldAction(option.action)}>{option.action[0].toUpperCase() + option.action.slice(1)}</button>{option.reason && <small>{option.reason}</small>}</div>)}</div>}{mobSpawnEnabled && !selectedObject && <div className="world-object-actions" style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '10px', background: 'rgba(25, 33, 30, 0.9)', borderRadius: '6px', border: '1px solid #f59e0b', margin: '6px 0' }}><label htmlFor="world-boss-select" style={{ fontSize: '0.8rem', fontWeight: 'bold', color: '#f59e0b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>⚔ Summon Boss Mob</label><select id="world-boss-select" value={selectedBossId} onChange={e => setSelectedBossId(e.target.value)} style={{ padding: '6px 10px', borderRadius: '4px', background: '#151d1a', color: '#fff', border: '1px solid #4a5c54', fontSize: '0.85rem', cursor: 'pointer' }}>{getAllBosses().map(boss => <option key={boss.id} value={boss.id}>{boss.name} {boss.title ? `(${boss.title})` : ''}</option>)}<option value="random">Random Boss</option></select><button className="primary" onClick={() => spawnMobGroup(selectedBossId)}>Summon {selectedBossId === 'random' ? 'Random Boss' : (getBossConfig(selectedBossId)?.name ?? 'Boss')}</button><small style={{ color: '#aaa', fontSize: '0.75rem' }}>Developer HUD enabled: spawn at {target.x.toFixed(1)}, {target.z.toFixed(1)}.</small></div>}<button className={selectedObject ? 'secondary' : 'primary'} onClick={() => chooseMarch('march')}>March here</button><small>{selectedObject ? 'March here moves a formation into position without starting combat.' : 'Choose a formation and send it to this location.'}</small></section>}
     {!selectedUnit && target && routeAction === 'formation' && selectedAction && <section className="selection world-action panel" aria-label="World actions"><button className="close" aria-label="Close world actions" onClick={() => { setRouteAction('choose'); setFormationIndex(null); }}>&times;</button><span className="eyebrow">{selectedAction === 'march' ? `MARCH · ${target.label || 'DESTINATION'}` : `${selectedAction.toUpperCase()} · ${target.label}`}</span><h2>Choose formation</h2><p>At-home and deployed formations can take this order.</p>{formations.map((formation, index) => { const active = units.find(unit => unit.kind === 'army' && unit.cityId === selectedCity.id && unit.formationIndex === index); const issue = formationIssue(index); const origin = active ? unitPosition(active, now) : { x: 0, z: 0 }; const eta = marchTravelTimeMs(createRoute(target, origin), active?.speed ?? unitStats.marchSpeed); return <button key={index} className="building-card" aria-pressed={formationIndex === index} disabled={!!issue} onClick={() => setFormationIndex(index)}><strong>Formation {index + 1}{active ? ' · Deployed' : ' · At home'}{formationIndex === index ? ' · Selected' : ''}</strong><small>{issue || `${active ? `${settleUnit(active, now).status} · ${active.members.reduce((sum, member) => sum + member.count, 0)} members` : 'Ready to deploy'} · ETA ${formatDuration(eta)}`}</small></button>; })}{!formations.some(isValidFormation) && !units.some(unit => unit.kind === 'army') && <button className="secondary" onClick={() => { setTarget(null); setRouteAction(null); setSelectedAction(null); setMilitary(true); }}>Configure formations in Military</button>}<button className="primary" disabled={formationIndex === null || !!formationIssue(formationIndex)} onClick={() => { if (formationIndex !== null) deploy(formationIndex, selectedAction); }}>{selectedAction === 'march' ? 'Send march' : selectedAction === 'attack' ? 'Send attack' : selectedAction === 'occupy' ? 'Send occupiers' : 'Send gatherers'}</button></section>}
     {military && !placing && !selected && <MilitaryPanel troops={troops} units={units} cityId={selectedCity.id} now={now} axies={apiAxies} deployedIds={selectedCity.deployedAxieIds.filter(id => apiAxies.some(axie => axie.id === id))} formations={formations} onFormationsChange={setFormations} onClose={() => setMilitary(false)} />}
@@ -1445,7 +1858,7 @@ export default function Home() {
         }}
       />
     )}
-    <footer className="bottom-bar"><div className="status" role="status"><span className="status-dot" />{message}<small>DRAG TO PAN · PINCH / SCROLL TO ZOOM</small></div><div className="hud-actions"><button className="build-toggle" onClick={toggleDeveloper} aria-expanded={developer}><span>Developer</span></button><button className="build-toggle" onClick={toggleHeroes} aria-expanded={heroes}><span>Axies</span></button><button className="build-toggle" onClick={toggleTraining} aria-expanded={training}><span>Train</span></button><button className="build-toggle" onClick={toggleMail} aria-haspopup="dialog" aria-expanded={mail}><span>Mail</span></button><button className="build-toggle" onClick={toggleMilitary} aria-expanded={military}><span>Military</span></button><button className="build-toggle" onClick={() => { setDeveloper(false); setHeroes(false); setMilitary(false); setTraining(false); if (placing) cancel(); else { setSelected(null); setCatalog(selected ? true : !catalog); } }} aria-expanded={(catalog && !selected) || placing}>▦ <span>{placing ? (moving ? 'Cancel move' : 'Cancel build') : 'Build'}</span></button></div></footer>
+    <footer className="bottom-bar"><div className="status" role="status"><span className="status-dot" />{message}<small>DRAG TO PAN · PINCH / SCROLL TO ZOOM</small></div><div className="hud-actions"><button className="build-toggle" onClick={toggleDeveloper} aria-expanded={developer}><span>Developer</span></button><button className="build-toggle" onClick={toggleHeroes} aria-expanded={heroes}><span>Axies</span></button><button className="build-toggle" onClick={toggleTraining} aria-expanded={training}><span>Train</span></button><button className="build-toggle" onClick={toggleMail} aria-haspopup="dialog" aria-expanded={mail}><span>Mail</span></button><button className="build-toggle" onClick={toggleMilitary} aria-expanded={military}><span>Military</span></button><button className="build-toggle" onClick={() => { setDeveloper(false); setHeroes(false); setMilitary(false); setTraining(false); if (placing) cancel(); else { setSelected(null); setCatalog(selected ? true : !catalog); } }} aria-expanded={(catalog && !selected) || placing}>▦ <span>{placing ? (moving ? 'Cancel move' : 'Cancel build') : 'Build / Update'}</span></button></div></footer>
     {showIntro && <IntroScreen onStartGame={handleStartGame} onRestartGame={handleRestartGame} />}
   </main>;
 }
