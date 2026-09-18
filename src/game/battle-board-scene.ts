@@ -6,17 +6,18 @@ import { BabylonAxieInstance, BabylonAxieMixer } from './axie/babylon-mixer';
 import type { Battle, Fighter } from './battle';
 import { BattleRangeSettings } from './battle-range';
 import { BATTLE_OVERLAYS, BattleOverlays } from './battle-debug';
+import { BabylonMascotMixer, type BabylonMascotInstance } from './mascot/mascot-mixer';
 import { AXIE_CLASSES, STARTER_HEROES } from './heroes';
 import type { SandboxBattleEvent, SandboxBattleUnit } from './sandbox-battle';
 
 export type BattleBoardLayout = { hexGap: number; teamGap: number; columns: number; rowsPerTeam: number };
-export type SandboxTroopKind = 'soldier' | 'archer';
+export type SandboxTroopKind = 'soldier' | 'infantry' | 'archer';
 export type BattleBoardAssignment = { slotId: string; side: 'player' | 'enemy'; name: string; axie?: ApiAxie; mob?: 'chimera-pack'; troopKind?: SandboxTroopKind; quantity?: number };
 
 type UnitRecord = {
   root: TransformNode;
   side: 'player' | 'enemy';
-  avatar?: BabylonAxieInstance;
+  avatar?: BabylonAxieInstance | BabylonMascotInstance;
   fallbackMeshes: TransformNode[];
 };
 
@@ -53,6 +54,7 @@ export function createBattleBoardScene(
 
   const modelAbort = new AbortController();
   const axieMixer = new BabylonAxieMixer(scene);
+  const mascotMixer = new BabylonMascotMixer(scene);
   const resolveAppearance = createBattleAppearanceResolver(modelAbort.signal);
   const errors: string[] = [];
 
@@ -170,10 +172,33 @@ export function createBattleBoardScene(
       const cap = MeshBuilder.CreateCylinder('archer cap', { height: 0.18, diameter: 0.78, tessellation: 12 }, scene); cap.parent = unit; cap.position.y = 1.22; cap.material = material; cap.isPickable = false;
       const bow = MeshBuilder.CreateTorus('archer bow', { diameter: 0.92, thickness: 0.07, tessellation: 16 }, scene); bow.parent = unit; bow.position.set(0.48, 0.72, 0); bow.rotation.x = Math.PI / 2; bow.material = material; bow.isPickable = false;
       fallback.push(cap, bow);
+
+      void mascotMixer.create('archer').then(avatar => {
+        if (unit.isDisposed()) { avatar.dispose(); return; }
+        avatar.root.parent = unit;
+        avatar.root.position.y = -0.18;
+        avatar.update('holding', 0);
+        record.avatar = avatar;
+        fallback.forEach(mesh => mesh.setEnabled(false));
+      }).catch(err => {
+        errors.push(`archer: ${err instanceof Error ? err.message : 'Model failed to load'}`);
+      });
     } else if (spec.troopKind === 'soldier' || spec.troopKind === 'infantry') {
+      const isSoldier = spec.troopKind === 'soldier';
       const cap = MeshBuilder.CreateCylinder('soldier cap', { height: 0.18, diameter: 0.78, tessellation: 12 }, scene); cap.parent = unit; cap.position.y = 1.22; cap.material = material; cap.isPickable = false;
       const shield = MeshBuilder.CreateCylinder('soldier shield', { height: 0.12, diameter: 0.58, tessellation: 12 }, scene); shield.parent = unit; shield.position.set(0, 0.7, 0.62); shield.rotation.x = Math.PI / 2; shield.material = material; shield.isPickable = false;
       fallback.push(cap, shield);
+
+      void mascotMixer.create(isSoldier ? 'soldier' : 'infantry').then(avatar => {
+        if (unit.isDisposed()) { avatar.dispose(); return; }
+        avatar.root.parent = unit;
+        avatar.root.position.y = -0.18;
+        avatar.update('holding', 0);
+        record.avatar = avatar;
+        fallback.forEach(mesh => mesh.setEnabled(false));
+      }).catch(err => {
+        errors.push(`${spec.troopKind}: ${err instanceof Error ? err.message : 'Model failed to load'}`);
+      });
     } else {
       for (const side of [-1, 1]) {
         const horn = MeshBuilder.CreateCylinder('Chimera horn', { height: 0.65, diameterBottom: 0.22, diameterTop: 0, tessellation: 6 }, scene);
@@ -188,6 +213,7 @@ export function createBattleBoardScene(
   function rebuild(layout: BattleBoardLayout, assignments: readonly BattleBoardAssignment[] = [], range?: BattleRangeSettings, showRange = false) {
     board?.dispose();
     board = new TransformNode('hex formation board', scene);
+    unitNodes.forEach(node => node.avatar?.dispose());
     unitNodes.clear();
     healthBars.forEach(bar => { bar.background.dispose(); bar.fill.dispose(); });
     healthBars.clear();
@@ -469,6 +495,7 @@ export function createBattleBoardScene(
       canvas.removeEventListener('pointercancel', pointerUp);
       modelAbort.abort();
       axieMixer.dispose();
+      mascotMixer.dispose();
       projectiles.forEach(p => p.mesh.dispose());
       selectionRingMesh?.dispose();
       overlayMeshes.forEach(mesh => mesh.dispose());

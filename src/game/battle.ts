@@ -15,8 +15,9 @@ import defaults from './battle-settings.json';
 export const BATTLE_STEP = 0.1;
 export const MAX_BATTLE_TICKS = 3000;
 export type CombatStats = { health: number; attack: number; defense: number; speed: number; range: number; interval: number; radius: number; projectileSpeed?: number };
-export const TROOP_COMBAT_STATS: Record<'infantry' | 'archer' | 'scout', CombatStats> = {
+export const TROOP_COMBAT_STATS: Record<'infantry' | 'soldier' | 'archer' | 'scout', CombatStats> = {
   infantry: { health: defaults.baseSoldierHealth, attack: defaults.baseSoldierAttack, defense: defaults.baseSoldierDefense, speed: defaults.baseSoldierSpeed, range: defaults.meleeAttackRange, interval: 1 / defaults.baseSoldierAttackSpeed, radius: defaults.bodyRadius },
+  soldier: { health: defaults.baseSoldierHealth, attack: defaults.baseSoldierAttack, defense: defaults.baseSoldierDefense, speed: defaults.baseSoldierSpeed, range: defaults.meleeAttackRange, interval: 1 / defaults.baseSoldierAttackSpeed, radius: defaults.bodyRadius },
   archer: { health: defaults.baseArcherHealth, attack: defaults.baseArcherAttack, defense: defaults.baseArcherDefense, speed: defaults.baseArcherSpeed, range: defaults.rangedAttackRange, interval: 1 / defaults.baseArcherAttackSpeed, radius: defaults.bodyRadius, projectileSpeed: defaults.baseArcherProjectileSpeed },
   scout: { health: 70, attack: 5, defense: 10, speed: 3.5, range: defaults.meleeAttackRange, interval: 1.4, radius: defaults.bodyRadius },
 };
@@ -71,14 +72,14 @@ export function createBattle(army: WorldUnit, enemyCount = 18, roster: readonly 
     const hero = STARTER_HEROES.find(h => h.id === member.heroId);
     const appearance = roster.find(axie => axie.id === member.heroId);
     const troopKind = member.troopKind ?? 'infantry';
-    const profile = hero ? baseCombatStats(activeBattleSettings, 'axie') : troopKind === 'infantry' ? baseCombatStats(activeBattleSettings, 'soldier') : troopKind === 'archer' ? baseCombatStats(activeBattleSettings, 'archer') : TROOP_COMBAT_STATS.scout;
+    const profile = hero ? baseCombatStats(activeBattleSettings, 'axie') : (troopKind === 'infantry' || troopKind === 'soldier') ? baseCombatStats(activeBattleSettings, 'soldier') : troopKind === 'archer' ? baseCombatStats(activeBattleSettings, 'archer') : TROOP_COMBAT_STATS.scout;
     const attackInterval = 'attackSpeed' in profile ? 1 / profile.attackSpeed : profile.interval;
     const projectileSpeed = 'projectileSpeed' in profile ? profile.projectileSpeed : troopKind === 'archer' ? activeBattleSettings.baseArcherProjectileSpeed : undefined;
     const isRanged = hero ? (hero.class === 'bird' || hero.class === 'dawn') : troopKind === 'archer';
     const attackRange = isRanged ? activeBattleSettings.rangedAttackRange : activeBattleSettings.meleeAttackRange;
     const base: CombatStats = hero
       ? { ...profile, speed: profile.speed * hero.stats.speed / 100, range: attackRange, interval: attackInterval, radius: activeBattleSettings.bodyRadius, ...(isRanged ? { projectileSpeed: activeBattleSettings.baseArcherProjectileSpeed } : {}) }
-      : { ...TROOP_COMBAT_STATS[troopKind], health: profile.health, attack: profile.attack, defense: profile.defense, speed: profile.speed, interval: attackInterval, range: attackRange, radius: activeBattleSettings.bodyRadius, ...(projectileSpeed ? { projectileSpeed } : {}) };
+      : { ...(TROOP_COMBAT_STATS[troopKind as keyof typeof TROOP_COMBAT_STATS] ?? TROOP_COMBAT_STATS.infantry), health: profile.health, attack: profile.attack, defense: profile.defense, speed: profile.speed, interval: attackInterval, range: attackRange, radius: activeBattleSettings.bodyRadius, ...(projectileSpeed ? { projectileSpeed } : {}) };
     const stats = { ...base, range: base.range * activeBattleSettings.attackRangeMultiplier, radius: base.radius * activeBattleSettings.bodyRadiusMultiplier, health: base.health * modifiers.health, attack: base.attack * modifiers.attack, defense: base.defense * modifiers.defense, speed: base.speed * modifiers.speed, ...(base.projectileSpeed ? { projectileSpeed: base.projectileSpeed } : {}) };
 
     // Resolve exact tactical hex slot matching the march formation assignment:
@@ -171,14 +172,14 @@ export function reinforceBattle(battle: Battle, army: WorldUnit, roster: readonl
     const hero = STARTER_HEROES.find(h => h.id === member.heroId);
     const appearance = roster.find(axie => axie.id === member.heroId);
     const troopKind = member.troopKind ?? 'infantry';
-    const profile = hero ? baseCombatStats(activeBattleSettings, 'axie') : troopKind === 'infantry' ? baseCombatStats(activeBattleSettings, 'soldier') : troopKind === 'archer' ? baseCombatStats(activeBattleSettings, 'archer') : TROOP_COMBAT_STATS.scout;
+    const profile = hero ? baseCombatStats(activeBattleSettings, 'axie') : (troopKind === 'infantry' || troopKind === 'soldier') ? baseCombatStats(activeBattleSettings, 'soldier') : troopKind === 'archer' ? baseCombatStats(activeBattleSettings, 'archer') : TROOP_COMBAT_STATS.scout;
     const attackInterval = 'attackSpeed' in profile ? 1 / profile.attackSpeed : profile.interval;
     const projectileSpeed = 'projectileSpeed' in profile ? profile.projectileSpeed : troopKind === 'archer' ? activeBattleSettings.baseArcherProjectileSpeed : undefined;
     const isRanged = hero ? (hero.class === 'bird' || hero.class === 'dawn') : troopKind === 'archer';
     const attackRange = isRanged ? activeBattleSettings.rangedAttackRange : activeBattleSettings.meleeAttackRange;
     const base: CombatStats = hero
       ? { ...profile, speed: profile.speed * hero.stats.speed / 100, range: attackRange, interval: attackInterval, radius: activeBattleSettings.bodyRadius, ...(isRanged ? { projectileSpeed: activeBattleSettings.baseArcherProjectileSpeed } : {}) }
-      : { ...TROOP_COMBAT_STATS[troopKind], health: profile.health, attack: profile.attack, defense: profile.defense, speed: profile.speed, interval: attackInterval, range: attackRange, radius: activeBattleSettings.bodyRadius, ...(projectileSpeed ? { projectileSpeed } : {}) };
+      : { ...(TROOP_COMBAT_STATS[troopKind as keyof typeof TROOP_COMBAT_STATS] ?? TROOP_COMBAT_STATS.infantry), health: profile.health, attack: profile.attack, defense: profile.defense, speed: profile.speed, interval: attackInterval, range: attackRange, radius: activeBattleSettings.bodyRadius, ...(projectileSpeed ? { projectileSpeed } : {}) };
     const stats = { ...base, range: base.range * activeBattleSettings.attackRangeMultiplier, radius: base.radius * activeBattleSettings.bodyRadiusMultiplier, health: base.health * modifiers.health, attack: base.attack * modifiers.attack, defense: base.defense * modifiers.defense, speed: base.speed * modifiers.speed, ...(base.projectileSpeed ? { projectileSpeed: base.projectileSpeed } : {}) };
 
     const match = /^hex-(\d+)-(\d+)$/.exec(member.id);

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 const AXIE_MARKETPLACE_GRAPHQL = 'https://api-gateway.skymavis.com/graphql/axie-marketplace';
-const DEFAULT_OWNER = '0xe3bd25a65d180ebb002cbfd8b1c71241227dd183';
+const DEFAULT_OWNER = '0x2d62c27ce2e9e66bb8a667ce1b60f7cb02fa9810';
 const MAX_PAGE_SIZE = 100;
 
 const AXIES_QUERY = `
@@ -45,7 +45,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'SKY_MAVIS_API_KEY is not configured on the server.' }, { status: 500 });
   }
 
-  const owner = request.nextUrl.searchParams.get('owner') ?? DEFAULT_OWNER;
+  const rawOwner = request.nextUrl.searchParams.get('owner') ?? request.cookies.get('axie_owner_address')?.value ?? DEFAULT_OWNER;
+  const owner = rawOwner.trim().startsWith('ronin:') ? '0x' + rawOwner.trim().slice(6) : rawOwner.trim();
   const from = pageParameter(request.nextUrl.searchParams.get('from'), 0, 0, Number.MAX_SAFE_INTEGER);
   const size = pageParameter(request.nextUrl.searchParams.get('size'), 30, 1, MAX_PAGE_SIZE);
   if (from === null || size === null) {

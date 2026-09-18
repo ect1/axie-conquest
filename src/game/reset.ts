@@ -9,6 +9,7 @@ import { DEFAULT_UNIT_GLOBAL_STATS, setActiveUnitGlobalStats } from './unit-stat
 import { WORLD_SAVE_KEY } from './world';
 import { BATTLE_SETTINGS_SAVE_KEY, DEFAULT_BATTLE_SETTINGS, setActiveBattleSettings } from './battle-settings';
 import { AXIE_ROSTER_SAVE_KEY } from './axie-roster';
+import { AXIE_INPUT_OWNER_KEY, AXIE_SAVED_OWNER_KEY } from './owner-address';
 
 export type ResettableModule = {
   id: string;
@@ -32,6 +33,7 @@ export const RESETTABLE_MODULES: readonly ResettableModule[] = [
   { id: 'formations', storageKeys: [OFFENSE_FORMATIONS_SAVE_KEY, LEGACY_OFFENSE_FORMATIONS_SAVE_KEY] },
   { id: 'deployments', storageKeys: [DEPLOYED_AXIES_SAVE_KEY] },
   { id: 'axie-roster', storageKeys: [AXIE_ROSTER_SAVE_KEY] },
+  { id: 'game-owner', storageKeys: [AXIE_SAVED_OWNER_KEY, AXIE_INPUT_OWNER_KEY] },
   { id: 'unit-stats', storageKeys: ['axie-conquest-unit-stats-v1'], reset: () => setActiveUnitGlobalStats({ ...DEFAULT_UNIT_GLOBAL_STATS }) },
   { id: 'battle-settings', storageKeys: [BATTLE_SETTINGS_SAVE_KEY], reset: () => setActiveBattleSettings({ ...DEFAULT_BATTLE_SETTINGS }) },
 ];

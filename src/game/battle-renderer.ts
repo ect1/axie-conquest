@@ -5,16 +5,20 @@ import { activeBattleSettings } from './battle-settings';
 import { AXIE_CLASSES, STARTER_HEROES } from './heroes';
 import { BATTLE_OVERLAYS, BattleOverlays } from './battle-debug';
 import { BabylonAxieMixer, type BabylonAxieInstance } from './axie/babylon-mixer';
+import { BabylonMascotMixer, type BabylonMascotInstance } from './mascot/mascot-mixer';
+
+type FighterAvatarInstance = BabylonAxieInstance | BabylonMascotInstance;
 
 /** Shared fighter presentation for the practice arena and the world map. */
 export function createBattleRenderer(scene: Scene) {
   const root = new TransformNode('live battle', scene);
   const axieMixer = new BabylonAxieMixer(scene);
+  const mascotMixer = new BabylonMascotMixer(scene);
   const materials: StandardMaterial[] = [];
   const mat = (name: string, color: string) => { const m = new StandardMaterial(name, scene); m.diffuseColor = Color3.FromHexString(color); m.specularColor = Color3.Black(); materials.push(m); return m; };
   const healthMat = mat('healthy', '#b8f184'), emptyMat = mat('injured', '#4b3232');
   const rangeMaterials = new Map<string, StandardMaterial>();
-  const models = new Map<string, { body: TransformNode; fallback: Mesh; bar: Mesh; back: Mesh; nose: Mesh; avatar?: BabylonAxieInstance }>();
+  const models = new Map<string, { body: TransformNode; fallback: Mesh; bar: Mesh; back: Mesh; nose: Mesh; avatar?: FighterAvatarInstance }>();
   const rings: Mesh[] = [];
   let lastBattle: Battle | null = null, lastOptions = '';
   const controller = new AbortController();
@@ -22,7 +26,7 @@ export function createBattleRenderer(scene: Scene) {
   let loading = 0;
   const errors: string[] = [];
   let disposed = false;
-  const loadAvatar = async (fighter: Fighter, model: { body: TransformNode; fallback: Mesh; nose: Mesh; avatar?: BabylonAxieInstance }) => {
+  const loadAvatar = async (fighter: Fighter, model: { body: TransformNode; fallback: Mesh; nose: Mesh; avatar?: FighterAvatarInstance }) => {
     loading++;
     const fighterId = fighter.id;
     try {
@@ -40,6 +44,27 @@ export function createBattleRenderer(scene: Scene) {
     } catch (error) {
       if (!disposed) errors.push(`Axie #${fighter.heroId}: ${error instanceof Error ? error.message : 'Model failed to load.'}`);
       console.warn('[axie-babylon] battle avatar kept fallback', { fighterId, error });
+    } finally {
+      loading--;
+    }
+  };
+  const loadMascotAvatar = async (fighter: Fighter, kind: 'soldier' | 'infantry' | 'archer', model: { body: TransformNode; fallback: Mesh; nose: Mesh; avatar?: FighterAvatarInstance }) => {
+    loading++;
+    const fighterId = fighter.id;
+    try {
+      const avatar = await mascotMixer.create(kind);
+      if (disposed || models.get(fighterId) !== model) { avatar.dispose(); return; }
+      avatar.root.parent = model.body;
+      avatar.root.position.y = -0.55;
+      const current = lastBattle?.fighters.find(f => f.id === fighter.id) ?? fighter;
+      avatar.update(current.state, (lastBattle?.tick ?? 0) / 10);
+      model.avatar = avatar;
+      model.fallback.setEnabled(false);
+      model.nose.setEnabled(false);
+      console.info('[mascot-babylon] mascot avatar attached', { fighterId, kind, mascot: avatar.mascotId });
+    } catch (error) {
+      if (!disposed) errors.push(`${kind}: ${error instanceof Error ? error.message : 'Model failed to load.'}`);
+      console.warn('[mascot-babylon] mascot avatar kept fallback', { fighterId, error });
     } finally {
       loading--;
     }
@@ -73,7 +98,11 @@ export function createBattleRenderer(scene: Scene) {
           const bar = MeshBuilder.CreateBox('health', { width: 1.3, height: 0.1, depth: 0.12 }, scene); bar.parent = root; bar.material = healthMat; bar.isPickable = false;
           const back = MeshBuilder.CreateBox('health background', { width: 1.3, height: 0.12, depth: 0.14 }, scene); back.parent = root; back.material = emptyMat; back.isPickable = false;
           model = { body, fallback, bar, back, nose }; models.set(fighter.id, model);
-          if (fighter.heroId) void loadAvatar(fighter, model);
+          if (fighter.heroId) {
+            void loadAvatar(fighter, model);
+          } else if (fighter.troopKind === 'soldier' || fighter.troopKind === 'infantry' || fighter.troopKind === 'archer') {
+            void loadMascotAvatar(fighter, fighter.troopKind, model);
+          }
         }
         model.avatar?.update(fighter.state, battle.tick / 10);
         model.body.position.set(fighter.x, fighter.hp > 0 ? 0.55 : 0.15, fighter.z); model.body.rotation.y = fighter.facing;
@@ -105,5 +134,5 @@ export function createBattleRenderer(scene: Scene) {
       }
     }
   }
-  return { root, models, update, isReady: () => loading === 0, errors, dispose: () => { disposed = true; controller.abort(); models.forEach(model => model.avatar?.dispose()); axieMixer.dispose(); root.dispose(); materials.forEach(material => material.dispose()); } };
+  return { root, models, update, isReady: () => loading === 0, errors, dispose: () => { disposed = true; controller.abort(); models.forEach(model => model.avatar?.dispose()); axieMixer.dispose(); mascotMixer.dispose(); root.dispose(); materials.forEach(material => material.dispose()); } };
 }

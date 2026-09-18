@@ -32,8 +32,9 @@ type DraftAssignment = {
   quantity?: number;
 };
 const TROOP_LABELS: Record<SandboxTroopKind, string> = {
-  soldier: "Soldier",
-  archer: "Archer",
+  soldier: "Soldier (Tripp)",
+  infantry: "Infantry (Xia)",
+  archer: "Archer (Bing)",
 };
 
 export default function BattleSandbox({
@@ -140,7 +141,7 @@ export default function BattleSandbox({
       if (!value) return rest;
       if (value === "chimera-pack")
         return [...rest, { slotId, side, mob: "chimera-pack" }];
-      if (value === "soldier" || value === "archer")
+      if (value === "soldier" || value === "infantry" || value === "archer")
         return [...rest, { slotId, side, troopKind: value, quantity: 1 }];
       return [
         ...rest.filter((item) => item.axieId !== value),
@@ -256,7 +257,8 @@ export default function BattleSandbox({
       const slot = slots.find(
         (candidate) => candidate.id === assignment.slotId,
       )!;
-      const stats = baseCombatStats(rangeDraft, assignment.axie ? "axie" : assignment.troopKind ?? "chimera");
+      const combatKind = assignment.axie ? "axie" : (assignment.troopKind === "infantry" ? "soldier" : assignment.troopKind) ?? "chimera";
+      const stats = baseCombatStats(rangeDraft, combatKind);
       const members = assignment.troopKind ? assignment.quantity ?? 1 : 1;
       return {
         id: assignment.slotId,
@@ -664,7 +666,7 @@ export default function BattleSandbox({
         {(["player", "enemy"] as const).map((side) => (
           <div key={side} className="placement-actions">
             <span>{side === "player" ? "Your team" : "Enemy"}</span>
-            {(["soldier", "archer"] as const).map((kind) => (
+            {(["soldier", "infantry", "archer"] as const).map((kind) => (
               <button
                 key={kind}
                 className="secondary"
@@ -811,7 +813,7 @@ export default function BattleSandbox({
               </button>
             </div>
             <div className="assignment-list">
-              {(["soldier", "archer"] as const).map((kind) => {
+              {(["soldier", "infantry", "archer"] as const).map((kind) => {
                 const assigned = selected(editingSlot.id)?.troopKind === kind;
                 return (
                   <button

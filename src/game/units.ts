@@ -10,7 +10,7 @@ export const UNIT_DEFINITIONS = {
   scout: { capabilities: ['move', 'hold', 'return', 'scout'] },
 } as const;
 export type UnitKind = keyof typeof UNIT_DEFINITIONS;
-export type UnitMember = { id: string; heroId?: string; troopKind?: TroopKind; count: number; offset: Coordinate; healthRatio?: number };
+export type UnitMember = { id: string; heroId?: string; troopKind?: TroopKind | 'soldier'; count: number; offset: Coordinate; healthRatio?: number };
 export type UnitActivity = { action: WorldAction; targetId: string; targetLabel: string };
 export type UnitOrder = { kind: 'move' | 'return'; origin: Coordinate; destination: Coordinate; startedAt: number; arrivesAt: number; activity?: UnitActivity };
 export type WorldUnit = {

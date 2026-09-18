@@ -22,6 +22,15 @@ import { WorldUnit, UNITS_SAVE_KEY, createArmy, createScout, deployUnit, command
 import { createMilitaryService } from '@/game/military-service';
 import { activeUnitGlobalStats } from '@/game/unit-stats';
 import { ApiAxie, AXIE_ROSTER_SAVE_KEY, createAxieRoster, restoreAxieRoster } from '@/game/axie-roster';
+import IntroScreen from './intro-screen';
+import {
+  getPersistedOwner,
+  setPersistedOwner,
+  getActiveGameOwner,
+  setActiveGameOwner,
+  normalizeOwnerAddress,
+} from '@/game/owner-address';
+import { resetGame } from '@/game/reset';
 
 type InventoryTab = 'resources' | 'equipment' | 'other';
 type AxieApiResponse = { data?: { axies?: { results?: unknown } }; error?: string };
@@ -83,12 +92,58 @@ export default function Home() {
   const [mobSpawnEnabled, setMobSpawnEnabled] = useState(false);
   const [mobGroup, setMobGroup] = useState<SpawnableMobGroup>('chimera-pack');
   const [now, setNow] = useState(Date.now);
+  const [showIntro, setShowIntro] = useState(true);
+  const [ownerAddress, setOwnerAddress] = useState<string>(getPersistedOwner);
+
+  function handleStartGame(address: string) {
+    const normalized = normalizeOwnerAddress(address);
+    const activeOwner = getActiveGameOwner();
+    const isAddressChanged = Boolean(activeOwner && normalizeOwnerAddress(activeOwner).toLowerCase() !== normalized.toLowerCase());
+
+    if (isAddressChanged) {
+      resetGame(window.localStorage);
+      setActiveGameOwner(normalized);
+      setPersistedOwner(normalized);
+      if (ready) {
+        window.location.reload();
+        return;
+      }
+      setOwnerAddress(normalized);
+      setApiAxies([]);
+      setFormationsLoaded(false);
+      setCitiesLoaded(false);
+      setShowIntro(false);
+    } else {
+      setActiveGameOwner(normalized);
+      setPersistedOwner(normalized);
+      setOwnerAddress(normalized);
+      setShowIntro(false);
+    }
+  }
+
+  function handleRestartGame(address: string) {
+    const normalized = normalizeOwnerAddress(address);
+    resetGame(window.localStorage);
+    setActiveGameOwner(normalized);
+    setPersistedOwner(normalized);
+    if (ready) {
+      window.location.reload();
+      return;
+    }
+    setOwnerAddress(normalized);
+    setApiAxies([]);
+    setFormationsLoaded(false);
+    setCitiesLoaded(false);
+    setShowIntro(false);
+  }
+
   useEffect(() => { const timer = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(timer); }, []);
   useEffect(() => {
+    if (showIntro) return;
     const cached = restoreAxieRoster(localStorage.getItem(AXIE_ROSTER_SAVE_KEY));
     if (cached) { setApiAxies(cached.axies); setAxieSyncedAt(cached.syncedAt); }
     const controller = new AbortController();
-    fetch('/api/axies?size=30', { signal: controller.signal })
+    fetch(`/api/axies?owner=${encodeURIComponent(ownerAddress)}&size=30`, { signal: controller.signal })
       .then(async response => {
         const payload = await response.json() as AxieApiResponse;
         if (!response.ok) throw new Error(payload.error || `Axie sync failed with HTTP ${response.status}.`);
@@ -104,29 +159,31 @@ export default function Home() {
         setAxieSyncStatus('error');
       });
     return () => controller.abort();
-  }, []);
+  }, [showIntro, ownerAddress]);
   useEffect(() => { if (ready) view.current?.setUnits(units, selectedUnitId); }, [units, selectedUnitId, ready]);
   useEffect(() => { if (ready) view.current?.setBattles(battleSessions); }, [battleSessions, ready]);
   useEffect(() => { if (ready) view.current?.setSelectedTarget(target?.id ?? null); }, [target, ready]);
-  useEffect(() => { if (!ready) return; setUnits(current => { const next = current.map(u => settleUnit(u, now)).filter(u => u.status !== 'home'); return next.length !== current.length || next.some((u, i) => u !== current[i]) ? next : current; }); }, [now, ready]);
-  useEffect(() => { if (!ready) return; try { localStorage.setItem(UNITS_SAVE_KEY, JSON.stringify(units)); } catch { setMessage('Browser storage unavailable; units last this session.'); } }, [units, ready]);
+  useEffect(() => { if (!ready || showIntro) return; setUnits(current => { const next = current.map(u => settleUnit(u, now)).filter(u => u.status !== 'home'); return next.length !== current.length || next.some((u, i) => u !== current[i]) ? next : current; }); }, [now, ready, showIntro]);
+  useEffect(() => { if (!ready || showIntro) return; try { localStorage.setItem(UNITS_SAVE_KEY, JSON.stringify(units)); } catch { setMessage('Browser storage unavailable; units last this session.'); } }, [units, ready, showIntro]);
   useEffect(() => {
+    if (showIntro) return;
     try { setSelectedCity(restoreCities(localStorage.getItem(CITIES_SAVE_KEY)).find(city => city.id === CAPITAL_CITY_ID) ?? createCapitalCity()); } catch { /* Keep the in-memory capital when storage is unavailable. */ } finally { setCitiesLoaded(true); }
-  }, []);
+  }, [showIntro]);
   useEffect(() => {
-    if (!citiesLoaded) return;
+    if (!citiesLoaded || showIntro) return;
     try { localStorage.setItem(CITIES_SAVE_KEY, JSON.stringify([{ ...selectedCity, troops }])); } catch { /* City state remains usable for this session. */ }
-  }, [selectedCity, troops, citiesLoaded]);
+  }, [selectedCity, troops, citiesLoaded, showIntro]);
   useEffect(() => {
-    if (!citiesLoaded || !apiAxies.length || formationsLoaded) return;
+    if (!citiesLoaded || !apiAxies.length || formationsLoaded || showIntro) return;
     try { const board = restoreActiveBattleSettings(localStorage.getItem(BATTLE_SETTINGS_SAVE_KEY)); setFormations(restoreOffenseFormations(localStorage.getItem(OFFENSE_FORMATIONS_SAVE_KEY), selectedCity.deployedAxieIds.filter(id => apiAxies.some(axie => axie.id === id)), troops, { columns: board.boardColumns, rows: board.boardRows })); } catch { /* Use empty formations when storage is unavailable. */ }
     setFormationsLoaded(true);
-  }, [citiesLoaded, apiAxies, formationsLoaded, selectedCity.deployedAxieIds, troops]);
+  }, [citiesLoaded, apiAxies, formationsLoaded, selectedCity.deployedAxieIds, troops, showIntro]);
   useEffect(() => {
-    if (!formationsLoaded) return;
+    if (!formationsLoaded || showIntro) return;
     try { localStorage.setItem(OFFENSE_FORMATIONS_SAVE_KEY, serializeOffenseFormations(formations)); } catch { setMessage('Browser storage unavailable; formations last this session.'); }
-  }, [formations, formationsLoaded]);
+  }, [formations, formationsLoaded, showIntro]);
   useEffect(() => {
+    if (showIntro) return;
     let disposed = false;
     import('@/game/scene').then(({ createBase }) => {
       if (disposed || !canvas.current) return;
@@ -165,7 +222,7 @@ export default function Home() {
       setReady(true);
     }).catch(() => setMessage('Unable to open the 3D view. Please enable WebGL and reload.'));
     return () => { disposed = true; view.current?.dispose(); view.current = null; };
-  }, []);
+  }, [showIntro]);
   useEffect(() => {
     if (ready && !worldView) view.current?.setGridVisible((catalog && !selected) || placing);
   }, [catalog, placing, ready, selected, worldView]);
@@ -596,7 +653,22 @@ export default function Home() {
     <button className="world-toggle" onClick={toggleWorldView}>{worldView ? 'Base' : 'World'}</button>
     <canvas ref={canvas} aria-label="Lunacia settlement. Drag to pan, scroll or pinch to zoom. Choose a building, then tap the land to position it." />
     <header className="topbar">
-      <div className="identity"><div className="crest">✦</div><div><span className="eyebrow">AXIE CONQUEST</span><strong>{selectedCity.name}</strong><small>Lunacia · Your settlement</small></div></div>
+      <div
+        className="identity"
+        role="button"
+        tabIndex={0}
+        onClick={() => setShowIntro(true)}
+        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') setShowIntro(true); }}
+        title="Open Title Screen / Change Wallet"
+        style={{ pointerEvents: 'auto', cursor: 'pointer' }}
+      >
+        <div className="crest">✦</div>
+        <div>
+          <span className="eyebrow">AXIE CONQUEST · MENU</span>
+          <strong>{selectedCity.name}</strong>
+          <small>Lunacia · Your settlement</small>
+        </div>
+      </div>
       <div className="resources"><div><span>🌾</span><strong>{farms}<small>FARMS</small></strong></div><div><span>▦</span><strong>{800 - usedCells}<small>FREE CELLS</small></strong></div><div className="power" aria-label="Power"><span>⚡</span><strong>POWER</strong></div><div className="level"><span>✦</span><strong>1<small>HALL LEVEL</small></strong></div></div>
     </header>
     <aside className="chapter"><span className="eyebrow">CHAPTER 01 / ROOTS OF A KINGDOM</span><h1>A home worth<br />growing.</h1><p>Raise your first farm.<br />Bring life back to Lunacia.</p><div className="objective"><span className={farms ? 'complete' : ''}>{farms ? '✓' : '○'}</span><div>Plant the foundations<small>{farms ? 'First farm established' : 'Build your first farm'}</small></div></div></aside>
@@ -747,6 +819,7 @@ export default function Home() {
       />
     )}
     <footer className="bottom-bar"><div className="status" role="status"><span className="status-dot" />{message}<small>DRAG TO PAN · PINCH / SCROLL TO ZOOM</small></div><div className="hud-actions"><button className="build-toggle" onClick={toggleDeveloper} aria-expanded={developer}><span>Developer</span></button><button className="build-toggle" onClick={toggleHeroes} aria-expanded={heroes}><span>Axies</span></button><button className="build-toggle" onClick={toggleTraining} aria-expanded={training}><span>Train</span></button><button className="build-toggle" onClick={toggleMail} aria-haspopup="dialog" aria-expanded={mail}><span>Mail</span></button><button className="build-toggle" onClick={toggleMilitary} aria-expanded={military}><span>Military</span></button><button className="build-toggle" onClick={() => { setDeveloper(false); setHeroes(false); setMilitary(false); setTraining(false); if (placing) cancel(); else { setSelected(null); setCatalog(selected ? true : !catalog); } }} aria-expanded={(catalog && !selected) || placing}>▦ <span>{placing ? (moving ? 'Cancel move' : 'Cancel build') : 'Build'}</span></button></div></footer>
+    {showIntro && <IntroScreen onStartGame={handleStartGame} onRestartGame={handleRestartGame} />}
   </main>;
 }
 
