@@ -19,7 +19,9 @@
       "newPortalIndependentLevel": true,
       "subPortal": {
         "destroyable": true,
-        "maxSubportal": 10
+        "maxSubportal": 10,
+        "lastDestroyedRespwanOnTimer": true,
+        "lastDestroyedBackToLevel1": true
       }
     },
     "mobTypes": {

@@ -24,6 +24,10 @@ export type PortalLevelScaling = {
   subPortal?: {
     destroyable: boolean;
     maxSubportal?: number;
+    lastDestroyedRespwanOnTimer?: boolean;
+    lastDestroyedRespawnOnTimer?: boolean;
+    lastDestroyedBackToLevel1?: boolean;
+    respawnTimerSeconds?: number;
   };
 };
 
@@ -103,9 +107,19 @@ export type EnemyMarch = {
   fightingPosition?: Coordinate;
 };
 
+export type DestroyedSubportalRecord = {
+  id: string;
+  name: string;
+  coordinate: Coordinate;
+  level: number;
+  destroyedAt: number;
+  respawnAt: number;
+};
+
 export type PortalRuntimeState = {
   portals: PortalInstance[];
   activeEnemyMarches: EnemyMarch[];
+  lastDestroyedSubportal?: DestroyedSubportalRecord | null;
 };
 
 export const MASCOT_HERO_IDS = ['kotaro', 'paladill', 'tripp', 'xia', 'bing', 'kibo', 'pomodoro'] as const;
@@ -116,6 +130,9 @@ export function sanitizePortalConfig(raw: unknown): PortalMobSummoningConfig {
   const coord = candidate.initialPortalCoordinate ?? DEFAULT_PORTAL_CONFIG.initialPortalCoordinate;
   const scaling = candidate.portalLevelScaling ?? DEFAULT_PORTAL_CONFIG.portalLevelScaling;
   const mobTypes = candidate.mobTypes ?? DEFAULT_PORTAL_CONFIG.mobTypes;
+
+  const rawSub = scaling?.subPortal as any;
+  const defaultSub = DEFAULT_PORTAL_CONFIG.portalLevelScaling.subPortal as any;
 
   return {
     enabled: typeof candidate.enabled === 'boolean' ? candidate.enabled : DEFAULT_PORTAL_CONFIG.enabled,
@@ -137,8 +154,17 @@ export function sanitizePortalConfig(raw: unknown): PortalMobSummoningConfig {
       summonNewPortalEveryLevel: Math.max(1, Math.round(Number(scaling?.summonNewPortalEveryLevel) || DEFAULT_PORTAL_CONFIG.portalLevelScaling.summonNewPortalEveryLevel)),
       newPortalIndependentLevel: typeof scaling?.newPortalIndependentLevel === 'boolean' ? scaling.newPortalIndependentLevel : DEFAULT_PORTAL_CONFIG.portalLevelScaling.newPortalIndependentLevel,
       subPortal: {
-        destroyable: typeof scaling?.subPortal?.destroyable === 'boolean' ? scaling.subPortal.destroyable : (DEFAULT_PORTAL_CONFIG.portalLevelScaling.subPortal?.destroyable ?? false),
-        maxSubportal: Math.max(1, Math.round(Number(scaling?.subPortal?.maxSubportal) || (DEFAULT_PORTAL_CONFIG.portalLevelScaling.subPortal?.maxSubportal ?? 10))),
+        destroyable: typeof rawSub?.destroyable === 'boolean' ? rawSub.destroyable : (defaultSub?.destroyable ?? false),
+        maxSubportal: Math.max(1, Math.round(Number(rawSub?.maxSubportal) || (defaultSub?.maxSubportal ?? 10))),
+        lastDestroyedRespwanOnTimer: typeof rawSub?.lastDestroyedRespwanOnTimer === 'boolean'
+          ? rawSub.lastDestroyedRespwanOnTimer
+          : (typeof rawSub?.lastDestroyedRespawnOnTimer === 'boolean'
+            ? rawSub.lastDestroyedRespawnOnTimer
+            : (defaultSub?.lastDestroyedRespwanOnTimer ?? defaultSub?.lastDestroyedRespawnOnTimer ?? true)),
+        lastDestroyedBackToLevel1: typeof rawSub?.lastDestroyedBackToLevel1 === 'boolean'
+          ? rawSub.lastDestroyedBackToLevel1
+          : (defaultSub?.lastDestroyedBackToLevel1 ?? true),
+        respawnTimerSeconds: Number.isFinite(rawSub?.respawnTimerSeconds) ? Number(rawSub.respawnTimerSeconds) : undefined,
       },
     },
     mobTypes: {
@@ -405,6 +431,7 @@ export function createInitialPortalState(config: PortalMobSummoningConfig, now =
   return {
     portals: [primePortal],
     activeEnemyMarches: [],
+    lastDestroyedSubportal: null,
   };
 }
 
@@ -458,7 +485,21 @@ export function restorePortalState(raw: string | null, config: PortalMobSummonin
       } catch { /* ignore */ }
     });
 
-    return { portals, activeEnemyMarches };
+    const lastDestroyedSubportal: DestroyedSubportalRecord | null = parsed.lastDestroyedSubportal && typeof parsed.lastDestroyedSubportal.id === 'string'
+      ? {
+          id: parsed.lastDestroyedSubportal.id,
+          name: parsed.lastDestroyedSubportal.name || 'Sub-portal',
+          coordinate: {
+            x: Number(parsed.lastDestroyedSubportal.coordinate?.x) || 0,
+            z: Number(parsed.lastDestroyedSubportal.coordinate?.z) || 0,
+          },
+          level: Math.max(1, Number(parsed.lastDestroyedSubportal.level) || 1),
+          destroyedAt: Number(parsed.lastDestroyedSubportal.destroyedAt) || now,
+          respawnAt: Number(parsed.lastDestroyedSubportal.respawnAt) || now,
+        }
+      : null;
+
+    return { portals, activeEnemyMarches, lastDestroyedSubportal };
   } catch {
     return createInitialPortalState(config, now);
   }
@@ -526,6 +567,35 @@ export function stepPortalSystem(
   const updatedPortals: PortalInstance[] = [];
   const newPortalsToAppend: PortalInstance[] = [];
   let nextPortalIndex = state.portals.length + 1;
+  let lastDestroyedSubportal = state.lastDestroyedSubportal ?? null;
+
+  // Handle timed respawn of last destroyed sub-portal
+  if (
+    !config.paused &&
+    lastDestroyedSubportal &&
+    now >= lastDestroyedSubportal.respawnAt
+  ) {
+    const maxSub = config.portalLevelScaling.subPortal?.maxSubportal ?? 10;
+    const currentSubCount = [...state.portals, ...newPortalsToAppend].filter(p => p.id !== 'portal-prime').length;
+    if (currentSubCount < maxSub && !state.portals.some(p => p.id === lastDestroyedSubportal!.id)) {
+      const respawnUpcoming = generateWaveFormation(lastDestroyedSubportal.level, config, random);
+      const isDestroyable = !!config.portalLevelScaling.subPortal?.destroyable;
+      const respawned: PortalInstance = {
+        id: lastDestroyedSubportal.id,
+        name: lastDestroyedSubportal.name,
+        level: lastDestroyedSubportal.level,
+        coordinate: { ...lastDestroyedSubportal.coordinate },
+        cycleState: 'initial_countdown',
+        nextAttackTime: now + config.initialAttackInSeconds * 1000,
+        upcomingFormation: respawnUpcoming,
+        defenderFormation: isDestroyable ? JSON.parse(JSON.stringify(respawnUpcoming)) : undefined,
+        createdAt: now,
+        activeMarchId: null,
+      };
+      newPortalsToAppend.push(respawned);
+    }
+    lastDestroyedSubportal = null;
+  }
 
   for (const portal of state.portals) {
     let currentPortal = { ...portal };
@@ -650,6 +720,7 @@ export function stepPortalSystem(
     state: {
       portals: updatedPortals,
       activeEnemyMarches: remainingMarches,
+      lastDestroyedSubportal,
     },
     newMarchesSpawned: newMarches,
     arrivedMarchesCount: arrivedCount,
@@ -766,9 +837,8 @@ export function portalFormationToBossConfig(march: EnemyMarch): BossConfig {
  * for defending the portal when attacked by player formations.
  */
 export function subPortalDefenderToBossConfig(portal: PortalInstance): BossConfig {
-  const formation = portal.defenderFormation && portal.defenderFormation.slots.length > 0
-    ? portal.defenderFormation
-    : portal.upcomingFormation;
+  // Defenders mirror the portal's current/upcoming attacking wave formation
+  const formation = portal.upcomingFormation;
   const mascots = formation.slots.filter(s => s.kind === 'mascot');
   const nonMascots = formation.slots.filter(s => s.kind !== 'mascot');
   const mainMascot = mascots[0];
@@ -826,22 +896,46 @@ export function subPortalDefenderToBossConfig(portal: PortalInstance): BossConfi
 }
 
 /**
- * Destroys a sub-portal, removing it and any associated marches from the runtime state.
+ * Destroys a sub-portal. Remaining spawned mobs from this sub-portal remain in the world until killed.
+ * If lastDestroyedRespwanOnTimer is enabled, schedules the last destroyed sub-portal for timed respawn.
  */
 export function destroySubPortal(
   portalId: string,
-  state: PortalRuntimeState
+  state: PortalRuntimeState,
+  config: PortalMobSummoningConfig = activePortalConfig,
+  now = Date.now()
 ): { state: PortalRuntimeState; destroyedPortal?: PortalInstance } {
   const destroyed = state.portals.find(p => p.id === portalId);
   if (!destroyed) return { state };
 
   const remainingPortals = state.portals.filter(p => p.id !== portalId);
-  const remainingMarches = state.activeEnemyMarches.filter(m => m.portalId !== portalId);
+  // Spawned mobs remain in the world until killed in battle
+  const remainingMarches = state.activeEnemyMarches;
+
+  let lastDestroyedSubportal: DestroyedSubportalRecord | null = state.lastDestroyedSubportal ?? null;
+  const subConfig = config.portalLevelScaling.subPortal;
+  const shouldRespawnOnTimer = subConfig?.lastDestroyedRespwanOnTimer ?? subConfig?.lastDestroyedRespawnOnTimer;
+
+  if (shouldRespawnOnTimer) {
+    const backToLv1 = subConfig?.lastDestroyedBackToLevel1 ?? true;
+    const targetLevel = backToLv1 ? 1 : destroyed.level;
+    const delaySec = subConfig?.respawnTimerSeconds ?? config.exhaustedSeconds ?? config.initialAttackInSeconds ?? 30;
+    lastDestroyedSubportal = {
+      id: destroyed.id,
+      name: destroyed.name,
+      coordinate: { ...destroyed.coordinate },
+      level: targetLevel,
+      destroyedAt: now,
+      respawnAt: now + delaySec * 1000,
+    };
+  }
 
   return {
     state: {
+      ...state,
       portals: remainingPortals,
       activeEnemyMarches: remainingMarches,
+      lastDestroyedSubportal,
     },
     destroyedPortal: destroyed,
   };

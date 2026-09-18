@@ -380,7 +380,7 @@ assert.ok(subBattle, 'Battle against subportal created');
 assert.ok(subBattle.fighters.some(f => f.side === 'enemy' && f.isBoss), 'Subportal guardian boss present');
 assert.ok(subBattle.fighters.some(f => f.side === 'enemy' && (f.troopKind === 'soldier' || f.troopKind === 'archer')), 'Subportal defenders present');
 
-// Destroy subportal
+// Destroy subportal - remaining spawned mobs must remain until killed in battle
 const stateWithSubportal = {
   portals: [state.portals[0], subPortal],
   activeEnemyMarches: [
@@ -389,11 +389,58 @@ const stateWithSubportal = {
   ],
 };
 
-const destroyRes = portal.destroySubPortal(subPortal.id, stateWithSubportal);
-assert.equal(destroyRes.state.portals.length, 1, 'Subportal removed from portals list');
+const destroyNow = 100000;
+const destroyRes = portal.destroySubPortal(subPortal.id, stateWithSubportal, config, destroyNow);
+assert.equal(destroyRes.state.portals.length, 1, 'Subportal removed from active portals list');
 assert.equal(destroyRes.state.portals[0].id, state.portals[0].id, 'Prime portal remains intact');
 assert.equal(destroyRes.destroyedPortal?.id, subPortal.id);
-assert.equal(destroyRes.state.activeEnemyMarches.length, 1, 'Marches from destroyed subportal removed');
-assert.equal(destroyRes.state.activeEnemyMarches[0].id, 'prime-march-1', 'Prime portal march preserved');
+assert.equal(destroyRes.state.activeEnemyMarches.length, 2, 'Spawned marches from destroyed subportal MUST REMAIN in world until killed');
+assert.ok(destroyRes.state.activeEnemyMarches.some(m => m.id === 'sub-march-1'), 'Active subportal march preserved on map');
+
+// Verify timed respawn record (lastDestroyedRespwanOnTimer)
+assert.ok(destroyRes.state.lastDestroyedSubportal, 'lastDestroyedSubportal record must be created');
+assert.equal(destroyRes.state.lastDestroyedSubportal.id, subPortal.id);
+assert.equal(destroyRes.state.lastDestroyedSubportal.level, 1, 'lastDestroyedBackToLevel1: true resets level to 1');
+assert.ok(destroyRes.state.lastDestroyedSubportal.respawnAt > destroyNow, 'respawnAt scheduled on timer');
+
+console.log('Testing timed respawn execution in stepPortalSystem...');
+// Before timer expires, subportal should not respawn
+const stepBefore = portal.stepPortalSystem(destroyNow + 1000, destroyRes.state, config, { x: 0, z: 0 });
+assert.equal(stepBefore.state.portals.length, 1, 'Subportal has not respawned yet');
+assert.ok(stepBefore.state.lastDestroyedSubportal, 'Pending respawn still tracked');
+
+// After timer expires, subportal must respawn back into portals as Level 1
+const respawnTime = destroyRes.state.lastDestroyedSubportal.respawnAt;
+const stepAfter = portal.stepPortalSystem(respawnTime, destroyRes.state, config, { x: 0, z: 0 });
+assert.equal(stepAfter.state.portals.length, 2, 'Subportal has respawned back into portals list');
+const respawned = stepAfter.state.portals.find(p => p.id === subPortal.id);
+assert.ok(respawned, 'Respawned subportal found by id');
+assert.equal(respawned.level, 1, 'Respawned subportal is Level 1');
+assert.equal(respawned.cycleState, 'initial_countdown', 'Respawned subportal enters initial countdown');
+assert.equal(stepAfter.state.lastDestroyedSubportal, null, 'Pending respawn cleared once executed');
+
+// Verify dynamic boss was automatically registered for the respawned subportal
+const respawnedBoss = bossesModule.getBossConfig(`subportal-boss-${subPortal.id}`);
+assert.ok(respawnedBoss, 'Dynamic boss registered for respawned subportal');
+assert.ok(respawnedBoss.name.includes('Defenders'));
+
+// Verify lastDestroyedBackToLevel1: false preserves destroyed level
+const configKeepLevel = {
+  ...config,
+  portalLevelScaling: {
+    ...config.portalLevelScaling,
+    subPortal: {
+      ...config.portalLevelScaling.subPortal,
+      lastDestroyedBackToLevel1: false,
+    },
+  },
+};
+const highLevelSubportal = { ...subPortal, id: 'portal-high', level: 7 };
+const highState = {
+  portals: [state.portals[0], highLevelSubportal],
+  activeEnemyMarches: [],
+};
+const highDestroyRes = portal.destroySubPortal('portal-high', highState, configKeepLevel, destroyNow);
+assert.equal(highDestroyRes.state.lastDestroyedSubportal.level, 7, 'Preserves level 7 when lastDestroyedBackToLevel1 is false');
 
 console.log('All portal tests passed successfully!');

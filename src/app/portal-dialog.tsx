@@ -142,9 +142,18 @@ export default function PortalDialog({ portal, config, now, onClose, onTriggerWa
 
       {/* Composition Summary Badges */}
       <div style={{ marginBottom: '14px' }}>
-        <span style={{ fontSize: '11px', fontWeight: 700, color: '#e9d5ff', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-          Next Wave Composition
-        </span>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span style={{ fontSize: '11px', fontWeight: 700, color: '#e9d5ff', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+            {config.portalLevelScaling.subPortal?.destroyable && portal.id !== 'portal-prime'
+              ? '⚔️ Attack Wave & 🛡️ Defense Garrison'
+              : 'Next Wave Composition'}
+          </span>
+          {config.portalLevelScaling.subPortal?.destroyable && portal.id !== 'portal-prime' && (
+            <span style={{ fontSize: '9px', fontWeight: 700, color: '#4ade80', background: 'rgba(34, 197, 94, 0.18)', border: '1px solid #22c55e', padding: '2px 6px', borderRadius: '4px' }}>
+              🛡️ Sub-portal Defenders
+            </span>
+          )}
+        </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px', marginTop: '6px' }}>
           <div style={{ background: 'rgba(131, 24, 67, 0.35)', border: '1px solid #db2777', borderRadius: '8px', padding: '6px 8px', textAlign: 'center' }}>
             <span style={{ fontSize: '10px', color: '#fbcfe8', display: 'block' }}>👑 Boss Mascot</span>
@@ -170,7 +179,11 @@ export default function PortalDialog({ portal, config, now, onClose, onTriggerWa
           <span style={{ fontSize: '11px', fontWeight: 700, color: '#e9d5ff', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
             Formation Distribution
           </span>
-          <small style={{ color: '#a855f7', fontSize: '10px' }}>Randomized Slots & Quantities</small>
+          <small style={{ color: '#a855f7', fontSize: '10px' }}>
+            {config.portalLevelScaling.subPortal?.destroyable && portal.id !== 'portal-prime'
+              ? '🛡️ Defends Sub-portal & ⚔️ Attacks City'
+              : 'Randomized Slots & Quantities'}
+          </small>
         </div>
 
         <div
@@ -320,7 +333,7 @@ export default function PortalDialog({ portal, config, now, onClose, onTriggerWa
               marginBottom: '4px',
             }}
           >
-            ⚔️ Attack Sub-portal (Destroy)
+            ⚔️ Attack
           </button>
         )}
         {onTogglePause && (

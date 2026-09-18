@@ -444,6 +444,7 @@ export default function DeveloperPanel({
                   portalLevelScaling: {
                     ...localPortalConfig.portalLevelScaling,
                     subPortal: {
+                      ...localPortalConfig.portalLevelScaling.subPortal,
                       destroyable: e.target.checked,
                       maxSubportal: localPortalConfig.portalLevelScaling.subPortal?.maxSubportal ?? 10,
                     }
@@ -451,6 +452,42 @@ export default function DeveloperPanel({
                 })}
               />
               <span style={{ fontSize: '11px' }}>Sub-portals are destroyable</span>
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <input
+                type="checkbox"
+                checked={localPortalConfig.portalLevelScaling.subPortal?.lastDestroyedRespwanOnTimer ?? true}
+                onChange={e => setLocalPortalConfig({
+                  ...localPortalConfig,
+                  portalLevelScaling: {
+                    ...localPortalConfig.portalLevelScaling,
+                    subPortal: {
+                      ...localPortalConfig.portalLevelScaling.subPortal,
+                      destroyable: localPortalConfig.portalLevelScaling.subPortal?.destroyable ?? false,
+                      lastDestroyedRespwanOnTimer: e.target.checked,
+                    }
+                  }
+                })}
+              />
+              <span style={{ fontSize: '11px' }}>Respawn last destroyed sub-portal on timer</span>
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <input
+                type="checkbox"
+                checked={localPortalConfig.portalLevelScaling.subPortal?.lastDestroyedBackToLevel1 ?? true}
+                onChange={e => setLocalPortalConfig({
+                  ...localPortalConfig,
+                  portalLevelScaling: {
+                    ...localPortalConfig.portalLevelScaling,
+                    subPortal: {
+                      ...localPortalConfig.portalLevelScaling.subPortal,
+                      destroyable: localPortalConfig.portalLevelScaling.subPortal?.destroyable ?? false,
+                      lastDestroyedBackToLevel1: e.target.checked,
+                    }
+                  }
+                })}
+              />
+              <span style={{ fontSize: '11px' }}>Respawned sub-portal resets to Level 1</span>
             </label>
           </div>
         </fieldset>
@@ -523,6 +560,12 @@ export default function DeveloperPanel({
                   <span>{p.cycleState === 'exhausted' ? '⏳ Exhausted' : p.cycleState === 'disabled' ? '⏸️ Paused' : '⚔️ Attacking'} · {Math.max(0, Math.ceil((p.nextAttackTime - Date.now()) / 1000))}s</span>
                 </div>
               ))}
+              {portalState.lastDestroyedSubportal && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 6px', background: '#fef2f2', borderRadius: '4px', border: '1px solid #fca5a5', color: '#991b1b' }}>
+                  <strong>⏳ {portalState.lastDestroyedSubportal.name} (Destroyed)</strong>
+                  <span>Respawning Lv {portalState.lastDestroyedSubportal.level} in {Math.max(0, Math.ceil((portalState.lastDestroyedSubportal.respawnAt - Date.now()) / 1000))}s</span>
+                </div>
+              )}
               <div style={{ marginTop: '4px', color: '#64748b' }}>
                 Active enemy marches on map: <strong>{portalState.activeEnemyMarches.length}</strong>
               </div>

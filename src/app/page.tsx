@@ -235,7 +235,7 @@ export default function Home() {
   }
 
   function handleDestroySubPortal(portalId: string) {
-    const { state: nextState, destroyedPortal } = destroySubPortal(portalId, portalState);
+    const { state: nextState, destroyedPortal } = destroySubPortal(portalId, portalState, portalConfig, Date.now());
     setPortalState(nextState);
     try {
       localStorage.setItem(PORTAL_STATE_SAVE_KEY, JSON.stringify(nextState));
@@ -243,7 +243,12 @@ export default function Home() {
     view.current?.setPortalState(nextState, null);
     setSelectedPortalId(null);
     setSelectedUnitId(null);
-    setMessage(`💥 VICTORY! Destroyed ${destroyedPortal?.name || 'sub-portal'}! The void rift collapsed.`);
+    if (nextState.lastDestroyedSubportal) {
+      const respawnSec = Math.max(1, Math.round((nextState.lastDestroyedSubportal.respawnAt - Date.now()) / 1000));
+      setMessage(`💥 VICTORY! Destroyed ${destroyedPortal?.name || 'sub-portal'}! Void rift collapsed (respawns Lv ${nextState.lastDestroyedSubportal.level} in ${respawnSec}s).`);
+    } else {
+      setMessage(`💥 VICTORY! Destroyed ${destroyedPortal?.name || 'sub-portal'}! The void rift collapsed.`);
+    }
   }
 
   const [showIntro, setShowIntro] = useState(true);
