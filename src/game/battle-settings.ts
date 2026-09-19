@@ -1,14 +1,47 @@
 import defaults from './battle-settings.json';
 import { BattleOverlays, DEFAULT_BATTLE_OVERLAYS } from './battle-debug';
 import { BattleRangeSettings, DEFAULT_BATTLE_RANGE, sanitizeBattleRange } from './battle-range';
+import { getCombatStatsConfig } from './stats-config';
 
 export const BATTLE_SETTINGS_SAVE_KEY = 'axie-conquest-battle-settings-v1';
 export type BattleSettings = typeof defaults & BattleRangeSettings & { overlays: BattleOverlays; showAll: boolean; debugBattle: boolean };
 type SavedBattleSettings = Partial<BattleSettings> & { replayTeamSeparation?: unknown };
-// `battle-settings.json` is the canonical combined battle configuration. Keep
-// range defaults as a fallback for fields it does not provide, rather than
-// letting the legacy range file overwrite its sandbox/live-battle values.
-export const DEFAULT_BATTLE_SETTINGS: BattleSettings = { ...DEFAULT_BATTLE_RANGE, ...defaults, overlays: { ...DEFAULT_BATTLE_OVERLAYS }, showAll: false, debugBattle: false };
+
+function getCombatDefaults() {
+  const c = getCombatStatsConfig();
+  return {
+    baseAxieHealth: c.axieHero.health,
+    baseAxieAttack: c.axieHero.attack,
+    baseAxieDefense: c.axieHero.defense,
+    baseAxieSpeed: c.axieHero.speed,
+    baseAxieAttackSpeed: c.axieHero.attackSpeed,
+    baseSoldierHealth: c.soldier.health,
+    baseSoldierAttack: c.soldier.attack,
+    baseSoldierDefense: c.soldier.defense,
+    baseSoldierSpeed: c.soldier.speed,
+    baseSoldierAttackSpeed: c.soldier.attackSpeed,
+    baseArcherHealth: c.archer.health,
+    baseArcherAttack: c.archer.attack,
+    baseArcherDefense: c.archer.defense,
+    baseArcherSpeed: c.archer.speed,
+    baseArcherAttackSpeed: c.archer.attackSpeed,
+    baseArcherProjectileSpeed: c.archer.projectileSpeed ?? 12,
+    baseChimeraHealth: c.chimera.health,
+    baseChimeraAttack: c.chimera.attack,
+    baseChimeraDefense: c.chimera.defense,
+    baseChimeraSpeed: c.chimera.speed,
+    baseChimeraAttackSpeed: c.chimera.attackSpeed,
+  };
+}
+
+export const DEFAULT_BATTLE_SETTINGS: BattleSettings = {
+  ...DEFAULT_BATTLE_RANGE,
+  ...defaults,
+  ...getCombatDefaults(),
+  overlays: { ...DEFAULT_BATTLE_OVERLAYS },
+  showAll: false,
+  debugBattle: false,
+};
 export let activeBattleSettings: BattleSettings = { ...DEFAULT_BATTLE_SETTINGS };
 
 export function sanitizeBattleSettings(value: SavedBattleSettings | null | undefined): BattleSettings {

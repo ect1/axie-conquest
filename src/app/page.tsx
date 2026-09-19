@@ -32,6 +32,7 @@ import {
 } from '@/game/building-config';
 import { fetchLiveGameConfig } from '@/game/game-config';
 import { fetchLiveCityConfig } from '@/game/city-config';
+import { fetchLiveStatsConfig } from '@/game/stats-config';
 import { createEmptyFormations, Formation, OFFENSE_FORMATIONS_SAVE_KEY, restoreOffenseFormations, serializeOffenseFormations } from '@/game/offense-formations';
 import { BATTLE_SETTINGS_SAVE_KEY, restoreActiveBattleSettings } from '@/game/battle-settings';
 import { Coordinate, createRoute, formatDuration, isValidFormation, marchTravelTimeMs, WorldTarget } from '@/game/routes';
@@ -328,8 +329,9 @@ export default function Home() {
       fetchLiveGameConfig(),
       fetchLiveCityConfig(),
       fetchLiveResourceSpawnConfig(),
-    ]).then(([bCfg, gCfg, cCfg, rCfg]) => {
-      if (bCfg || gCfg || cCfg || rCfg) {
+      fetchLiveStatsConfig(),
+    ]).then(([bCfg, gCfg, cCfg, rCfg, sCfg]) => {
+      if (bCfg || gCfg || cCfg || rCfg || sCfg) {
         setConfigVersion(v => v + 1);
         if (rCfg) {
           setGeneration(getActiveGenerationSettings() as GenerationSettings);

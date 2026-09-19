@@ -13,15 +13,18 @@ import { BossConfig, BossCustomStats, defaultBoss, getBossConfig } from './bosse
 import type { WorldObject } from './world';
 
 import defaults from './battle-settings.json';
+import { getCombatStatsConfig } from './stats-config';
 
 export const BATTLE_STEP = 0.1;
 export const MAX_BATTLE_TICKS = 3000;
 export type CombatStats = { health: number; attack: number; defense: number; speed: number; range: number; interval: number; radius: number; projectileSpeed?: number };
+
+const combatDefaults = getCombatStatsConfig();
 export const TROOP_COMBAT_STATS: Record<'infantry' | 'soldier' | 'archer' | 'scout', CombatStats> = {
-  infantry: { health: defaults.baseSoldierHealth, attack: defaults.baseSoldierAttack, defense: defaults.baseSoldierDefense, speed: defaults.baseSoldierSpeed, range: defaults.meleeAttackRange, interval: 1 / defaults.baseSoldierAttackSpeed, radius: defaults.bodyRadius },
-  soldier: { health: defaults.baseSoldierHealth, attack: defaults.baseSoldierAttack, defense: defaults.baseSoldierDefense, speed: defaults.baseSoldierSpeed, range: defaults.meleeAttackRange, interval: 1 / defaults.baseSoldierAttackSpeed, radius: defaults.bodyRadius },
-  archer: { health: defaults.baseArcherHealth, attack: defaults.baseArcherAttack, defense: defaults.baseArcherDefense, speed: defaults.baseArcherSpeed, range: defaults.rangedAttackRange, interval: 1 / defaults.baseArcherAttackSpeed, radius: defaults.bodyRadius, projectileSpeed: defaults.baseArcherProjectileSpeed },
-  scout: { health: 70, attack: 5, defense: 10, speed: 3.5, range: defaults.meleeAttackRange, interval: 1.4, radius: defaults.bodyRadius },
+  infantry: { health: combatDefaults.soldier.health, attack: combatDefaults.soldier.attack, defense: combatDefaults.soldier.defense, speed: combatDefaults.soldier.speed, range: defaults.meleeAttackRange, interval: 1 / combatDefaults.soldier.attackSpeed, radius: defaults.bodyRadius },
+  soldier: { health: combatDefaults.soldier.health, attack: combatDefaults.soldier.attack, defense: combatDefaults.soldier.defense, speed: combatDefaults.soldier.speed, range: defaults.meleeAttackRange, interval: 1 / combatDefaults.soldier.attackSpeed, radius: defaults.bodyRadius },
+  archer: { health: combatDefaults.archer.health, attack: combatDefaults.archer.attack, defense: combatDefaults.archer.defense, speed: combatDefaults.archer.speed, range: defaults.rangedAttackRange, interval: 1 / combatDefaults.archer.attackSpeed, radius: defaults.bodyRadius, projectileSpeed: combatDefaults.archer.projectileSpeed ?? defaults.baseArcherProjectileSpeed },
+  scout: { health: combatDefaults.scout.health, attack: combatDefaults.scout.attack, defense: combatDefaults.scout.defense, speed: combatDefaults.scout.speed, range: defaults.meleeAttackRange, interval: 1 / combatDefaults.scout.attackSpeed, radius: defaults.bodyRadius },
 };
 export type FighterState = 'holding' | 'approaching' | 'charging' | 'attacking' | 'retreating' | 'defeated' | 'marching' | 'searching' | 'roaming';
 export type Fighter = {

@@ -5,13 +5,13 @@ import { STARTER_HEROES } from './heroes';
 import { ApiAxie } from './axie-roster';
 import { getResourceNodeConfig } from './resource-spawn-config';
 
-export const TROOP_LOAD_WEIGHTS = {
-  infantry: 15,
-  archer: 10,
-  scout: 5,
-  soldier: 12,
-  hero: 50,
-} as const;
+import {
+  getTroopLoadWeights,
+  calculateArmyLoadCapacity as calcLoadCapacity,
+  calculateGatherRate as calcGatherRate,
+} from './stats-config';
+
+export const TROOP_LOAD_WEIGHTS = getTroopLoadWeights();
 
 export const RESOURCE_NODE_KINDS: readonly WorldKind[] = ['farm', 'lumber', 'stone', 'oil'] as const;
 
@@ -46,40 +46,18 @@ export function getLeaderClass(leaderId?: string | null, apiAxies?: readonly Api
 
 /**
  * Calculates the total resource carrying capacity for an army.
- * - Infantry: 15 / unit
- * - Archer: 10 / unit
- * - Scout: 5 / unit
- * - Axie hero: 50 base
- * - Beast Axie leader passive: +30% troop carrying capacity
+ * Configured in src/game/config/stats-config.yml
  */
 export function calculateArmyLoadCapacity(members: readonly UnitMember[], leaderClass?: string): number {
-  let baseLoad = 0;
-  for (const member of members) {
-    if (member.heroId) {
-      baseLoad += TROOP_LOAD_WEIGHTS.hero;
-    } else if (member.troopKind) {
-      const weight = TROOP_LOAD_WEIGHTS[member.troopKind] ?? 10;
-      baseLoad += member.count * weight;
-    }
-  }
-  if (leaderClass === 'beast') {
-    baseLoad *= 1.3;
-  }
-  return Math.max(20, Math.round(baseLoad));
+  return calcLoadCapacity(members, leaderClass);
 }
 
 /**
  * Calculates the effective gathering rate (resources per second) for a node.
- * - Plant Axie leader: +25% gather rate on Farm and Lumber
- * - Bug Axie leader: +25% gather rate on Stone and Oil
+ * Configured in src/game/config/stats-config.yml
  */
 export function calculateGatherRate(nodeKind: WorldKind | string, baseRate: number, leaderClass?: string): number {
-  let rate = baseRate;
-  if (leaderClass === 'plant' && (nodeKind === 'farm' || nodeKind === 'lumber')) {
-    rate *= 1.25;
-  } else if (leaderClass === 'bug' && (nodeKind === 'stone' || nodeKind === 'oil')) {
-    rate *= 1.25;
-  }
+  const rate = calcGatherRate(nodeKind, baseRate, leaderClass);
   return Math.max(0.5, Number(rate.toFixed(2)));
 }
 

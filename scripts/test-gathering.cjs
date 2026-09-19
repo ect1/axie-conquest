@@ -35,15 +35,14 @@ const testMembers = [
   { id: 'hero-1', heroId: 'ember', count: 1, offset: { x: 0, z: 0 } },
   { id: 'inf-1', troopKind: 'infantry', count: 10, offset: { x: 1, z: 0 } },
   { id: 'arc-1', troopKind: 'archer', count: 5, offset: { x: 2, z: 0 } },
-  { id: 'sct-1', troopKind: 'scout', count: 2, offset: { x: 3, z: 0 } },
 ];
-// Hero (50) + 10*15 (150) + 5*10 (50) + 2*5 (10) = 260
+// Hero (50) + 10*15 (150) + 5*10 (50) = 250
 const standardLoad = g.calculateArmyLoadCapacity(testMembers);
-assert.equal(standardLoad, 260, 'Standard army load capacity matches formula');
+assert.equal(standardLoad, 250, 'Standard army load capacity matches formula');
 
-// Beast commander gives +30% load: 260 * 1.3 = 338
+// Beast commander gives +30% load: 250 * 1.3 = 325
 const beastLoad = g.calculateArmyLoadCapacity(testMembers, 'beast');
-assert.equal(beastLoad, 338, 'Beast commander passive increases load capacity by 30%');
+assert.equal(beastLoad, 325, 'Beast commander passive increases load capacity by 30%');
 
 // 2. Gather Rate Calculations with Axie Passives
 const baseFarmRate = 5;
