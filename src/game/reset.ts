@@ -11,6 +11,7 @@ import { BATTLE_SETTINGS_SAVE_KEY, DEFAULT_BATTLE_SETTINGS, setActiveBattleSetti
 import { AXIE_ROSTER_SAVE_KEY } from './axie-roster';
 import { AXIE_INPUT_OWNER_KEY, AXIE_SAVED_OWNER_KEY } from './owner-address';
 import { PORTAL_CONFIG_SAVE_KEY, PORTAL_STATE_SAVE_KEY, resetPortalState } from './portal';
+import { TRAINING_QUEUE_SAVE_KEY } from './training-queue';
 
 export type ResettableModule = {
   id: string;
@@ -38,6 +39,7 @@ export const RESETTABLE_MODULES: readonly ResettableModule[] = [
   { id: 'unit-stats', storageKeys: ['axie-conquest-unit-stats-v1'], reset: () => setActiveUnitGlobalStats({ ...DEFAULT_UNIT_GLOBAL_STATS }) },
   { id: 'battle-settings', storageKeys: [BATTLE_SETTINGS_SAVE_KEY], reset: () => setActiveBattleSettings({ ...DEFAULT_BATTLE_SETTINGS }) },
   { id: 'portal', storageKeys: [PORTAL_CONFIG_SAVE_KEY, PORTAL_STATE_SAVE_KEY], reset: () => resetPortalState() },
+  { id: 'training-queue', storageKeys: [TRAINING_QUEUE_SAVE_KEY] },
 ];
 
 type ResetStorage = Pick<Storage, 'length' | 'key' | 'removeItem'>;

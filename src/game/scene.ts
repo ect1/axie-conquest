@@ -7,7 +7,7 @@ import { activeBattleSettings } from './battle-settings';
 import { BATTLE_OVERLAYS } from './battle-debug';
 import { TROOP_COMBAT_STATS } from './battle';
 import { generateWorld, GenerationSettings, WorldObject, WORLD_DEFINITIONS, WORLD_SAVE_KEY, WORLD_WIDTH, WORLD_DEPTH } from './world';
-import { ArcRotateCamera, Color3, Color4, DirectionalLight, Engine, HemisphericLight, MeshBuilder, Scene, StandardMaterial, TransformNode, Vector3 } from '@babylonjs/core';
+import { ArcRotateCamera, Color3, Color4, DirectionalLight, DynamicTexture, Engine, HemisphericLight, Matrix, Mesh, MeshBuilder, Scene, StandardMaterial, TransformNode, Vector3, Viewport } from '@babylonjs/core';
 import { BUILDING_DEFINITIONS, BuildableKind, BuildingKind, Building, Cell, FOOTPRINT, GRID_DEPTH, GRID_WIDTH, MAIN_HALL, canPlace, getBuildingDimensions, getBuildingFootprint, restoreBuildings, canMoveBuilding, moveBuilding, removeBuilding, rotateBuilding, Troops, TroopKind } from './base';
 import { createMilitaryService, getTrainingMessage } from './military-service';
 import { isBuildingMovable } from './building-config';
@@ -17,9 +17,14 @@ import { getBossConfig } from './bosses';
 import { BabylonMascotMixer, type BabylonMascotInstance, MASCOT_CONFIGS } from './mascot/mascot-mixer';
 import { PortalSceneManager } from './portal-scene';
 import type { PortalRuntimeState } from './portal';
+import { TrainingQueue, secondsRemaining, jobProgress } from './training-queue';
 
 type Events = { fighterSelect?: (id: string) => void; watchBattle?: (sessionId?: string) => void; troops: (troops: Troops) => void; change: (b: Building[]) => void; preview: (c: Cell | null) => void; select: (b: Building | null) => void; unitSelect: (id: string) => void; portalSelect?: (portalId: string) => void; target: (target: WorldTarget | null) => void; message: (s: string) => void; viewMode: (mode: 'base' | 'world') => void };
-export type BaseView = { focusBattle: (targetSession?: BattleSession) => void; setBattle: (session: BattleSession | null, selectedId?: string | null) => void; setBattles: (sessions: readonly BattleSession[]) => void; setPortalState: (state: PortalRuntimeState | null, selectedId?: string | null) => void; refreshMilitary: () => void; setUnits: (orders: WorldUnit[], selectedId: string | null) => void; setSelectedTarget: (id: string | null) => void; focusCoordinate: (coordinate: Coordinate) => void; regenerateWorld: (settings: GenerationSettings) => WorldObject[]; loadWorld: (objects: WorldObject[]) => void; removeWorld: () => void; train: (kind: TroopKind) => boolean; rotate: (id: string) => boolean; move: (id: string) => boolean; remove: (id: string) => boolean; upgrade: (id: string, nextLevel: number) => boolean; begin: (kind: BuildableKind) => void; cancel: () => void; confirm: () => boolean; setGridVisible: (visible: boolean) => void; setWorldView: (enabled: boolean) => void; setRoute: (route: { origin: Coordinate; destination: Coordinate } | null) => void; zoom: (factor: number) => void; home: () => void; dispose: () => void };
+export type BaseView = { focusBattle: (targetSession?: BattleSession) => void; setBattle: (session: BattleSession | null, selectedId?: string | null) => void; setBattles: (sessions: readonly BattleSession[]) => void; setPortalState: (state: PortalRuntimeState | null, selectedId?: string | null) => void; refreshMilitary: () => void; setUnits: (orders: WorldUnit[], selectedId: string | null) => void; setSelectedTarget: (id: string | null) => void; focusCoordinate: (coordinate: Coordinate) => void; regenerateWorld: (settings: GenerationSettings) => WorldObject[]; loadWorld: (objects: WorldObject[]) => void; removeWorld: () => void; train: (kind: TroopKind) => boolean; rotate: (id: string) => boolean; move: (id: string) => boolean; remove: (id: string) => boolean; upgrade: (id: string, nextLevel: number) => boolean; begin: (kind: BuildableKind) => void; cancel: () => void; confirm: () => boolean; setGridVisible: (visible: boolean) => void; setWorldView: (enabled: boolean) => void; setRoute: (route: { origin: Coordinate; destination: Coordinate } | null) => void; zoom: (factor: number) => void; home: () => void; dispose: () => void;
+  setTrainingQueue: (queue: TrainingQueue) => void;
+  /** Project a building's world-space top-centre to canvas pixel coordinates. Returns null if the building or canvas is not available. */
+  getScreenPosition: (buildingId: string) => { x: number; y: number } | null;
+};
 const SAVE_KEY = 'axie-conquest-base-v2';
 const HALF_WIDTH = GRID_WIDTH / 2;
 const HALF_DEPTH = GRID_DEPTH / 2;
@@ -596,6 +601,123 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
   canvas.addEventListener('pointerdown', down); canvas.addEventListener('pointermove', move);
   canvas.addEventListener('pointerup', up); canvas.addEventListener('pointercancel', up);
   canvas.addEventListener('wheel', wheel, { passive: false });
+  type TrainingBillboard = {
+    buildingId: string;
+    plane: Mesh;
+    texture: DynamicTexture;
+    material: StandardMaterial;
+    lastSecs: number;
+    lastProgress: number;
+  };
+  const trainingBillboards = new Map<string, TrainingBillboard>();
+  let activeTrainingQueue: TrainingQueue = new Map();
+
+  function updateTrainingBillboards(queue: TrainingQueue) {
+    if (typeof document === 'undefined') return;
+    const now = Date.now();
+
+    // Clean up billboards for buildings that are no longer training or whose roots are gone
+    Array.from(trainingBillboards.entries()).forEach(([bId, bb]) => {
+      if (!queue.has(bId) || !buildingRoots.has(bId)) {
+        bb.plane.dispose();
+        bb.texture.dispose();
+        bb.material.dispose();
+        trainingBillboards.delete(bId);
+      }
+    });
+
+    // Update or create billboards for active jobs
+    Array.from(queue.entries()).forEach(([bId, job]) => {
+      const root = buildingRoots.get(bId);
+      if (!root) return;
+
+      let bb = trainingBillboards.get(bId);
+      if (!bb) {
+        const plane = MeshBuilder.CreatePlane(`training-bb-${bId}`, { width: 2.2, height: 2.2 }, scene);
+        plane.parent = root;
+        plane.position.set(0, 3.8, 0);
+        plane.billboardMode = Mesh.BILLBOARDMODE_ALL;
+        plane.isPickable = true;
+        plane.metadata = { buildingId: bId, kind: 'training-billboard' };
+
+        const texture = new DynamicTexture(`training-tex-${bId}`, { width: 128, height: 128 }, scene, false);
+        texture.hasAlpha = true;
+
+        const mat = new StandardMaterial(`training-mat-${bId}`, scene);
+        mat.diffuseTexture = texture;
+        mat.emissiveColor = Color3.White();
+        mat.specularColor = Color3.Black();
+        mat.useAlphaFromDiffuseTexture = true;
+        mat.disableLighting = true;
+        mat.backFaceCulling = false;
+        plane.material = mat;
+
+        bb = {
+          buildingId: bId,
+          plane,
+          texture,
+          material: mat,
+          lastSecs: -1,
+          lastProgress: -1,
+        };
+        trainingBillboards.set(bId, bb);
+      }
+
+      const secs = secondsRemaining(job, now);
+      const progress = jobProgress(job, now);
+
+      if (secs !== bb.lastSecs || Math.abs(progress - bb.lastProgress) > 0.02) {
+        bb.lastSecs = secs;
+        bb.lastProgress = progress;
+
+        const ctx = bb.texture.getContext() as unknown as CanvasRenderingContext2D;
+        if (ctx && typeof ctx.clearRect === 'function') {
+          ctx.clearRect(0, 0, 128, 128);
+
+          const cx = 64;
+          const cy = 64;
+          const r = 50;
+
+          // Shadow / dark disc
+          ctx.beginPath();
+          ctx.arc(cx, cy, r, 0, Math.PI * 2);
+          ctx.fillStyle = 'rgba(15, 26, 20, 0.90)';
+          ctx.fill();
+
+          // Outer thin ring
+          ctx.lineWidth = 3;
+          ctx.strokeStyle = 'rgba(255, 255, 255, 0.16)';
+          ctx.stroke();
+
+          // Progress Arc
+          const startAngle = -Math.PI / 2;
+          const endAngle = startAngle + (Math.PI * 2 * Math.min(1, Math.max(0, progress)));
+          ctx.beginPath();
+          ctx.arc(cx, cy, r, startAngle, endAngle, false);
+          ctx.lineWidth = 7;
+          ctx.strokeStyle = '#4cf09a';
+          ctx.lineCap = 'round';
+          ctx.stroke();
+
+          // Icon
+          const icon = job.kind === 'archer' ? '🏹' : '⚔️';
+          ctx.font = '28px "Segoe UI Emoji", "Apple Color Emoji", sans-serif';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(icon, cx, cy - 14);
+
+          // Timer label
+          const label = secs >= 60 ? `${Math.ceil(secs / 60)}m` : `${secs}s`;
+          ctx.font = 'bold 22px system-ui, -apple-system, sans-serif';
+          ctx.fillStyle = '#d6ffe2';
+          ctx.fillText(label, cx, cy + 22);
+
+          bb.texture.update();
+        }
+      }
+    });
+  }
+
   const resize = () => engine.resize(); window.addEventListener('resize', resize);
   engine.runRenderLoop(() => {
     if (lastWorldBattleSettings !== activeBattleSettings) {
@@ -607,6 +729,9 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
     if (activePortalState) {
       portalScene.update(activePortalState);
     }
+    if (activeTrainingQueue.size > 0 && !overviewActive) {
+      updateTrainingBillboards(activeTrainingQueue);
+    }
     scene.render();
   });
   function persist(message: string) {
@@ -615,6 +740,22 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
   }
   return {
     refreshMilitary() { military = createMilitaryService(localStorage, CAPITAL_CITY_ID); events.troops(military.getTroops()); },
+    setTrainingQueue(queue: TrainingQueue) {
+      activeTrainingQueue = queue;
+      updateTrainingBillboards(activeTrainingQueue);
+    },
+    getScreenPosition(buildingId: string) {
+      const root = buildingRoots.get(buildingId);
+      if (!root) return null;
+      const rect = canvas.getBoundingClientRect();
+      if (!rect.width || !rect.height) return null;
+      // Project the top-centre of the building (y = 3.5 to clear the tallest roofline)
+      const worldPos = root.getAbsolutePosition().add(new Vector3(0, 3.5, 0));
+      const viewport = new Viewport(0, 0, rect.width, rect.height);
+      const screenPos = Vector3.Project(worldPos, Matrix.Identity(), scene.getTransformMatrix(), viewport);
+      if (screenPos.z < 0 || screenPos.z > 1) return null; // behind camera
+      return { x: rect.left + screenPos.x, y: rect.top + screenPos.y };
+    },
     regenerateWorld(settings) {
       const objects = generateWorld(settings);
       loadWorld(objects);
@@ -738,7 +879,12 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
       canvas.removeEventListener('wheel', wheel); window.removeEventListener('resize', resize);
       worldMascotAvatars.forEach(avatar => avatar.dispose());
       worldMascotAvatars.clear();
-      mascotMixer.dispose();
+      trainingBillboards.forEach(bb => {
+        bb.plane.dispose();
+        bb.texture.dispose();
+        bb.material.dispose();
+      });
+      trainingBillboards.clear();
       worldFight.dispose(); portalScene.dispose(); clearMarches(); scene.dispose(); engine.dispose();
     },
   };

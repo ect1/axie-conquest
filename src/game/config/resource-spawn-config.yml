@@ -22,7 +22,7 @@ worldSettings:
   # Global Respawn Settings
   # ----------------------------------------------------------------------------
   # Global cooldown timer (in seconds) before new nodes respawn on the map
-  globalSpawnTimerSeconds: 600
+  globalSpawnTimerSeconds: 5 #600 ten minutes
 
   # Respawn trigger condition:
   # - true:  Batch respawn — respawn back together only after ALL nodes are collected / depleted

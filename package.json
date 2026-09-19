@@ -10,6 +10,7 @@
     "test:gathering": "node scripts/test-gathering.cjs",
     "test:stats": "node scripts/test-stats-config.cjs",
     "test:bosses": "node scripts/test-bosses.cjs",
+    "test:training": "node scripts/test-units-training.cjs",
     "test:placement": "node scripts/test-placement.cjs",
     "dev": "next dev",
     "build": "next build",

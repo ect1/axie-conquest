@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { BUILDABLE_KINDS, BUILDING_DEFINITIONS, BuildableKind, BuildingKind, Building, Cell, canPlace, canMoveBuilding, getBuildingDimensions, MAIN_HALL, EMPTY_TROOPS, Troops } from '@/game/base';
+import { BUILDABLE_KINDS, BUILDING_DEFINITIONS, BuildableKind, BuildingKind, Building, Cell, canPlace, canMoveBuilding, getBuildingDimensions, MAIN_HALL, EMPTY_TROOPS, Troops, TroopKind } from '@/game/base';
 import HeroesPanel from './heroes-panel';
 import MilitaryPanel from './military-panel';
 import TrainingDialog from './training-dialog';
@@ -70,6 +70,24 @@ import {
   stepPortalSystem,
   subPortalDefenderToBossConfig,
 } from '@/game/portal';
+import {
+  TrainingQueue,
+  TRAINING_QUEUE_SAVE_KEY,
+  restoreQueue,
+  serializeQueue,
+  enqueueJob,
+  drainFinished,
+  findIdleBuilding,
+  secondsRemaining,
+  jobProgress,
+} from '@/game/training-queue';
+import {
+  getUnitTrainingLevelConfig,
+  getUnitTrainingConfigFile,
+  canAffordTraining,
+  deductTrainingCost,
+  formatStatBonuses,
+} from '@/game/units-training-config';
 
 type InventoryTab = 'resources' | 'equipment' | 'other';
 type AxieApiResponse = { data?: { axies?: { results?: unknown } }; error?: string };
@@ -111,6 +129,9 @@ export default function Home() {
   const [inventory, setInventory] = useState(false);
   const [inventoryTab, setInventoryTab] = useState<InventoryTab>('resources');
   const [troops, setTroops] = useState<Troops>({ ...EMPTY_TROOPS });
+  const [trainingQueue, setTrainingQueue] = useState<TrainingQueue>(() =>
+    typeof window !== 'undefined' ? restoreQueue(localStorage.getItem(TRAINING_QUEUE_SAVE_KEY)) : new Map()
+  );
   const [catalog, setCatalog] = useState(false);
   const [catalogTab, setCatalogTab] = useState<'build' | 'upgrade'>('build');
   const [buildingKind, setBuildingKind] = useState<BuildingKind>('farm');
@@ -629,6 +650,70 @@ export default function Home() {
       return { ...prev, resources: updated };
     });
   }, [now, ready, showIntro, citiesLoaded, buildings]);
+
+  // Sync training queue to Babylon scene whenever trainingQueue changes or scene becomes ready
+  useEffect(() => {
+    if (ready && view.current) {
+      view.current.setTrainingQueue(trainingQueue);
+    }
+  }, [trainingQueue, ready]);
+
+  // Drain finished training jobs every 250 ms and fire the actual scene.train() call
+  useEffect(() => {
+    if (!trainingQueue.size) return;
+
+    const id = setInterval(() => {
+      if (!view.current) return;
+      const tickNow = Date.now();
+      const { next, finished } = drainFinished(trainingQueue, tickNow);
+      if (finished.length) {
+        setTrainingQueue(next);
+        try { localStorage.setItem(TRAINING_QUEUE_SAVE_KEY, serializeQueue(next)); } catch { /* ignore */ }
+        view.current.setTrainingQueue(next);
+        for (const job of finished) {
+          view.current.train(job.kind);
+        }
+      }
+    }, 250);
+    return () => clearInterval(id);
+  }, [trainingQueue, ready]);
+
+  function handleTrain(kind: TroopKind, targetBuildingId?: string) {
+    const cfg = getUnitTrainingConfigFile();
+    const unitCfg = cfg.units?.[kind];
+    if (!unitCfg) return;
+
+    // Find the building to train at: specified buildingId, or best idle building of required kind
+    let targetBuilding: Building | undefined;
+    if (targetBuildingId) {
+      targetBuilding = buildings.find(b => b.id === targetBuildingId);
+    }
+    if (!targetBuilding) {
+      targetBuilding = findIdleBuilding(buildings, trainingQueue, unitCfg.requiredBuilding) as Building | undefined;
+    }
+    if (!targetBuilding) return;
+
+    // Don't start another job if this building is already training
+    if (trainingQueue.has(targetBuilding.id)) return;
+
+    const buildingLevel = targetBuilding.level ?? 1;
+    const levelCfg = getUnitTrainingLevelConfig(kind, buildingLevel);
+    if (!levelCfg) return;
+
+    if (levelCfg.cost) {
+      if (!canAffordTraining(selectedCity.resources, levelCfg.cost)) return;
+      setSelectedCity(prev => ({
+        ...prev,
+        resources: deductTrainingCost(prev.resources, levelCfg.cost),
+      }));
+    }
+
+    const durationMs = (levelCfg.trainingTimeSeconds ?? 30) * 1000;
+    const next = enqueueJob(trainingQueue, targetBuilding.id, kind, unitCfg.requiredBuilding, durationMs);
+    setTrainingQueue(next);
+    try { localStorage.setItem(TRAINING_QUEUE_SAVE_KEY, serializeQueue(next)); } catch { /* ignore */ }
+    view.current?.setTrainingQueue(next);
+  }
   useEffect(() => {
     if (!citiesLoaded || !apiAxies.length || formationsLoaded || showIntro) return;
     try { const board = restoreActiveBattleSettings(localStorage.getItem(BATTLE_SETTINGS_SAVE_KEY)); setFormations(restoreOffenseFormations(localStorage.getItem(OFFENSE_FORMATIONS_SAVE_KEY), selectedCity.deployedAxieIds.filter(id => apiAxies.some(axie => axie.id === id)), troops, { columns: board.boardColumns, rows: board.boardRows })); } catch { /* Use empty formations when storage is unavailable. */ }
@@ -652,7 +737,7 @@ export default function Home() {
       }
       try { recoverBattleTransaction(localStorage); }
       catch (error) { setLoadError(`Cannot recover the last battle save: ${(error as Error).message}`); return; }
-      view.current = createBase(canvas.current, { watchBattle: (sessionId) => { const session = battleSessionsRef.current.find(s => (s.id || s.army.id) === sessionId) || battleSessionsRef.current[0]; if (session) { setSpectatorSession(session); setSpectating(true); } }, fighterSelect: setSelectedFighterId, change: setBuildings, preview: setCell, unitSelect: id => { setSelectedUnitId(id); setSelectedPortalId(null); setTarget(null); setRouteAction(null); setSelectedAction(null); }, portalSelect: portalId => { setSelectedPortalId(portalId); setSelectedUnitId(null); setSelected(null); setTarget(null); setDeveloper(false); setMilitary(false); setTraining(false); setHeroes(false); setInventory(false); }, target: next => { setTarget(next); setRouteAction(next ? 'choose' : null); setSelectedAction(null); setFormationIndex(null); if (next?.id) setSelectedUnitId(null); if (next) { setSelected(null); setDeveloper(false); setMilitary(false); setTraining(false); setHeroes(false); setInventory(false); setCatalog(false); } }, viewMode: mode => { setWorldView(mode === 'world'); if (mode !== 'world') { setSelectedUnitId(null); setTarget(null); setRouteAction(null); setSelectedAction(null); } }, select: building => { setSelected(building); if (building) { setDeveloper(false); setMilitary(false); setTraining(false); setHeroes(false); setInventory(false); } }, message: setMessage, troops: setTroops });
+      view.current = createBase(canvas.current, { watchBattle: (sessionId) => { const session = battleSessionsRef.current.find(s => (s.id || s.army.id) === sessionId) || battleSessionsRef.current[0]; if (session) { setSpectatorSession(session); setSpectating(true); } }, fighterSelect: setSelectedFighterId, change: setBuildings, preview: setCell, unitSelect: id => { setSelectedUnitId(id); setSelectedPortalId(null); setTarget(null); setRouteAction(null); setSelectedAction(null); }, portalSelect: portalId => { setSelectedPortalId(portalId); setSelectedUnitId(null); setSelected(null); setTarget(null); setDeveloper(false); setMilitary(false); setTraining(false); setHeroes(false); setInventory(false); }, target: next => { setTarget(next); setRouteAction(next ? 'choose' : null); setSelectedAction(null); setFormationIndex(null); if (next?.id) setSelectedUnitId(null); if (next) { setSelected(null); setDeveloper(false); setMilitary(false); setTraining(false); setHeroes(false); setInventory(false); setCatalog(false); } }, viewMode: mode => { setWorldView(mode === 'world'); if (mode === 'world') { setTraining(false); setSelected(null); } if (mode !== 'world') { setSelectedUnitId(null); setTarget(null); setRouteAction(null); setSelectedAction(null); } }, select: building => { setSelected(building); if (building) { setDeveloper(false); setMilitary(false); setTraining(false); setHeroes(false); setInventory(false); } }, message: setMessage, troops: setTroops });
       let initialObjects: WorldObject[];
       let savedObjects: WorldObject[] | null = null;
       try { savedObjects = restoreWorld(localStorage.getItem(WORLD_SAVE_KEY)); } catch { savedObjects = null; }
@@ -682,6 +767,7 @@ export default function Home() {
       setGenerationStatus(savedObjects !== null ? `${initialObjects.length} saved objects restored.` : `${initialObjects.length} / ${requested} generated.`);
       setReady(true);
       view.current?.setPortalState(portalState, selectedUnitId);
+      view.current?.setTrainingQueue(trainingQueue);
     }).catch(() => setMessage('Unable to open the 3D view. Please enable WebGL and reload.'));
     return () => { disposed = true; view.current?.dispose(); view.current = null; };
   }, [showIntro]);
@@ -1778,6 +1864,79 @@ export default function Home() {
             </div>
           )}
 
+          {/* Training section for military facilities (Barracks, Archery Range, etc.) */}
+          {(() => {
+            const trCfg = getUnitTrainingConfigFile();
+            const unit = Object.values(trCfg.units || {}).find(u => u.requiredBuilding === selected.kind);
+            if (!unit) return null;
+
+            const unitId = unit.id as TroopKind;
+            const bJob = trainingQueue.get(selected.id);
+            const levelCfg = getUnitTrainingLevelConfig(unitId, curLevel);
+            const cost = levelCfg?.cost;
+            const canAfford = !cost || canAffordTraining(selectedCity.resources, cost);
+            const statBonusStr = levelCfg ? formatStatBonuses(levelCfg.statBonuses) : '';
+            const batchSize = trCfg.settings?.batchSize ?? 10;
+            const enabled = unit.enabled;
+
+            if (bJob) {
+              const secs = secondsRemaining(bJob, now);
+              const progress = Math.round(jobProgress(bJob, now) * 100);
+              return (
+                <div className="building-training-card" style={{ marginTop: '10px', padding: '10px', background: '#e3f3e8', borderRadius: '10px', border: '1px solid #8ec5a1' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                    <strong style={{ fontSize: '12px', color: '#1b4a2a' }}>
+                      {unit.icon} Training {unit.name}…
+                    </strong>
+                    <span style={{ fontSize: '11px', fontWeight: 700, color: '#276840' }}>
+                      ⏱ {secs}s
+                    </span>
+                  </div>
+                  <div style={{ height: '6px', background: '#c6e3cf', borderRadius: '3px', overflow: 'hidden' }}>
+                    <div style={{ width: `${progress}%`, height: '100%', background: '#38a169', transition: 'width 0.2s linear' }} />
+                  </div>
+                  <small style={{ display: 'block', marginTop: '5px', color: '#4a6f56', fontSize: '10px' }}>
+                    Producing {batchSize} {unit.name}. Troops ready in {secs}s.
+                  </small>
+                </div>
+              );
+            }
+
+            if (!enabled) {
+              return (
+                <div style={{ marginTop: '10px', padding: '8px 10px', background: '#eeece3', borderRadius: '8px', fontSize: '11px', color: '#8a887b' }}>
+                  🔒 {unit.name} training is locked for this facility.
+                </div>
+              );
+            }
+
+            return (
+              <div className="building-training-card" style={{ marginTop: '10px', padding: '10px', background: '#eef4e7', borderRadius: '10px', border: '1px solid #c9dec0' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                  <strong style={{ fontSize: '12px', color: '#1b4a2a' }}>
+                    {unit.icon} Train {unit.name} ({(unitId in troops ? troops[unitId as keyof Troops] : 0)} ready)
+                  </strong>
+                  <span style={{ fontSize: '10px', color: '#4d6954' }}>
+                    ⏱ {levelCfg?.trainingTimeSeconds ?? 30}s / {batchSize}
+                  </span>
+                </div>
+                <div className="building-costs" style={{ marginBottom: '6px' }}>
+                  {cost?.food ? <span className="cost-tag">🌾 {cost.food}</span> : null}
+                  {cost?.wood ? <span className="cost-tag">🪵 {cost.wood}</span> : null}
+                  {statBonusStr && <span className="cost-tag" style={{ background: '#d5edd8', color: '#245a33' }}>✦ {statBonusStr}</span>}
+                </div>
+                <button
+                  className="primary"
+                  style={{ width: '100%', minHeight: '36px', padding: '6px 12px' }}
+                  disabled={!canAfford}
+                  onClick={() => handleTrain(unitId, selected.id)}
+                >
+                  {!canAfford ? 'Insufficient Resources' : `Train ${batchSize} ${unit.name}`}
+                </button>
+              </div>
+            );
+          })()}
+
           <div className="placement-actions" style={{ marginTop: '12px' }}>
             {movable && <button className="primary" onClick={moveSelected}>Move</button>}
             <button className="secondary" onClick={() => view.current?.rotate(selected.id)} aria-label="Rotate building 90 degrees">Rotate</button>
@@ -2037,7 +2196,15 @@ export default function Home() {
       <div className="empty-state" role="tabpanel"><span className="empty-state-icon" aria-hidden="true">▧</span><strong>No {inventoryTab} yet</strong><p>Your {inventoryTab} will appear here as you explore and rebuild Lunacia.</p></div>
     </section>}
     {heroes && !placing && !selected && <HeroesPanel axies={apiAxies} deployedIds={selectedCity.deployedAxieIds.filter(id => apiAxies.some(axie => axie.id === id))} status={axieSyncStatus} error={axieSyncError} syncedAt={axieSyncedAt} onDeploy={id => setSelectedCity(city => city.deployedAxieIds.includes(id) ? city : { ...city, deployedAxieIds: [...city.deployedAxieIds.filter(deployedId => apiAxies.some(axie => axie.id === deployedId)), id] })} onEnlist={id => setSelectedCity(city => ({ ...city, deployedAxieIds: city.deployedAxieIds.filter(deployedId => deployedId !== id) }))} onClose={() => setHeroes(false)} />}
-    {training && <TrainingDialog buildings={buildings} troops={troops} ready={ready} onTrain={kind => { view.current?.train(kind); }} onClose={() => setTraining(false)} />}
+    {!worldView && training && <TrainingDialog
+      buildings={buildings}
+      troops={troops}
+      resources={selectedCity.resources}
+      trainingQueue={trainingQueue}
+      ready={ready}
+      onTrain={(kind, targetBuildingId) => handleTrain(kind, targetBuildingId)}
+      onClose={() => setTraining(false)}
+    />}
     {developer && <DeveloperPanel
       settings={generation}
       onSettings={setGeneration}
@@ -2199,7 +2366,7 @@ export default function Home() {
         }}
       />
     )}
-    <footer className="bottom-bar"><div className="status" role="status"><span className="status-dot" />{message}<small>DRAG TO PAN · PINCH / SCROLL TO ZOOM</small></div><div className="hud-actions"><button className="build-toggle" onClick={toggleDeveloper} aria-expanded={developer}><span>Developer</span></button><button className="build-toggle" onClick={toggleHeroes} aria-expanded={heroes}><span>Axies</span></button><button className="build-toggle" onClick={toggleTraining} aria-expanded={training}><span>Train</span></button><button className="build-toggle" onClick={toggleMail} aria-haspopup="dialog" aria-expanded={mail}><span>Mail</span></button><button className="build-toggle" onClick={toggleMilitary} aria-expanded={military}><span>Military</span></button><button className="build-toggle" onClick={() => { setDeveloper(false); setHeroes(false); setMilitary(false); setTraining(false); if (placing) cancel(); else { setSelected(null); setCatalog(selected ? true : !catalog); } }} aria-expanded={(catalog && !selected) || placing}>▦ <span>{placing ? (moving ? 'Cancel move' : 'Cancel build') : 'Build / Update'}</span></button></div></footer>
+    <footer className="bottom-bar"><div className="status" role="status"><span className="status-dot" />{message}<small>DRAG TO PAN · PINCH / SCROLL TO ZOOM</small></div><div className="hud-actions"><button className="build-toggle" onClick={toggleDeveloper} aria-expanded={developer}><span>Developer</span></button><button className="build-toggle" onClick={toggleHeroes} aria-expanded={heroes}><span>Axies</span></button>{!worldView && <button className="build-toggle" onClick={toggleTraining} aria-expanded={training}><span>Train</span></button>}<button className="build-toggle" onClick={toggleMail} aria-haspopup="dialog" aria-expanded={mail}><span>Mail</span></button><button className="build-toggle" onClick={toggleMilitary} aria-expanded={military}><span>Military</span></button><button className="build-toggle" onClick={() => { setDeveloper(false); setHeroes(false); setMilitary(false); setTraining(false); if (placing) cancel(); else { setSelected(null); setCatalog(selected ? true : !catalog); } }} aria-expanded={(catalog && !selected) || placing}>▦ <span>{placing ? (moving ? 'Cancel move' : 'Cancel build') : 'Build / Update'}</span></button></div></footer>
     {showIntro && <IntroScreen onStartGame={handleStartGame} onRestartGame={handleRestartGame} />}
   </main>;
 }
