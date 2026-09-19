@@ -110,6 +110,38 @@ export const MASCOT_CONFIGS: Record<string, MascotConfig> = {
       dead: ['Dead'],
     },
   },
+  kibo: {
+    id: 'kibo',
+    name: 'Kibo',
+    url: '/assets/mascot/mascots/kibo.glb',
+    equipmentUrl: '/assets/mascot/equipment/kibo-hammer.glb',
+    equipmentBone: 'Weapon_R_JNT',
+    scale: 0.65,
+    yOffset: 0,
+    rotationY: 0,
+    clips: {
+      idle: ['Hammer.Idle', 'Idle'],
+      run: ['Hammer.Run', 'Run', 'Walk'],
+      attack: ['Hammer.Attack', 'Hammer.Skill', 'Attack'],
+      dead: ['Dead'],
+    },
+  },
+  pomodoro: {
+    id: 'pomodoro',
+    name: 'Pomodoro',
+    url: '/assets/mascot/mascots/pomodoro.glb',
+    equipmentUrl: '/assets/mascot/equipment/pomodoro-staff.glb',
+    equipmentBone: 'Weapon_R_JNT',
+    scale: 0.65,
+    yOffset: 0,
+    rotationY: 0,
+    clips: {
+      idle: ['Staff.Idle', 'Idle'],
+      run: ['Staff.Run', 'Run', 'Walk'],
+      attack: ['Staff.Attack', 'Staff.Skill', 'Attack'],
+      dead: ['Dead'],
+    },
+  },
 };
 
 function findClip(groups: readonly AnimationGroup[], candidates: readonly string[]): AnimationGroup | undefined {

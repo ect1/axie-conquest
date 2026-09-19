@@ -74,3 +74,6 @@ assignment:
   minAssignableAxies: 6 # Minimum number of Axies that can be assigned per city.
   nextAssignmentArrivalSeconds: 60 # Time in seconds to arrive to town after assignment. This is the time it takes for Axies to arrive at the city after being assigned to it.
 
+formation:
+  maxFormationPerCity: 3 # Maximum number of formations that can be assigned to a city.
+  increaseFormationPerLevel: 1 # Increase max formation per city by 1 for each city hall level.

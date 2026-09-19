@@ -6,6 +6,9 @@ import { BATTLE_OVERLAYS } from './battle-debug';
 import { createBattle } from './battle';
 import type { BattleSession } from './battle-save';
 import { fighterWorldPosition } from './battle-world';
+import { createBattleAppearanceResolver } from './axie/battle-appearance';
+import { BabylonAxieMixer, type BabylonAxieInstance } from './axie/babylon-mixer';
+import type { Fighter } from './battle';
 
 export function showMarches(
   scene: Scene,
@@ -17,6 +20,11 @@ export function showMarches(
   const getOrders = typeof orders === 'function' ? orders : () => orders;
   const initialOrders = getOrders();
   const root = new TransformNode('armies', scene);
+  const modelAbort = new AbortController();
+  const axieMixer = new BabylonAxieMixer(scene);
+  const resolveAppearance = createBattleAppearanceResolver(modelAbort.signal);
+  const avatarsForCleanup = new Set<BabylonAxieInstance>();
+  let disposed = false;
   const materials: StandardMaterial[] = [];
   const textures: DynamicTexture[] = [];
   let lastSettings: typeof activeBattleSettings | null = null;
@@ -31,6 +39,7 @@ export function showMarches(
     const destination = order.order?.destination ?? order.position, origin = order.order?.origin ?? order.position;
     army.rotation.y = Math.atan2(destination.x - origin.x, destination.z - origin.z);
     const units: TransformNode[] = [];
+    const avatars = new Map<number, BabylonAxieInstance>();
     order.members.forEach(slot => {
       const hero = STARTER_HEROES.find(hero => hero.id === slot.heroId);
       const mat = new StandardMaterial('unit color', scene);
@@ -38,11 +47,41 @@ export function showMarches(
       const unit = new TransformNode('formation unit', scene); unit.parent = army;
       unit.position.set(slot.offset.x, 0, slot.offset.z);
       units.push(unit);
+      const fallback = new TransformNode('unit fallback', scene); fallback.parent = unit;
       const body = MeshBuilder.CreateSphere('unit body', { diameter: hero ? 0.95 : 0.65, segments: 8 }, scene);
-      body.parent = unit; body.position.y = 0.65; body.material = mat; body.isPickable = true; body.metadata = { unitId: order.id };
+      body.parent = fallback; body.position.y = 0.65; body.material = mat; body.isPickable = true; body.metadata = { unitId: order.id };
       if (hero) for (const side of [-1, 1]) {
         const ear = MeshBuilder.CreateCylinder('Axie ears', { height: 0.45, diameterBottom: 0.25, diameterTop: 0, tessellation: 6 }, scene);
-        ear.parent = unit; ear.position.set(side * 0.3, 1.15, 0); ear.material = mat; ear.isPickable = true; ear.metadata = { unitId: order.id };
+        ear.parent = fallback; ear.position.set(side * 0.3, 1.15, 0); ear.material = mat; ear.isPickable = true; ear.metadata = { unitId: order.id };
+      }
+      if (slot.heroId) {
+        // Use the same assembled body + body-part model as the Axie inspector.
+        const fighter = {
+          id: `${order.id}:${slot.id}`,
+          memberId: slot.id,
+          side: 'player' as const,
+          name: hero?.name ?? `Axie #${slot.heroId}`,
+          heroId: slot.heroId,
+        } as Fighter;
+        void (async () => {
+          try {
+            const avatar = await axieMixer.create(await resolveAppearance(fighter));
+            if (disposed) { avatar.dispose(); return; }
+            avatar.root.parent = unit;
+            // The inspector model is authored at its full presentation size.
+            // Keep the same model and animation, but make marching Axies compact.
+            // March units are already grounded at y=0; the inspector's -0.55
+            // offset is only there to place the model on its pedestal.
+            avatar.root.position.y = 0;
+            avatar.root.scaling.setAll(0.55);
+            avatars.set(order.members.indexOf(slot), avatar);
+            avatarsForCleanup.add(avatar);
+            avatar.update('idle', performance.now() / 1000);
+            fallback.setEnabled(false);
+          } catch (error) {
+            if (!disposed) console.warn('[axie-babylon] march avatar kept fallback', { heroId: slot.heroId, error });
+          }
+        })();
       }
     });
     const ring = MeshBuilder.CreateTorus('unit selection', { diameter: 7, thickness: 0.12, tessellation: 40 }, scene);
@@ -181,6 +220,7 @@ export function showMarches(
       order,
       army,
       units,
+      avatars,
       line,
       debug,
       targetLine,
@@ -252,7 +292,7 @@ export function showMarches(
     const currentOrders = getOrders();
     const focus = armies.find(({ order }) => order.id === selectedId && settleUnit(order, now).status !== 'home')?.order.id
       ?? armies.find(({ order }) => settleUnit(order, now).status !== 'home')?.order.id;
-    for (const { order, army, units, line, debug, targetLine, ring, gatherBar, cargoSprite } of armies) {
+    for (const { order, army, units, avatars, line, debug, targetLine, ring, gatherBar, cargoSprite } of armies) {
       const latest = currentOrders.find(u => u.id === order.id) ?? order;
       if (changed) {
         debug.getChildren().forEach(child => child.dispose());
@@ -289,6 +329,8 @@ export function showMarches(
       }
       units.forEach((unit, index) => {
         const member = order.members[index];
+        const avatar = avatars.get(index);
+        avatar?.update(current.order ? 'approaching' : current.status === 'retreating' ? 'retreating' : 'idle', now / 1000);
         const fighter = battleSession?.battle.fighters.find(candidate => candidate.side === 'player' && candidate.memberId === member.id && (candidate.armyId === latest.id || (!candidate.armyId && battleSession.army.id === latest.id)));
         if (fighter && battleSession) {
           unit.setEnabled(fighter.hp > 0);
@@ -345,6 +387,10 @@ export function showMarches(
     }
   });
   return () => {
+    disposed = true;
+    modelAbort.abort();
+    avatarsForCleanup.forEach(avatar => avatar.dispose());
+    axieMixer.dispose();
     scene.onBeforeRenderObservable.remove(observer);
     root.dispose();
     materials.forEach(mat => mat.dispose());

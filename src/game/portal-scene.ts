@@ -9,6 +9,7 @@ import {
   Mesh,
   LinesMesh,
 } from '@babylonjs/core';
+import { BabylonMascotMixer, type BabylonMascotInstance } from './mascot/mascot-mixer';
 import {
   EnemyMarch,
   enemyMarchPosition,
@@ -38,6 +39,7 @@ type EnemyMarchVisualNode = {
   ring: Mesh;
   trailLine: LinesMesh;
   unitNodes: TransformNode[];
+  mascotAvatars: Map<string, BabylonMascotInstance>;
   billboardMesh: Mesh;
   healthBack: Mesh;
   healthFill: Mesh;
@@ -50,14 +52,32 @@ export class PortalSceneManager {
   private readonly portalNodes = new Map<string, PortalVisualNode>();
   private readonly marchNodes = new Map<string, EnemyMarchVisualNode>();
   private readonly sharedMaterials: StandardMaterial[] = [];
+  private readonly mascotMixer: BabylonMascotMixer;
+  private readonly mascotAvatars = new Set<BabylonMascotInstance>();
   private selectedId: string | null = null;
   private animTime = 0;
+
+  private portalMascotKind(slot: EnemyMarchVisualNode['march']['formation']['slots'][number]): string {
+    if (slot.kind === 'soldier') return 'soldier';
+    if (slot.kind === 'archer') return 'archer';
+    const aliases: Record<string, string> = {
+      tripp: 'soldier',
+      xia: 'infantry',
+      bing: 'archer',
+      kotaro: 'kotaro',
+      paladill: 'paladill',
+      kibo: 'kibo',
+      pomodoro: 'pomodoro',
+    };
+    return aliases[slot.mascotId ?? ''] ?? 'kotaro';
+  }
 
   constructor(
     private readonly scene: Scene,
     private readonly callbacks: PortalSceneCallbacks = {}
   ) {
     this.root = new TransformNode('portal-system-root', scene);
+    this.mascotMixer = new BabylonMascotMixer(scene);
   }
 
   public setSelectedId(selectedId: string | null): void {
@@ -114,6 +134,10 @@ export class PortalSceneManager {
     // Remove finished / arrived marches (they disappear)
     this.marchNodes.forEach((node, id) => {
       if (!activeMarchIds.has(id)) {
+        node.mascotAvatars.forEach(avatar => {
+          avatar.dispose();
+          this.mascotAvatars.delete(avatar);
+        });
         node.root.dispose();
         node.trailLine.dispose();
         node.billboardMesh.dispose();
@@ -144,6 +168,12 @@ export class PortalSceneManager {
         unitNode.position.y = isHalted
           ? Math.abs(Math.sin(now / 350 + idx)) * 0.05
           : Math.abs(Math.sin(now / 150 + idx)) * 0.15;
+      });
+      visual.mascotAvatars.forEach((avatar, slotId) => {
+        const slot = march.formation.slots.find(candidate => candidate.id === slotId);
+        const moving = !isHalted;
+        avatar.update(moving ? 'approaching' : 'idle', now / 1000);
+        if (slot?.count === 0) avatar.root.setEnabled(false);
       });
 
       // Update unit head ETA billboard sprite
@@ -385,6 +415,7 @@ export class PortalSceneManager {
 
     // Units in formation
     const unitNodes: TransformNode[] = [];
+    const mascotAvatars = new Map<string, BabylonMascotInstance>();
 
     // Materials for mob kinds
     const mascotMat = new StandardMaterial(`mascot-mat-${march.id}`, this.scene);
@@ -407,11 +438,13 @@ export class PortalSceneManager {
       squadNode.parent = root;
       squadNode.position.set(slot.offset.x, 0, slot.offset.z);
       unitNodes.push(squadNode);
+      const fallback = new TransformNode(`unit-fallback-${slot.id}`, this.scene);
+      fallback.parent = squadNode;
 
       if (slot.kind === 'mascot') {
         // Mascot hero
         const body = MeshBuilder.CreateSphere(`mascot-body-${slot.id}`, { diameter: 1.1, segments: 8 }, this.scene);
-        body.parent = squadNode;
+        body.parent = fallback;
         body.position.y = 0.75;
         body.material = mascotMat;
         body.isPickable = true;
@@ -420,7 +453,7 @@ export class PortalSceneManager {
         // Horns / Ears
         for (const side of [-1, 1]) {
           const ear = MeshBuilder.CreateCylinder(`mascot-ear-${slot.id}`, { height: 0.5, diameterBottom: 0.28, diameterTop: 0, tessellation: 6 }, this.scene);
-          ear.parent = squadNode;
+          ear.parent = fallback;
           ear.position.set(side * 0.35, 1.35, 0);
           ear.material = mascotMat;
           ear.isPickable = true;
@@ -429,7 +462,7 @@ export class PortalSceneManager {
       } else if (slot.kind === 'soldier') {
         // Vanguard soldier
         const body = MeshBuilder.CreateBox(`soldier-body-${slot.id}`, { width: 0.75, height: 0.9, depth: 0.75 }, this.scene);
-        body.parent = squadNode;
+        body.parent = fallback;
         body.position.y = 0.65;
         body.material = soldierMat;
         body.isPickable = true;
@@ -437,7 +470,7 @@ export class PortalSceneManager {
 
         // Shield
         const shield = MeshBuilder.CreateBox(`soldier-shield-${slot.id}`, { width: 0.5, height: 0.7, depth: 0.1 }, this.scene);
-        shield.parent = squadNode;
+        shield.parent = fallback;
         shield.position.set(0.42, 0.65, 0.25);
         shield.material = mascotMat;
         shield.isPickable = true;
@@ -445,7 +478,7 @@ export class PortalSceneManager {
       } else {
         // Archer
         const body = MeshBuilder.CreateCylinder(`archer-body-${slot.id}`, { diameterBottom: 0.65, diameterTop: 0.35, height: 0.95, tessellation: 8 }, this.scene);
-        body.parent = squadNode;
+        body.parent = fallback;
         body.position.y = 0.65;
         body.material = archerMat;
         body.isPickable = true;
@@ -453,12 +486,28 @@ export class PortalSceneManager {
 
         // Bow / Hat
         const hat = MeshBuilder.CreateCylinder(`archer-hat-${slot.id}`, { diameterBottom: 0.75, diameterTop: 0.1, height: 0.4, tessellation: 6 }, this.scene);
-        hat.parent = squadNode;
+        hat.parent = fallback;
         hat.position.y = 1.2;
         hat.material = archerMat;
         hat.isPickable = true;
         hat.metadata = { unitId: march.id, isEnemy: true };
       }
+
+      // Portal config kinds map to the same real mascot models used by battle:
+      // soldier -> Tripp, archer -> Bing, and mascot -> its generated mascotId.
+      const mascotKind = this.portalMascotKind(slot);
+      void this.mascotMixer.create(mascotKind).then(avatar => {
+        if (!this.marchNodes.has(march.id)) { avatar.dispose(); return; }
+        avatar.root.parent = squadNode;
+        avatar.root.scaling.scaleInPlace(0.72);
+        avatar.root.position.y = 0;
+        mascotAvatars.set(slot.id, avatar);
+        this.mascotAvatars.add(avatar);
+        avatar.update('idle', this.animTime);
+        fallback.setEnabled(false);
+      }).catch(error => {
+        console.warn('[mascot-babylon] portal march kept fallback', { marchId: march.id, slot: slot.id, mascotKind, error });
+      });
     });
 
     // Touch hit area cylinder across entire march
@@ -516,6 +565,7 @@ export class PortalSceneManager {
       ring,
       trailLine,
       unitNodes,
+      mascotAvatars,
       billboardMesh,
       healthBack,
       healthFill,
@@ -616,6 +666,10 @@ export class PortalSceneManager {
 
     this.sharedMaterials.forEach(m => m.dispose());
     this.sharedMaterials.length = 0;
+
+    this.mascotAvatars.forEach(avatar => avatar.dispose());
+    this.mascotAvatars.clear();
+    this.mascotMixer.dispose();
 
     this.root.dispose();
   }
