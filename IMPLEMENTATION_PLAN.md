@@ -14,6 +14,10 @@
 - [x] Verify placement, world generation, marching, battle outcomes, persistence, and reset regressions.
 
 - [ ] Rebuild the TFT-inspired battle scene.
+  - [x] Rework retreat as a configurable per-formation withdrawal shared by tactical and world views.
+    - [x] Configure and validate the retreat boundary under `endBattle` and expose it in the Developer HUD.
+    - [x] Snapshot retreating formations so later reinforcements enter combat immediately.
+    - [x] Project live fighter movement and the withdrawal boundary consistently into World View.
   - [x] Replace fixed offense rows with one persisted, configurable player hex grid.
     - [x] Make every player-grid hex assignable and include it in troop and hero accounting.
     - [x] Use shared grid coordinates for marching member offsets and battle deployment.

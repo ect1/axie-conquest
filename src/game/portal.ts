@@ -1,6 +1,8 @@
 import portalData from './portal-config.json';
 import { Coordinate, createRoute, marchTravelTimeMs } from './routes';
 import { BossConfig, BossLeaderConfig, BossMilitarySquad, clearDynamicBosses, registerDynamicBoss } from './bosses';
+import { activeBattleSettings } from './battle-settings';
+import { WorldUnit, getUnitFormationBodyRadius, unitPosition } from './units';
 
 export const PORTAL_CONFIG_SAVE_KEY = 'axie-conquest-portal-config-v1';
 export const PORTAL_STATE_SAVE_KEY = 'axie-conquest-portal-state-v1';
@@ -34,6 +36,7 @@ export type PortalLevelScaling = {
 export type PortalMobSummoningConfig = {
   enabled: boolean;
   paused?: boolean;
+  aggressiveOnPath?: boolean;
   initialPortalCoordinate: {
     x: number;
     y: number;
@@ -137,6 +140,7 @@ export function sanitizePortalConfig(raw: unknown): PortalMobSummoningConfig {
   return {
     enabled: typeof candidate.enabled === 'boolean' ? candidate.enabled : DEFAULT_PORTAL_CONFIG.enabled,
     paused: typeof candidate.paused === 'boolean' ? candidate.paused : false,
+    aggressiveOnPath: typeof candidate.aggressiveOnPath === 'boolean' ? candidate.aggressiveOnPath : (DEFAULT_PORTAL_CONFIG.aggressiveOnPath ?? true),
     initialPortalCoordinate: {
       x: Number.isFinite(coord?.x) ? coord.x : DEFAULT_PORTAL_CONFIG.initialPortalCoordinate.x,
       y: Number.isFinite(coord?.y) ? coord.y : DEFAULT_PORTAL_CONFIG.initialPortalCoordinate.y,
@@ -522,6 +526,118 @@ export function enemyMarchPosition(march: EnemyMarch, now: number): Coordinate {
     x: march.origin.x + (march.destination.x - march.origin.x) * progress,
     z: march.origin.z + (march.destination.z - march.origin.z) * progress,
   };
+}
+
+/**
+ * Computes the overall formation body radius for an enemy wave march.
+ * Accounts for wave slot offsets and the active unit body radius.
+ */
+export function getEnemyFormationBodyRadius(march: EnemyMarch): number {
+  const memberRadius = (activeBattleSettings?.bodyRadius ?? 0.5) * (activeBattleSettings?.bodyRadiusMultiplier ?? 1.0);
+  const slots = march.formation?.slots;
+  if (!slots || slots.length === 0) {
+    return 3.75; // Standard default matching portal scene hit cylinder (diameter 7.5 / 2)
+  }
+  let maxDist = 0;
+  for (const slot of slots) {
+    const dist = Math.hypot(slot.offset.x, slot.offset.z);
+    if (dist > maxDist) {
+      maxDist = dist;
+    }
+  }
+  return maxDist + memberRadius;
+}
+
+/**
+ * Computes shortest distance from point P to line segment A -> B.
+ */
+export function distancePointToSegment(p: Coordinate, a: Coordinate, b: Coordinate): number {
+  const dx = b.x - a.x;
+  const dz = b.z - a.z;
+  const lenSq = dx * dx + dz * dz;
+  if (lenSq <= 1e-6) {
+    return Math.hypot(p.x - a.x, p.z - a.z);
+  }
+  const t = Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.z - a.z) * dz) / lenSq));
+  const projX = a.x + t * dx;
+  const projZ = a.z + t * dz;
+  return Math.hypot(p.x - projX, p.z - projZ);
+}
+
+/**
+ * Checks whether an enemy march encounters a player unit along its path.
+ * Compares swept-segment distance from the enemy march against the combined
+ * formation body radius of both formations.
+ */
+export function checkFormationPathEncounter(
+  enemyMarch: EnemyMarch,
+  enemyPrevPos: Coordinate,
+  enemyCurrPos: Coordinate,
+  playerUnit: WorldUnit,
+  playerPos: Coordinate
+): boolean {
+  const enemyRadius = getEnemyFormationBodyRadius(enemyMarch);
+  const playerRadius = getUnitFormationBodyRadius(playerUnit);
+  const combinedRadius = enemyRadius + playerRadius;
+  const dist = distancePointToSegment(playerPos, enemyPrevPos, enemyCurrPos);
+  return dist <= combinedRadius;
+}
+
+export type MarchEncounter = {
+  march: EnemyMarch;
+  unit: WorldUnit;
+  encounterPosition: Coordinate;
+};
+
+/**
+ * Sweeps all active marching enemy mobs against deployed player armies.
+ * Detects encounters based on formation body radius and returns any new engagements.
+ */
+export function detectEnemyMarchEncounters(
+  now: number,
+  marches: readonly EnemyMarch[],
+  units: readonly WorldUnit[],
+  activeBattleSessionTargetIds: ReadonlySet<string> = new Set(),
+  activeBattleUnitIds: ReadonlySet<string> = new Set(),
+  lastMarchPositions: ReadonlyMap<string, Coordinate> = new Map()
+): MarchEncounter[] {
+  const encounters: MarchEncounter[] = [];
+  const engagedMarchIds = new Set<string>();
+  const engagedUnitIds = new Set<string>();
+
+  for (const march of marches) {
+    if (march.status !== 'marching' || activeBattleSessionTargetIds.has(march.id) || engagedMarchIds.has(march.id)) {
+      continue;
+    }
+
+    const currPos = enemyMarchPosition(march, now);
+    const prevPos = lastMarchPositions.get(march.id) ?? currPos;
+
+    for (const unit of units) {
+      if (
+        unit.kind !== 'army' ||
+        unit.status === 'home' ||
+        activeBattleUnitIds.has(unit.id) ||
+        engagedUnitIds.has(unit.id)
+      ) {
+        continue;
+      }
+
+      const playerPos = unitPosition(unit, now);
+      if (checkFormationPathEncounter(march, prevPos, currPos, unit, playerPos)) {
+        encounters.push({
+          march,
+          unit,
+          encounterPosition: { ...currPos },
+        });
+        engagedMarchIds.add(march.id);
+        engagedUnitIds.add(unit.id);
+        break;
+      }
+    }
+  }
+
+  return encounters;
 }
 
 /**

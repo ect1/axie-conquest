@@ -4,12 +4,15 @@ import { STARTER_HEROES, AXIE_CLASSES } from './heroes';
 import { activeBattleSettings } from './battle-settings';
 import { BATTLE_OVERLAYS } from './battle-debug';
 import { createBattle } from './battle';
+import type { BattleSession } from './battle-save';
+import { fighterWorldPosition } from './battle-world';
 
 export function showMarches(
   scene: Scene,
   orders: WorldUnit[] | (() => WorldUnit[]),
   selection: string | null | (() => string | null),
-  visible: () => boolean
+  visible: () => boolean,
+  battles: () => readonly BattleSession[] = () => []
 ) {
   const getOrders = typeof orders === 'function' ? orders : () => orders;
   const initialOrders = getOrders();
@@ -274,6 +277,7 @@ export function showMarches(
       ring.setEnabled(order.id === selectedId);
       const position = unitPosition(latest, now);
       const moving = !!current.order;
+      const battleSession = battles().find(session => !session.battle.result && (session.armies ?? [session.army]).some(participant => participant.id === latest.id));
       const isAlive = visible() && current.status !== 'home';
       army.setEnabled(isAlive);
       army.position.set(position.x, 0, position.z);
@@ -284,7 +288,19 @@ export function showMarches(
       if (current.order && activeBattleSettings.overlays.targets) {
         MeshBuilder.CreateLines('world order target', { points: [new Vector3(position.x, 0.25, position.z), new Vector3(current.order.destination.x, 0.25, current.order.destination.z)], instance: targetLine as LinesMesh });
       }
-      units.forEach((unit, index) => { unit.position.y = moving ? Math.abs(Math.sin(now / 150 + index)) * 0.15 : 0; });
+      units.forEach((unit, index) => {
+        const member = order.members[index];
+        const fighter = battleSession?.battle.fighters.find(candidate => candidate.side === 'player' && candidate.memberId === member.id && (candidate.armyId === latest.id || (!candidate.armyId && battleSession.army.id === latest.id)));
+        if (fighter && battleSession) {
+          unit.setEnabled(fighter.hp > 0);
+          const world = fighterWorldPosition(battleSession, fighter);
+          const running = ['approaching', 'charging', 'retreating'].includes(fighter.state);
+          unit.setAbsolutePosition(new Vector3(world.x, running ? Math.abs(Math.sin(now / 150 + index)) * 0.15 : 0, world.z));
+        } else {
+          unit.setEnabled(true);
+          unit.position.set(member.offset.x, moving ? Math.abs(Math.sin(now / 150 + index)) * 0.15 : 0, member.offset.z);
+        }
+      });
 
       // Live gathering sprite healthbar
       const isGathering = isAlive && current.status === 'gathering';

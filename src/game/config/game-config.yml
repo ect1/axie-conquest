@@ -45,3 +45,14 @@ repair:
       maxAssignableAxies: 3
       repairMultiplier: 1.75 # 1.75x repair speed (+75%)
       costMultiplier: 0.8 # 80% cost (20% discount)
+
+# End-of-Battle Behaviour
+# Controls what happens when a battle result is resolved or an aggressive encounter begins.
+endBattle:
+  # Seconds the intercepting mob is frozen after an aggressive path encounter.
+  # During this window the mob does not advance and the battle has not yet started,
+  # giving other formations enough time to retreat before combat begins.
+  aggressiveSuspendSeconds: 1.5
+  # Tactical Z coordinate a withdrawing player formation must reach.
+  # The world view projects this same boundary onto the battle's map heading.
+  retreatBoundaryZ: -4

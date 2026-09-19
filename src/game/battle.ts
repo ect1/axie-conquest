@@ -14,6 +14,7 @@ import type { WorldObject } from './world';
 
 import defaults from './battle-settings.json';
 import { getCombatStatsConfig } from './stats-config';
+import { DEFAULT_END_BATTLE_CONFIG, getEndBattleConfig } from './game-config';
 
 export const BATTLE_STEP = 0.1;
 export const MAX_BATTLE_TICKS = 3000;
@@ -47,7 +48,8 @@ export type Fighter = {
 export type BattleEvent = { from: string; to: string; amount: number; kind: 'hit' | 'skill' | 'heal'; projectileSpeed?: number };
 export type Battle = {
   version: 1; layoutVersion?: 2; tick: number; fighters: Fighter[]; leaderId: string | null; skillCooldown: number;
-  retreating: boolean; result: 'victory' | 'defeat' | 'retreated' | 'draw' | null;
+  retreating: boolean; retreatingArmyIds?: string[]; retreatBoundaryZ?: number;
+  result: 'victory' | 'defeat' | 'retreated' | 'draw' | null;
   events: BattleEvent[];
 };
 export function livingCount(fighter: Fighter): number { return Math.max(0, Math.min(fighter.initialCount, Math.ceil(fighter.hp / fighter.stats.health))); }
@@ -56,6 +58,25 @@ export function damageAfterDefense(attack: number, defense: number): number { re
 export function formationCenter(battle: Battle, side: Fighter['side']) {
   const members = battle.fighters.filter(f => f.side === side && f.hp > 0);
   return members.length ? { x: members.reduce((sum, f) => sum + f.x, 0) / members.length, z: members.reduce((sum, f) => sum + f.z, 0) / members.length } : { x: 0, z: side === 'player' ? -8 : 8 };
+}
+
+export function battleRetreatBoundary(battle: Pick<Battle, 'retreatBoundaryZ'>): number {
+  return Number.isFinite(battle.retreatBoundaryZ) ? battle.retreatBoundaryZ! : DEFAULT_END_BATTLE_CONFIG.retreatBoundaryZ;
+}
+
+function retreatingArmies(battle: Battle): ReadonlySet<string> {
+  if (battle.retreatingArmyIds?.length) return new Set(battle.retreatingArmyIds);
+  if (!battle.retreating) return new Set();
+  // Legacy saves used one global flag. Snapshot every army already in that battle.
+  return new Set(battle.fighters.filter(f => f.side === 'player').map(f => f.armyId ?? 'primary'));
+}
+
+export function isFighterRetreating(battle: Battle, fighter: Fighter): boolean {
+  return fighter.side === 'player' && retreatingArmies(battle).has(fighter.armyId ?? 'primary');
+}
+
+export function hasFighterRetreated(battle: Battle, fighter: Fighter): boolean {
+  return isFighterRetreating(battle, fighter) && fighter.z <= battleRetreatBoundary(battle);
 }
 
 export function buildBossFighters(boss: BossConfig, enemySlots: readonly HexGridSlot[]): Fighter[] {
@@ -240,9 +261,12 @@ export function createBattle(army: WorldUnit, enemyCountOrTarget: number | World
     }
   }
 
-  return { version: 1, layoutVersion: 2, tick: 0, fighters: members, leaderId: members.find(f => f.heroId === army.leaderId)?.id ?? null, skillCooldown: 0, retreating: false, result: null, events: [] };
+  return { version: 1, layoutVersion: 2, tick: 0, fighters: members, leaderId: members.find(f => f.heroId === army.leaderId)?.id ?? null, skillCooldown: 0, retreating: false, retreatingArmyIds: [], retreatBoundaryZ: getEndBattleConfig().retreatBoundaryZ, result: null, events: [] };
 }
 export function reinforceBattle(battle: Battle, army: WorldUnit, roster: readonly ApiAxie[] = []): Battle {
+  const retreatingArmyIds = battle.retreatingArmyIds?.length ? battle.retreatingArmyIds : (battle.retreating
+    ? Array.from(new Set(battle.fighters.filter(f => f.side === 'player').map(f => f.armyId ?? 'primary')))
+    : []);
   const leader = STARTER_HEROES.find(hero => hero.id === army.leaderId);
   const modifiers = leaderTalent(leader)?.modifiers ?? NO_MODIFIERS;
 
@@ -319,6 +343,7 @@ export function reinforceBattle(battle: Battle, army: WorldUnit, roster: readonl
 
   return {
     ...battle,
+    retreatingArmyIds,
     fighters: [...battle.fighters, ...reinforcingFighters],
   };
 }
@@ -331,10 +356,12 @@ export function createSandboxArmy(kind: 'balanced' | 'infantry' | 'archer'): Wor
   return createArmy(formation, 0, 'sandbox', 'Practice', 3, 'sandbox');
 }
 export function battleOutcome(battle: Battle): Battle['result'] {
-  const player = battle.fighters.some(f => f.side === 'player' && f.hp > 0);
+  const livingPlayers = battle.fighters.filter(f => f.side === 'player' && f.hp > 0);
+  const player = livingPlayers.length > 0;
+  const activePlayer = livingPlayers.some(f => !hasFighterRetreated(battle, f));
   const enemy = battle.fighters.some(f => f.side === 'enemy' && f.hp > 0);
   return !player && !enemy ? 'draw' : !player ? 'defeat' : !enemy ? 'victory'
-    : battle.retreating && battle.fighters.filter(f => f.side === 'player' && f.hp > 0).every(f => f.z <= -22) ? 'retreated'
+    : battle.retreating && !activePlayer ? 'retreated'
     : battle.tick >= MAX_BATTLE_TICKS ? 'draw' : null;
 }
 function finish(battle: Battle): Battle {
@@ -350,12 +377,12 @@ export function stepBattle(previous: Battle): Battle {
   for (const fighter of battle.fighters) {
     if (fighter.hp <= 0) { fighter.state = 'defeated'; fighter.targetId = null; continue; }
     fighter.cooldown = Math.max(0, fighter.cooldown - BATTLE_STEP);
-    if (battle.retreating && fighter.side === 'player') {
+    if (isFighterRetreating(battle, fighter)) {
       fighter.state = 'retreating'; fighter.targetId = null; fighter.facing = Math.PI;
-      fighter.z = Math.max(-23, fighter.z - fighter.stats.speed * BATTLE_STEP); continue;
+      fighter.z = Math.max(battleRetreatBoundary(battle), fighter.z - fighter.stats.speed * BATTLE_STEP); continue;
     }
     const origin = previous.fighters.find(f => f.id === fighter.id)!;
-    const enemies = previous.fighters.filter(f => f.side !== fighter.side && f.hp > 0 && (fighter.side === 'player' || Math.hypot(f.x, f.z - 8) <= activeBattleSettings.leashRadius));
+    const enemies = previous.fighters.filter(f => f.side !== fighter.side && f.hp > 0 && !hasFighterRetreated(previous, f) && (fighter.side === 'player' || Math.hypot(f.x, f.z - 8) <= activeBattleSettings.leashRadius));
     enemies.sort((a, b) => edgeDistance(origin, a) - edgeDistance(origin, b) || a.id.localeCompare(b.id));
     const usualTarget = enemies.find(e => e.id === fighter.targetId && edgeDistance(origin, e) <= fighter.stats.range) ?? enemies[0];
     const usualRangeTarget = usualTarget && { ...usualTarget, radius: usualTarget.stats.radius };
@@ -408,7 +435,7 @@ export function stepBattle(previous: Battle): Battle {
 export function activateCommanderSkill(previous: Battle): Battle {
   const leader = previous.fighters.find(f => f.id === previous.leaderId && f.hp > 0);
   const skill = commanderSkill(STARTER_HEROES.find(h => h.id === leader?.heroId));
-  if (!leader || !skill || previous.result || previous.retreating || previous.skillCooldown > 0) return previous;
+  if (!leader || !skill || previous.result || isFighterRetreating(previous, leader) || previous.skillCooldown > 0) return previous;
   const candidates = previous.fighters.filter(f => f.hp > 0 && (skill.effect === 'heal' ? f.side === leader.side && f.hp < livingCount(f) * f.stats.health : f.side !== leader.side) && edgeDistance(leader, f) <= skill.range);
   candidates.sort((a, b) => skill.effect === 'heal' ? a.hp / a.maxHp - b.hp / b.maxHp : edgeDistance(leader, a) - edgeDistance(leader, b));
   const target = candidates[0];

@@ -30,7 +30,7 @@ import {
   fetchLiveBuildingConfig,
   type BuildingCost,
 } from '@/game/building-config';
-import { fetchLiveGameConfig, getRepairConfig, RepairConfig } from '@/game/game-config';
+import { EndBattleConfig, fetchLiveGameConfig, getRepairConfig, getEndBattleConfig, RepairConfig } from '@/game/game-config';
 import { fetchLiveCityConfig, getCityDestructionConfig } from '@/game/city-config';
 import {
   CITY_HEALTH_SAVE_KEY,
@@ -83,6 +83,7 @@ import {
   createInitialPortalState,
   defeatEnemyMarch,
   destroySubPortal,
+  detectEnemyMarchEncounters,
   enemyMarchPosition,
   generateNewPortalCoordinate,
   generateWaveFormation,
@@ -225,7 +226,9 @@ export default function Home() {
   });
   const [lastDamageNoticeTime, setLastDamageNoticeTime] = useState<number>(0);
   const lastCityDamageTickRef = useRef<number>(Date.now());
+  const lastMarchPositionsRef = useRef<Map<string, Coordinate>>(new Map());
   const [repairConfig, setRepairConfig] = useState<RepairConfig>(getRepairConfig);
+  const [endBattleConfig, setEndBattleConfig] = useState<EndBattleConfig>(getEndBattleConfig);
   const [repairState, setRepairState] = useState<CityRepairState>(() => {
     try {
       const key = selectedCity ? getCityRepairSaveKey(selectedCity.id) : CITY_REPAIR_SAVE_KEY;
@@ -439,6 +442,7 @@ export default function Home() {
         setConfigVersion(v => v + 1);
         if (gCfg) {
           setRepairConfig(getRepairConfig());
+          setEndBattleConfig(getEndBattleConfig());
         }
         if (rCfg) {
           setGeneration(getActiveGenerationSettings() as GenerationSettings);
@@ -941,11 +945,117 @@ export default function Home() {
       portalConfig,
       { x: 0, z: 0 }
     );
+
+    let currentState = nextState;
+
+    // Process aggressive path encounters if enabled
+    if (portalConfig.aggressiveOnPath ?? true) {
+      const activeBattleSessionTargetIds = new Set(
+        battleSessionsRef.current.filter(s => !s.battle.result).map(s => s.target.id)
+      );
+      const activeBattleUnitIds = new Set(
+        battleSessionsRef.current
+          .filter(s => !s.battle.result)
+          .flatMap(s => (s.armies ?? [s.army]).map(a => a.id))
+      );
+
+      const encounters = detectEnemyMarchEncounters(
+        now,
+        currentState.activeEnemyMarches,
+        units,
+        activeBattleSessionTargetIds,
+        activeBattleUnitIds,
+        lastMarchPositionsRef.current
+      );
+
+      if (encounters.length > 0) {
+        const newBattleSessions: BattleSession[] = [];
+        const fightingMarchTargets = new Map<string, Coordinate>();
+        let updatedUnits = [...units];
+
+        for (const encounter of encounters) {
+          const { march, unit, encounterPosition } = encounter;
+          fightingMarchTargets.set(march.id, encounterPosition);
+
+          // Prepare boss configuration for this encounter
+          const bossCfg = portalFormationToBossConfig(march);
+          registerDynamicBoss(bossCfg);
+
+          const enemyTarget: WorldObject = {
+            id: march.id,
+            kind: 'boss',
+            x: encounterPosition.x,
+            z: encounterPosition.z,
+            state: 'defended',
+            loot: { apple: 0 },
+            bossId: `portal-boss-${march.id}`,
+            bossName: march.name,
+          };
+
+          // Halt player army at encounter point and initiate attack
+          const haltedArmy: WorldUnit = {
+            ...unit,
+            position: { ...encounterPosition },
+            order: null,
+            status: 'holding',
+            activity: { action: 'attack', targetId: march.id, targetLabel: march.name },
+          };
+
+          updatedUnits = updatedUnits.map(u => (u.id === unit.id ? haltedArmy : u));
+          const session = createBattleSession(haltedArmy, enemyTarget, apiAxies);
+          newBattleSessions.push(session);
+
+          setMessage(`⚔️ Hostile Encounter! ${march.name} intercepted ${unit.name} along their path!`);
+        }
+
+        // Freeze encountered marches into 'fighting' status
+        const updatedMarches = currentState.activeEnemyMarches.map(m => {
+          const fightPos = fightingMarchTargets.get(m.id);
+          return fightPos ? { ...m, status: 'fighting' as const, fightingPosition: fightPos } : m;
+        });
+        currentState = { ...currentState, activeEnemyMarches: updatedMarches };
+        setUnits(updatedUnits);
+
+        const allSessions = [...battleSessionsRef.current, ...newBattleSessions];
+        battleSessionsRef.current = allSessions;
+        setBattleSessions(allSessions);
+        view.current?.setBattles(allSessions);
+        setSelectedUnitId(newBattleSessions[0].army.id);
+
+        try {
+          localStorage.setItem(
+            BATTLE_SAVE_KEY,
+            JSON.stringify({
+              active: allSessions[0] ?? null,
+              sessions: allSessions,
+              report: battleReport,
+              reports: battleReports,
+            })
+          );
+        } catch { /* storage error */ }
+
+        // Auto-start battle after the suspend window (gives retreating formations time to escape)
+        const suspendMs = Math.round(getEndBattleConfig().aggressiveSuspendSeconds * 1000);
+        if (suspendMs > 0) {
+          window.setTimeout(() => setBattlePaused(false), suspendMs);
+        } else {
+          setBattlePaused(false);
+        }
+      }
+    }
+
+    // Update lastMarchPositionsRef for next tick
+    const nextMarchPositions = new Map<string, Coordinate>();
+    for (const march of currentState.activeEnemyMarches) {
+      nextMarchPositions.set(march.id, enemyMarchPosition(march, now));
+    }
+    lastMarchPositionsRef.current = nextMarchPositions;
+
     try {
-      localStorage.setItem(PORTAL_STATE_SAVE_KEY, JSON.stringify(nextState));
+      localStorage.setItem(PORTAL_STATE_SAVE_KEY, JSON.stringify(currentState));
     } catch { /* session only */ }
-    setPortalState(nextState);
-    view.current?.setPortalState(nextState, selectedUnitId);
+    setPortalState(currentState);
+    view.current?.setPortalState(currentState, selectedUnitId);
     if (newMarchesSpawned.length > 0) {
       newMarchesSpawned.forEach(march => {
         setMessage(`⚠️ Hostile March detected! ${march.name} approaching Everleaf Haven.`);
@@ -956,7 +1066,7 @@ export default function Home() {
     }
 
     // Process hostile damage against the city base
-    const arrivedMarches = nextState.activeEnemyMarches.filter(
+    const arrivedMarches = currentState.activeEnemyMarches.filter(
       m => m.status === 'arrived' || (m.status === 'marching' && now >= m.arrivesAt)
     );
 
@@ -1068,10 +1178,14 @@ export default function Home() {
     selectedCity.resources.wood.amount,
     selectedCity.resources.stone.amount,
     selectedCity.resources.food.amount,
+    apiAxies,
+    battleReport,
+    battleReports,
+    selectedUnitId,
   ]);
   useEffect(() => {
     if (!ready || battleError) return;
-    const activeAttackerIds = new Set(battleSessionsRef.current.map(s => s.army.id));
+    const activeAttackerIds = new Set(battleSessionsRef.current.flatMap(s => (s.armies ?? [s.army]).map(army => army.id)));
     const arrivedAttackers = units.filter(unit => !unit.order && unit.activity?.action === 'attack' && !activeAttackerIds.has(unit.id));
     if (!arrivedAttackers.length) return;
 
@@ -1133,6 +1247,10 @@ export default function Home() {
         battleSessionsRef.current[existingActiveIndex] = reinforced;
         setBattleSessions([...battleSessionsRef.current]);
         view.current?.setBattles(battleSessionsRef.current);
+        setBattlePaused(false);
+        try {
+          localStorage.setItem(BATTLE_SAVE_KEY, JSON.stringify({ active: battleSessionsRef.current[0] ?? null, sessions: battleSessionsRef.current, report: battleReport, reports: battleReports }));
+        } catch { /* The in-memory reinforcement remains active. */ }
         setMessage(`${attacker.name} reinforced the battle at ${existingSession.target.kind}!`);
         continue;
       }
@@ -1394,13 +1512,14 @@ export default function Home() {
   function retreatBattle(targetSession?: BattleSession) {
     const session = targetSession || spectatorSession || battleSessionsRef.current[0];
     if (!session || session.battle.result) return;
-    const retreatingBattle: Battle = { ...session.battle, retreating: true };
-    if (battlePaused || session.battle.tick >= MAX_BATTLE_TICKS) {
-      retreatingBattle.result = 'retreated';
-    }
+    const retreatingArmyIds = Array.from(new Set([
+      ...(session.battle.retreatingArmyIds ?? []),
+      ...(session.armies ?? [session.army]).map(army => army.id),
+    ]));
+    const retreatingBattle: Battle = { ...session.battle, retreating: true, retreatingArmyIds, retreatBoundaryZ: getEndBattleConfig().retreatBoundaryZ };
     updateSingleBattle(session, retreatingBattle, true);
-    if (retreatingBattle.result) finishBattle({ ...session, battle: retreatingBattle });
-    else setMessage(`${session.army.name} is retreating from combat.`);
+    setBattlePaused(false);
+    setMessage(`${(session.armies ?? [session.army]).map(army => army.name).join(' + ')} retreating to the withdrawal boundary.`);
   }
 
   function abortBattle(targetSession?: BattleSession) {
@@ -2616,6 +2735,8 @@ export default function Home() {
       onTriggerPortalWave={id => triggerPortalWave(id)}
       onSummonNewPortal={() => summonNewPortalManual()}
       onResetPortals={() => resetPortalsManual()}
+      endBattleConfig={endBattleConfig}
+      onEndBattleConfigChange={setEndBattleConfig}
       onClose={() => setDeveloper(false)}
       onRegenerate={regenerate}
       onRemove={() => { view.current?.removeWorld(); try { localStorage.setItem(WORLD_SAVE_KEY, '[]'); localStorage.setItem(DEPLETED_NODES_SAVE_KEY, '[]'); } catch { /* Keep the removal in memory when storage is unavailable. */ } depletedNodesRef.current.clear(); allResourcesDepletedAtRef.current = null; setWorldObjects([]); setGenerationStatus('All generated objects removed.'); }}
@@ -2733,25 +2854,15 @@ export default function Home() {
                 <strong style={{ fontSize: '0.85rem' }}>
                   {isFinished
                     ? `⚔️ ${session.battle.result}`
-                    : battlePaused && session.battle.tick === 0
-                    ? '⚔️ Ready to Engage'
                     : battlePaused
-                    ? '⏸ Battle Paused'
+                    ? '⚔️ Engaging…'
                     : '⚔️ Combat in progress'}
                 </strong>
                 <small style={{ opacity: 0.85, fontSize: '0.75rem' }}>
                   {(session.armies && session.armies.length > 1 ? session.armies.map(a => a.name).join(' + ') : session.army.name)} · {ratio}% HP
                 </small>
               </div>
-              {battlePaused && session.battle.tick > 0 && !session.battle.result && (
-                <button
-                  className="secondary"
-                  style={{ fontSize: '0.8rem', padding: '4px 10px' }}
-                  onClick={() => setBattlePaused(false)}
-                >
-                  Resume
-                </button>
-              )}
+
               {!isFinished && (
                 <button
                   className="secondary"

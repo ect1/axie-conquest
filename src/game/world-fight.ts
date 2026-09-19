@@ -1,6 +1,8 @@
-import { Color3, DynamicTexture, Mesh, MeshBuilder, Scene, StandardMaterial, TransformNode } from '@babylonjs/core';
+import { Color3, DynamicTexture, Mesh, MeshBuilder, Scene, StandardMaterial, TransformNode, Vector3 } from '@babylonjs/core';
 import type { Fighter } from './battle';
 import type { BattleSession } from './battle-save';
+import { battleRetreatBoundary } from './battle';
+import { battleWorldTransform } from './battle-world';
 
 type IndicatorInstance = {
   root: TransformNode;
@@ -8,6 +10,7 @@ type IndicatorInstance = {
   watchBadge: Mesh;
   attacker: { back: Mesh; fill: Mesh };
   defender: { back: Mesh; fill: Mesh };
+  retreatBoundary: Mesh;
   lastSession: string;
   lastTick: number;
 };
@@ -85,7 +88,14 @@ export function createWorldFight(scene: Scene) {
     defender.back.position.set(0, 3.4, 0);
     watchBadge.position.set(0, 5.7, 0);
 
-    return { root, clash, watchBadge, attacker, defender, lastSession: '', lastTick: -3 };
+    const retreatBoundary = MeshBuilder.CreateDashedLines(`world retreat boundary ${id}`, {
+      points: [new Vector3(-24, 0.24, 0), new Vector3(24, 0.24, 0)],
+      dashSize: 0.7,
+      gapSize: 0.35,
+    }, scene);
+    retreatBoundary.parent = root; retreatBoundary.color = Color3.FromHexString('#ffd166'); retreatBoundary.isPickable = false; retreatBoundary.setEnabled(false);
+
+    return { root, clash, watchBadge, attacker, defender, retreatBoundary, lastSession: '', lastTick: -3 };
   }
 
   function setIndicatorEnabled(ind: IndicatorInstance, enabled: boolean) {
@@ -96,6 +106,7 @@ export function createWorldFight(scene: Scene) {
     ind.attacker.fill.setEnabled(enabled); ind.attacker.fill.isVisible = enabled;
     ind.defender.back.setEnabled(enabled); ind.defender.back.isVisible = enabled;
     ind.defender.fill.setEnabled(enabled); ind.defender.fill.isVisible = enabled;
+    ind.retreatBoundary.setEnabled(enabled && ind.retreatBoundary.isVisible);
   }
 
   return {
@@ -122,7 +133,12 @@ export function createWorldFight(scene: Scene) {
         const badgePulse = 1 + Math.sin(performance.now() / 250) * 0.04;
         ind.watchBadge.scaling.setAll(badgePulse);
 
-        ind.root.position.set(session.target.x, 0, session.target.z);
+        const transform = battleWorldTransform(session);
+        ind.root.position.set(transform.x, 0, transform.z);
+        ind.root.rotation.y = transform.angle;
+        ind.retreatBoundary.position.z = battleRetreatBoundary(session.battle);
+        ind.retreatBoundary.isVisible = session.battle.retreating && !session.battle.result;
+        ind.retreatBoundary.setEnabled(visible && ind.retreatBoundary.isVisible);
         ind.clash.metadata = { action: 'watchBattle', sessionId: key };
         ind.watchBadge.metadata = { action: 'watchBattle', sessionId: key };
 

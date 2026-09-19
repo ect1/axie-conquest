@@ -108,7 +108,9 @@ export function validateBattleSession(entry: unknown, troops: Troops): BattleSes
   for (let i = 1; i < armies.length; i++) {
     initial = reinforceBattle(initial, armies[i], roster);
   }
-  if (battle.version !== 1 || (battle.layoutVersion !== undefined && battle.layoutVersion !== 2) || !Number.isSafeInteger(battle.tick) || battle.tick < 0 || battle.tick > MAX_BATTLE_TICKS || typeof battle.retreating !== 'boolean' || !Number.isFinite(battle.skillCooldown) || battle.skillCooldown < 0 || battle.skillCooldown > 15 || battle.leaderId !== initial.leaderId || ![null, 'victory', 'defeat', 'retreated', 'draw'].includes(battle.result)) return null;
+  const retreatingArmyIdsValid = battle.retreatingArmyIds === undefined || (Array.isArray(battle.retreatingArmyIds) && battle.retreatingArmyIds.every(id => typeof id === 'string') && new Set(battle.retreatingArmyIds).size === battle.retreatingArmyIds.length);
+  const retreatBoundaryValid = battle.retreatBoundaryZ === undefined || (Number.isFinite(battle.retreatBoundaryZ) && battle.retreatBoundaryZ! >= -100 && battle.retreatBoundaryZ! <= -1);
+  if (battle.version !== 1 || (battle.layoutVersion !== undefined && battle.layoutVersion !== 2) || !Number.isSafeInteger(battle.tick) || battle.tick < 0 || battle.tick > MAX_BATTLE_TICKS || typeof battle.retreating !== 'boolean' || !retreatingArmyIdsValid || !retreatBoundaryValid || !Number.isFinite(battle.skillCooldown) || battle.skillCooldown < 0 || battle.skillCooldown > 15 || battle.leaderId !== initial.leaderId || ![null, 'victory', 'defeat', 'retreated', 'draw'].includes(battle.result)) return null;
   if (!Array.isArray(battle.fighters) || battle.fighters.length !== initial.fighters.length) return null;
   for (let i = 0; i < initial.fighters.length; i++) {
     const f = battle.fighters[i], base = initial.fighters[i];
@@ -199,10 +201,21 @@ export function commitBattleOutcome(storage: StorageAccess, session: BattleSessi
         if (index !== army.formationIndex) return formation;
         const next = structuredClone(formation);
         next.assignments = next.assignments.map(slot => {
-          const fighter = armyFighters.find(f => f.memberId === `hex-${slot.row}-${slot.column}`);
-          if (!fighter?.troopKind) return slot;
-          const count = livingCount(fighter);
-          return { ...slot, military: count ? slot.military : null, militaryCount: count };
+          const memberId = `hex-${slot.row}-${slot.column}`;
+          const fighter = armyFighters.find(f => f.memberId === memberId);
+          if (!fighter) return slot;
+          if (fighter.troopKind) {
+            // Troop squad: update count and persist HP ratio
+            const count = livingCount(fighter);
+            const healthRatio = count > 0 ? fighter.hp / (count * fighter.stats.health) : 0;
+            return { ...slot, military: count ? slot.military : null, militaryCount: count, ...(count > 0 ? { healthRatio } : { healthRatio: undefined }) };
+          }
+          if (fighter.heroId) {
+            // Hero: persist HP ratio so the Axie re-enters battle with post-battle health
+            const healthRatio = fighter.hp / fighter.maxHp;
+            return { ...slot, healthRatio: healthRatio > 0 ? healthRatio : undefined };
+          }
+          return slot;
         });
         return next;
       });

@@ -7,6 +7,7 @@ import { DEFAULT_UNIT_GLOBAL_STATS, setActiveUnitGlobalStats, UnitGlobalStats } 
 import { BATTLE_SETTINGS_SAVE_KEY, BattleSettings, DEFAULT_BATTLE_SETTINGS, restoreActiveBattleSettings, sanitizeBattleSettings, setActiveBattleSettings } from '@/game/battle-settings';
 import type { BattleSession } from '@/game/battle-save';
 import type { ApiAxie } from '@/game/axie-roster';
+import { DEFAULT_END_BATTLE_CONFIG, EndBattleConfig, setActiveEndBattleConfig } from '@/game/game-config';
 
 import { getAllBosses } from '@/game/bosses';
 import {
@@ -36,6 +37,8 @@ type Props = {
   onTriggerPortalWave?: (portalId?: string) => void;
   onSummonNewPortal?: () => void;
   onResetPortals?: () => void;
+  endBattleConfig?: EndBattleConfig;
+  onEndBattleConfigChange?: (config: EndBattleConfig) => void;
 };
 
 export default function DeveloperPanel({
@@ -66,12 +69,15 @@ export default function DeveloperPanel({
   onTriggerPortalWave,
   onSummonNewPortal,
   onResetPortals,
+  endBattleConfig = DEFAULT_END_BATTLE_CONFIG,
+  onEndBattleConfigChange,
 }: Props) {
   const [tab, setTab] = useState<'world' | 'units' | 'battle' | 'portal'>('world');
   const [sandboxOpen, setSandboxOpen] = useState(false);
   const [localStats, setLocalStats] = useState(unitStats);
   const [battleSettings, setBattleSettings] = useState<BattleSettings>(DEFAULT_BATTLE_SETTINGS);
   const [localPortalConfig, setLocalPortalConfig] = useState<PortalMobSummoningConfig>(portalConfig);
+  const [localEndBattleConfig, setLocalEndBattleConfig] = useState<EndBattleConfig>(endBattleConfig);
   const [applyStatus, setApplyStatus] = useState('');
   useEffect(() => { try { const saved = JSON.parse(localStorage.getItem('axie-conquest-unit-stats-v1') || 'null'); if (saved && Number.isFinite(saved.marchSpeed) && saved.marchSpeed > 0) { const next = { marchSpeed: saved.marchSpeed }; setLocalStats(next); setActiveUnitGlobalStats(next); onUnitStats(next); } } catch { /* Use code defaults. */ } }, []);
   useEffect(() => {
@@ -102,6 +108,14 @@ export default function DeveloperPanel({
   useEffect(() => {
     setLocalPortalConfig(portalConfig);
   }, [portalConfig]);
+  useEffect(() => setLocalEndBattleConfig(endBattleConfig), [endBattleConfig]);
+
+  function applyEndBattleSettings(config = localEndBattleConfig) {
+    const next = setActiveEndBattleConfig(config);
+    setLocalEndBattleConfig(next);
+    onEndBattleConfigChange?.(next);
+    setApplyStatus('End-battle settings applied for this session.');
+  }
 
   function savePortalSettings() {
     const sanitized = sanitizePortalConfig(localPortalConfig);
@@ -135,6 +149,13 @@ export default function DeveloperPanel({
     {tab === 'units' && <div className="unit-global-stats"><p>Global movement values used to simulate marching.</p><label className="developer-distance">March speed (tiles / second)<input type="number" min={0.1} max={100} step={0.1} value={localStats.marchSpeed} onChange={event => setLocalStats({ marchSpeed: Math.max(0.1, Math.min(100, Number(event.target.value) || 0.1)) })} /></label><div className="placement-actions"><button className="primary" onClick={saveUnitStats}>Save unit stats</button></div><p><small>Higher speed reduces travel time. Edit <code>src/game/unit-stats.json</code> to change the code default.</small></p></div>}
     {tab === 'world' && <div className="developer-world"><div className="developer-counts">{WORLD_KINDS.map(kind => <label key={kind}><span>{WORLD_DEFINITIONS[kind].name}<small>{objects.filter(object => object.kind === kind).length} on map{kind === 'village' || kind === 'garrison' ? ' · Loot: 1 apple' : ''}</small></span><input type="number" min={0} max={100} step={1} value={settings.counts[kind]} onChange={event => onSettings({ ...settings, counts: { ...settings.counts, [kind]: Math.max(0, Math.min(100, Math.floor(Number(event.target.value) || 0))) } })} /></label>)}</div><label className="developer-distance">Minimum distance<input type="number" min={1} max={50} step={1} value={settings.spacing} onChange={event => onSettings({ ...settings, spacing: Math.max(1, Math.min(50, Math.floor(Number(event.target.value) || 1))) })} /></label><p><small>1–50 units of clear ground between objects. City, walls and map edges are protected. Counts: 0–100 per type.</small></p><div className="placement-actions"><button className="primary" disabled={!ready} onClick={onRegenerate}>{objects.length ? 'Regenerate' : 'Generate'}</button><button className="secondary" disabled={!ready || !objects.length} onClick={onRemove}>Remove all</button><button className="secondary" onClick={() => { const active = getActiveGenerationSettings(); onSettings({ counts: { ...active.counts as Record<WorldKind, number> }, spacing: active.spacing }); }}>Defaults</button></div><p role="status">{status}</p></div>}
     {tab === 'battle' && <div className="battle-system"><p>Prototype the new tactical board before units and simulation are added. The middle lane is made of neutral gray hex slots, not empty ground.</p><label className="developer-distance">Gap between hexes<input type="number" min={0} max={3} step={0.05} value={battleSettings.boardHexGap} onChange={event => setBattleSettings({ ...battleSettings, boardHexGap: Math.max(0, Math.min(3, Number(event.target.value) || 0)) })} /></label><label className="developer-distance">Neutral hex rows<input type="number" min={0} max={4} step={1} value={battleSettings.boardTeamGap} onChange={event => setBattleSettings({ ...battleSettings, boardTeamGap: Math.max(0, Math.min(4, Math.round(Number(event.target.value) || 0))) })} /></label><div className="placement-actions"><button className="primary" onClick={applyBattleSettings}>Save board settings</button><button className="secondary" onClick={() => setBattleSettings(DEFAULT_BATTLE_SETTINGS)}>JSON defaults</button><button className="primary" onClick={() => { applyBattleSettings(); setSandboxOpen(true); }}>Open battle sandbox</button></div><p><small>Set hex gap to 0 for one connected board. Neutral rows split the two teams.</small></p><p role="status">{applyStatus || 'Open the sandbox to inspect the empty formation board.'}</p></div>}
+    {tab === 'battle' && <fieldset className="battle-debug">
+      <legend>End battle</legend>
+      <label className="developer-distance">Retreat boundary Z<input type="number" min={-100} max={-1} step={1} value={localEndBattleConfig.retreatBoundaryZ} onChange={event => setLocalEndBattleConfig({ ...localEndBattleConfig, retreatBoundaryZ: Math.max(-100, Math.min(-1, Number(event.target.value) || -1)) })} /></label>
+      <label className="developer-distance">Aggressive intercept delay (seconds)<input type="number" min={0} max={30} step={0.1} value={localEndBattleConfig.aggressiveSuspendSeconds} onChange={event => setLocalEndBattleConfig({ ...localEndBattleConfig, aggressiveSuspendSeconds: Math.max(0, Math.min(30, Number(event.target.value) || 0)) })} /></label>
+      <div className="placement-actions"><button className="primary" onClick={() => applyEndBattleSettings()}>Apply end-battle settings</button><button className="secondary" onClick={() => { setLocalEndBattleConfig(DEFAULT_END_BATTLE_CONFIG); applyEndBattleSettings(DEFAULT_END_BATTLE_CONFIG); }}>JSON defaults</button></div>
+      <p><small>The retreat boundary is the player-side tactical Z coordinate. The same line is projected into World View. Defaults come from <code>src/game/config/game-config.yml</code>.</small></p>
+    </fieldset>}
     {tab === 'battle' && <fieldset className="battle-debug">
       <legend>Tactical battle debugging</legend>
       <p><small>Enable or disable developer combat controls (pause/step/restart/speed/overlays) in the battle spectator.</small></p>

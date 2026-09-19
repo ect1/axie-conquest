@@ -39,10 +39,23 @@ export const DEFAULT_REPAIR_CONFIG: RepairConfig = {
   },
 };
 
+export type EndBattleConfig = {
+  /** Seconds the enemy mob is frozen after an aggressive intercept, giving other formations time to retreat. */
+  aggressiveSuspendSeconds: number;
+  /** Tactical Z coordinate player formations must cross to leave combat. */
+  retreatBoundaryZ: number;
+};
+
+export const DEFAULT_END_BATTLE_CONFIG: EndBattleConfig = {
+  aggressiveSuspendSeconds: 1.5,
+  retreatBoundaryZ: -22,
+};
+
 export type GameConfigFile = {
   version: number;
   destruction?: CityDestructionConfig;
   repair?: RepairConfig;
+  endBattle?: EndBattleConfig;
   startingState: {
     capitalCity: {
       id: string;
@@ -56,6 +69,7 @@ const DEFAULT_GAME_CONFIG: GameConfigFile = {
   version: 1,
   destruction: DEFAULT_CITY_DESTRUCTION,
   repair: DEFAULT_REPAIR_CONFIG,
+  endBattle: DEFAULT_END_BATTLE_CONFIG,
   startingState: {
     capitalCity: {
       id: 'everleaf-haven',
@@ -166,4 +180,35 @@ export function getRepairConfig(): RepairConfig {
     axieMultiplier,
     cityHallLevels,
   };
+}
+
+export function getEndBattleConfig(): EndBattleConfig {
+  const cfg = getGameConfigFile();
+  const eb = cfg?.endBattle;
+  const aggressiveSuspendSeconds =
+    typeof eb?.aggressiveSuspendSeconds === 'number' && eb.aggressiveSuspendSeconds >= 0
+      ? eb.aggressiveSuspendSeconds
+      : DEFAULT_END_BATTLE_CONFIG.aggressiveSuspendSeconds;
+  const retreatBoundaryZ =
+    typeof eb?.retreatBoundaryZ === 'number' && eb.retreatBoundaryZ <= -1 && eb.retreatBoundaryZ >= -100
+      ? eb.retreatBoundaryZ
+      : DEFAULT_END_BATTLE_CONFIG.retreatBoundaryZ;
+  return { aggressiveSuspendSeconds, retreatBoundaryZ };
+}
+
+/** Applies Developer HUD end-battle tuning for the current session. */
+export function setActiveEndBattleConfig(config: EndBattleConfig): EndBattleConfig {
+  const current = getGameConfigFile();
+  cachedConfig = {
+    ...current,
+    endBattle: {
+      aggressiveSuspendSeconds: Number.isFinite(config.aggressiveSuspendSeconds)
+        ? Math.max(0, config.aggressiveSuspendSeconds)
+        : DEFAULT_END_BATTLE_CONFIG.aggressiveSuspendSeconds,
+      retreatBoundaryZ: Number.isFinite(config.retreatBoundaryZ)
+        ? Math.max(-100, Math.min(-1, config.retreatBoundaryZ))
+        : DEFAULT_END_BATTLE_CONFIG.retreatBoundaryZ,
+    },
+  };
+  return getEndBattleConfig();
 }

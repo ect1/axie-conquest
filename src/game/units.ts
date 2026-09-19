@@ -4,6 +4,7 @@ import { STARTER_HEROES } from './heroes';
 import { Coordinate, createRoute, marchTravelTimeMs, normalizeCoordinate, restoreRouteOrders } from './routes';
 import { WorldAction, WorldObject, getWorldObjectActions } from './world';
 import { CityResourceKind } from './cities';
+import { activeBattleSettings } from './battle-settings';
 
 export const UNITS_SAVE_KEY = 'axie-conquest-units-v1';
 export const UNIT_DEFINITIONS = {
@@ -96,9 +97,30 @@ export function formationMembers(formation: Formation): UnitMember[] {
   return slots.flatMap<UnitMember>(slot => {
     const offset = { x: (slot.column - centerColumn) * 1.15 + (slot.row % 2 ? .575 : 0), z: (centerRow - slot.row) * 1.25 };
     const id = `hex-${slot.row}-${slot.column}`;
-    if (slot.heroId) return [{ id, heroId: slot.heroId, count: 1, offset }];
-    return slot.military && slot.militaryCount > 0 ? [{ id, troopKind: slot.military, count: slot.militaryCount, offset }] : [];
+    if (slot.heroId) return [{ id, heroId: slot.heroId, count: 1, offset, ...(slot.healthRatio !== undefined ? { healthRatio: slot.healthRatio } : {}) }];
+    return slot.military && slot.militaryCount > 0
+      ? [{ id, troopKind: slot.military, count: slot.militaryCount, offset, ...(slot.healthRatio !== undefined ? { healthRatio: slot.healthRatio } : {}) }]
+      : [];
   });
+}
+
+/**
+ * Computes the overall formation body radius for a player unit.
+ * Accounts for member slot offsets and the active unit body radius.
+ */
+export function getUnitFormationBodyRadius(unit: WorldUnit): number {
+  const memberRadius = (activeBattleSettings?.bodyRadius ?? 0.5) * (activeBattleSettings?.bodyRadiusMultiplier ?? 1.0);
+  if (!unit.members || unit.members.length === 0) {
+    return memberRadius * 2;
+  }
+  let maxOffsetDist = 0;
+  for (const member of unit.members) {
+    const dist = Math.hypot(member.offset.x, member.offset.z);
+    if (dist > maxOffsetDist) {
+      maxOffsetDist = dist;
+    }
+  }
+  return maxOffsetDist + memberRadius;
 }
 export function deploymentError(candidate: WorldUnit, units: readonly WorldUnit[], troops: Troops, now: number): string | null {
   const active = units.map(u => settleUnit(u, now)).filter(u => u.status !== 'home');

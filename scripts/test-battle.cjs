@@ -25,6 +25,7 @@ const f = load('src/game/offense-formations.ts');
 const military = load('src/game/military-service.ts');
 const world = load('src/game/world.ts');
 const replayRules = load('src/game/battle-replay.ts');
+const gameConfig = load('src/game/game-config.ts');
 const { STARTER_HEROES } = load('src/game/heroes.ts');
 const troops = { infantry: 100, archer: 100, scout: 0 };
 const army = b.createSandboxArmy('balanced');
@@ -161,7 +162,18 @@ assert.equal(rangedStep.fighters[1].z, rangedDefender.z, 'defender archers stop 
 const lethal = { ...melee, hp: 1, stats: { ...melee.stats, attack: 1000, range: 2 } };
 step = b.stepBattle({ ...duel, fighters: [lethal, { ...lethal, side: 'enemy', id: 'enemy:test', z: 1, facing: Math.PI }] });
 assert.equal(step.result, 'draw', 'simultaneous lethal attacks have no ordering advantage');
-assert.equal(run({ ...initial, retreating: true }).result, 'retreated');
+gameConfig.setActiveEndBattleConfig({ aggressiveSuspendSeconds: 1.5, retreatBoundaryZ: -12 });
+const configuredRetreat = b.createBattle(army);
+assert.equal(configuredRetreat.retreatBoundaryZ, -12, 'new battles snapshot the configured retreat boundary');
+const retreated = run({ ...configuredRetreat, retreating: true, retreatingArmyIds: [army.id] });
+assert.equal(retreated.result, 'retreated');
+assert.ok(retreated.fighters.filter(fighter => fighter.side === 'player' && fighter.hp > 0).every(fighter => fighter.z === -12), 'survivors stop on the configured retreat boundary');
+const reinforcement = { ...b.createSandboxArmy('balanced'), id: 'reinforcement', name: 'Relief formation' };
+const reinforcedRetreat = b.reinforceBattle({ ...configuredRetreat, retreating: true, retreatingArmyIds: [army.id] }, reinforcement);
+const reinforcedStep = b.stepBattle(reinforcedRetreat);
+assert.ok(reinforcedStep.fighters.filter(fighter => fighter.armyId === army.id && fighter.hp > 0).every(fighter => fighter.state === 'retreating'), 'the ordered formation keeps withdrawing');
+assert.ok(reinforcedStep.fighters.filter(fighter => fighter.armyId === reinforcement.id && fighter.hp > 0).every(fighter => fighter.state !== 'retreating'), 'a later reinforcement enters combat instead of inheriting retreat');
+gameConfig.setActiveEndBattleConfig(gameConfig.DEFAULT_END_BATTLE_CONFIG);
 assert.equal(b.stepBattle({ ...duel, tick: b.MAX_BATTLE_TICKS - 1, fighters: [melee, { ...enemy, z: 50 }] }).result, 'draw');
 let skillBattle = { ...initial, fighters: initial.fighters.map(f => ({ ...f, x: f.side === 'player' ? 0 : 1, z: 0, hp: f.hp / 2 })) };
 const cast = b.activateCommanderSkill(skillBattle);
@@ -241,10 +253,9 @@ for (const point of [{ x: 24, z: 0 }, { x: 40, z: -16 }, { x: 40, z: 0 }, { x: 4
   assert.ok(Math.abs((sessionEnemy.z - sessionPlayer.z) - 11.483) < 0.01, 'world sessions retain the centered tactical opening');
   const angle = projection.battleWorldTransform(fight).angle;
   for (const fighter of fight.battle.fighters.filter(f => f.side === 'player')) {
-    const member = march.members.find(m => m.id === fighter.memberId);
     const actual = projection.fighterWorldPosition(fight, fighter);
-    const expected = { x: point.x + member.offset.x * Math.cos(angle) + member.offset.z * Math.sin(angle), z: point.z - member.offset.x * Math.sin(angle) + member.offset.z * Math.cos(angle) };
-    assert.ok(Math.hypot(actual.x - expected.x, actual.z - expected.z) < 1e-9, 'combat begins at the actual formation position');
+    const expected = { x: point.x + fighter.x * Math.cos(angle) + fighter.z * Math.sin(angle), z: point.z - fighter.x * Math.sin(angle) + fighter.z * Math.cos(angle) };
+    assert.ok(Math.hypot(actual.x - expected.x, actual.z - expected.z) < 1e-9, 'world combat uses the live tactical fighter position');
   }
 }
 // Test simultaneous battles against two different enemies

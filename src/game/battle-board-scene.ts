@@ -3,7 +3,7 @@ import { createHexGridSlots, HEX_GRID_RADIUS } from './hex-grid';
 import type { ApiAxie } from './axie-roster';
 import { createBattleAppearanceResolver } from './axie/battle-appearance';
 import { BabylonAxieInstance, BabylonAxieMixer } from './axie/babylon-mixer';
-import type { Battle, Fighter } from './battle';
+import { battleRetreatBoundary, type Battle, type Fighter } from './battle';
 import { BattleRangeSettings } from './battle-range';
 import { BATTLE_OVERLAYS, BattleOverlays } from './battle-debug';
 import { BabylonMascotMixer, type BabylonMascotInstance, MASCOT_CONFIGS } from './mascot/mascot-mixer';
@@ -77,6 +77,8 @@ export function createBattleBoardScene(
   selectionMaterial.emissiveColor = Color3.FromHexString('#ffe36c').scale(0.6);
   let selectionRingMesh: Mesh | null = null;
   const overlayMeshes: Mesh[] = [];
+  const retreatBoundary = MeshBuilder.CreateDashedLines('retreat boundary', { points: [new Vector3(-24, 0.22, 0), new Vector3(24, 0.22, 0)], dashSize: 0.7, gapSize: 0.35 }, scene);
+  retreatBoundary.color = Color3.FromHexString('#ffd166'); retreatBoundary.isPickable = false; retreatBoundary.setEnabled(false);
 
   let lastProcessedTick = -1;
   let battleReader: (() => { battle: Battle; selected: string | null; overlays?: BattleOverlays; all?: boolean }) | null = null;
@@ -285,6 +287,8 @@ export function createBattleBoardScene(
   function updateBattle(battle: Battle, selectedId?: string | null, overlays?: BattleOverlays, all = false) {
     overlayMeshes.forEach(mesh => mesh.dispose());
     overlayMeshes.length = 0;
+    retreatBoundary.position.z = -battleRetreatBoundary(battle);
+    retreatBoundary.setEnabled(battle.retreating && !battle.result);
 
     for (const fighter of battle.fighters) {
       // Align Battle coordinate convention (player: -Z, enemy: +Z) with

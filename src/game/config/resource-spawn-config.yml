@@ -35,7 +35,7 @@ resourceNodes:
   # Countdown timer (in seconds) before regenerated resource nodes appear on the map:
   # - When respawnWhenAllCollected is true, this timer starts once ALL resource nodes have been gathered.
   # - Also serves as the default respawn timer for individual nodes if not overridden.
-  respawnTimerSeconds: 5
+  respawnTimerSeconds: 10
 
   # Food Resource Node (Wild Farm)
   farm:
@@ -44,7 +44,7 @@ resourceNodes:
     name: "Wild Farm"
     resourceType: "food"
     description: "Abundant agricultural lands rich in grain and fresh Lunacian produce."
-    defaultSpawnCount: 1
+    defaultSpawnCount: 2
     # Total gatherable resource pool per node
     capacity: 500
     # Standard gathering speed (units per second per troop march)
@@ -58,7 +58,7 @@ resourceNodes:
     name: "Lumber Grove"
     resourceType: "wood"
     description: "Ancient woodland dense with timber suitable for settlement construction."
-    defaultSpawnCount: 1
+    defaultSpawnCount: 2
     capacity: 500
     gatherRatePerSecond: 5
     respawnTimerSeconds: 300
@@ -70,7 +70,7 @@ resourceNodes:
     name: "Stone Quarry"
     resourceType: "stone"
     description: "Rocky outcrop containing Lunacian stone and minerals for fortifications."
-    defaultSpawnCount: 1
+    defaultSpawnCount: 2
     capacity: 400
     gatherRatePerSecond: 4
     respawnTimerSeconds: 300

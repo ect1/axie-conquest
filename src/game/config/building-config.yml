@@ -88,7 +88,7 @@ buildings:
     movable: false # Fixed once placed
     removable: true
     maxLevel: 3
-    maxPerCity: 4
+    maxPerCity: 10
     dimensions:
       width: 4
       depth: 4
@@ -149,7 +149,7 @@ buildings:
     movable: false # Fixed once placed
     removable: true
     maxLevel: 3
-    maxPerCity: 4
+    maxPerCity: 10
     dimensions:
       width: 4
       depth: 4
@@ -211,7 +211,7 @@ buildings:
     movable: false # Fixed once placed
     removable: true
     maxLevel: 3
-    maxPerCity: 3
+    maxPerCity: 10
     dimensions:
       width: 4
       depth: 4
@@ -275,7 +275,7 @@ buildings:
     movable: false # Fixed once placed
     removable: true
     maxLevel: 3
-    maxPerCity: 2
+    maxPerCity: 10
     dimensions:
       width: 4
       depth: 4
@@ -336,7 +336,7 @@ buildings:
     movable: false # Fixed once placed
     removable: true
     maxLevel: 3
-    maxPerCity: 2
+    maxPerCity: 10
     dimensions:
       width: 4
       depth: 4
@@ -399,7 +399,7 @@ buildings:
     movable: false
     removable: true
     maxLevel: 3
-    maxPerCity: 3
+    maxPerCity: 10
     dimensions:
       width: 4
       depth: 4

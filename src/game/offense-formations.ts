@@ -4,7 +4,7 @@ import { Troops } from './base';
 export const OFFENSE_FORMATIONS_SAVE_KEY = 'axie-conquest-offense-formations-v2';
 export const LEGACY_OFFENSE_FORMATIONS_SAVE_KEY = 'axie-conquest-offense-formations-v1';
 export type FormationMilitaryKind = 'infantry' | 'archer';
-export type FormationSlot = { heroId: string | null; military: FormationMilitaryKind | null; militaryCount: number };
+export type FormationSlot = { heroId: string | null; military: FormationMilitaryKind | null; militaryCount: number; healthRatio?: number };
 export type FormationAssignment = FormationSlot & { row: number; column: number };
 export type Formation = { leader: string | null; assignments: FormationAssignment[] };
 export type FormationGrid = { columns: number; rows: number };
@@ -17,7 +17,9 @@ export function formationAssignment(formation: Formation, row: number, column: n
 export function formationSlots(formation: Formation): readonly FormationAssignment[] { return formation.assignments; }
 export function setFormationAssignment(formation: Formation, row: number, column: number, value: FormationSlot): Formation {
   const assignments = formation.assignments.filter(slot => slot.row !== row || slot.column !== column);
-  if (value.heroId || (value.military && value.militaryCount > 0)) assignments.push({ row, column, ...value });
+  // Strip healthRatio when manually reassigning: fresh troop placement means full HP.
+  const { healthRatio: _hr, ...cleanValue } = value;
+  if (cleanValue.heroId || (cleanValue.military && cleanValue.militaryCount > 0)) assignments.push({ row, column, ...cleanValue });
   return { ...formation, assignments };
 }
 export function getFormationTroopCounts(formation: Formation): Pick<Troops, FormationMilitaryKind> { return formation.assignments.reduce((total, slot) => { if (slot.military) total[slot.military] += slot.militaryCount; return total; }, { infantry: 0, archer: 0 }); }
@@ -40,12 +42,23 @@ export function restoreOffenseFormations(value: string | null, deployedIds: read
         if (!Number.isSafeInteger(rawRow) || !Number.isSafeInteger(rawColumn)) continue;
         const row = rawRow as number, column = rawColumn as number;
         if (row < 0 || row >= rows || column < 0 || column >= columns || occupied.has(formationSlotId(row, column))) continue;
+        const rawHealthRatio = slot.healthRatio;
+        const healthRatio = rawHealthRatio !== undefined && Number.isFinite(rawHealthRatio) && (rawHealthRatio as number) >= 0 && (rawHealthRatio as number) <= 1 ? rawHealthRatio as number : undefined;
         const heroId = slot.heroId;
-        if (typeof heroId === 'string' && deployed.has(heroId) && !usedHeroes.has(heroId)) { assignments.push({ row, column, heroId, military: null, militaryCount: 0 }); usedHeroes.add(heroId); occupied.add(formationSlotId(row, column)); continue; }
+        if (typeof heroId === 'string' && deployed.has(heroId) && !usedHeroes.has(heroId)) {
+          assignments.push({ row, column, heroId, military: null, militaryCount: 0, ...(healthRatio !== undefined ? { healthRatio } : {}) });
+          usedHeroes.add(heroId);
+          occupied.add(formationSlotId(row, column));
+          continue;
+        }
         const military = slot.military, rawMilitaryCount = slot.militaryCount;
         if (!Number.isSafeInteger(rawMilitaryCount)) continue;
         const militaryCount = rawMilitaryCount as number;
-        if ((military === 'infantry' || military === 'archer') && militaryCount > 0 && usedTroops[military] + militaryCount <= troops[military]) { assignments.push({ row, column, heroId: null, military, militaryCount }); usedTroops[military] += militaryCount; occupied.add(formationSlotId(row, column)); }
+        if ((military === 'infantry' || military === 'archer') && militaryCount > 0 && usedTroops[military] + militaryCount <= troops[military]) {
+          assignments.push({ row, column, heroId: null, military, militaryCount, ...(healthRatio !== undefined ? { healthRatio } : {}) });
+          usedTroops[military] += militaryCount;
+          occupied.add(formationSlotId(row, column));
+        }
       }
       const leader = (source as { leader?: unknown }).leader;
       return { leader: typeof leader === 'string' && assignments.some(slot => slot.heroId === leader) ? leader : null, assignments };

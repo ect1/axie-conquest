@@ -13,6 +13,7 @@
     "test:training": "node scripts/test-units-training.cjs",
     "test:defense": "node scripts/test-city-defense.cjs",
     "test:repair": "node scripts/test-repair.cjs",
+    "test:portal-aggression": "node scripts/test-portal-aggression.cjs",
     "test:placement": "node scripts/test-placement.cjs",
     "dev": "next dev",
     "build": "next build",

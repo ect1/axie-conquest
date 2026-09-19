@@ -1,6 +1,7 @@
 {
   "portalMobSummoning": {
     "enabled": true,
+    "aggressiveOnPath": true,
     "initialPortalCoordinate": {
       "x": 79.7,
       "y": -16.5
