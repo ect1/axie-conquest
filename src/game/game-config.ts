@@ -40,26 +40,29 @@ export const DEFAULT_REPAIR_CONFIG: RepairConfig = {
 };
 
 export type EndBattleConfig = {
-  /** Tactical Z coordinate player formations must cross to leave combat. */
-  retreatBoundaryZ: number;
-  defeatedType: 'retreat' | 'destroy';
-  retreat: {
+  defeatedType: 'defeatRetreat' | 'destroy';
+  defeatRetreat: {
     untargetable: boolean;
     unmarchable: boolean;
     armyLossPercent: number;
-    /** Protection after a manual retreat crosses the tactical boundary. */
+  };
+  retreatAction: {
+    /** Tactical Z coordinate player formations must cross to leave combat. */
+    retreatBoundaryZ: number;
     postBoundaryUntargetableSeconds: number;
     postBoundaryUnmarchableSeconds: number;
   };
 };
 
 export const DEFAULT_END_BATTLE_CONFIG: EndBattleConfig = {
-  retreatBoundaryZ: -22,
-  defeatedType: 'retreat',
-  retreat: {
+  defeatedType: 'defeatRetreat',
+  defeatRetreat: {
     untargetable: true,
     unmarchable: true,
     armyLossPercent: 0.6,
+  },
+  retreatAction: {
+    retreatBoundaryZ: -22,
     postBoundaryUntargetableSeconds: 1,
     postBoundaryUnmarchableSeconds: 3,
   },
@@ -199,46 +202,52 @@ export function getRepairConfig(): RepairConfig {
 export function getEndBattleConfig(): EndBattleConfig {
   const cfg = getGameConfigFile();
   const eb = cfg?.endBattle;
+  const retreatAction = eb?.retreatAction;
   const retreatBoundaryZ =
-    typeof eb?.retreatBoundaryZ === 'number' && eb.retreatBoundaryZ <= -1 && eb.retreatBoundaryZ >= -100
-      ? eb.retreatBoundaryZ
-      : DEFAULT_END_BATTLE_CONFIG.retreatBoundaryZ;
-  const defeatedType = eb?.defeatedType === 'destroy' ? 'destroy' : 'retreat';
-  const retreat = {
-    untargetable: typeof eb?.retreat?.untargetable === 'boolean' ? eb.retreat.untargetable : DEFAULT_END_BATTLE_CONFIG.retreat.untargetable,
-    unmarchable: typeof eb?.retreat?.unmarchable === 'boolean' ? eb.retreat.unmarchable : DEFAULT_END_BATTLE_CONFIG.retreat.unmarchable,
-    armyLossPercent: typeof eb?.retreat?.armyLossPercent === 'number' && Number.isFinite(eb.retreat.armyLossPercent)
-      ? Math.max(0, Math.min(1, eb.retreat.armyLossPercent))
-      : DEFAULT_END_BATTLE_CONFIG.retreat.armyLossPercent,
-    postBoundaryUntargetableSeconds: typeof eb?.retreat?.postBoundaryUntargetableSeconds === 'number' && Number.isFinite(eb.retreat.postBoundaryUntargetableSeconds)
-      ? Math.max(0, Math.min(30, eb.retreat.postBoundaryUntargetableSeconds))
-      : DEFAULT_END_BATTLE_CONFIG.retreat.postBoundaryUntargetableSeconds,
-    postBoundaryUnmarchableSeconds: typeof eb?.retreat?.postBoundaryUnmarchableSeconds === 'number' && Number.isFinite(eb.retreat.postBoundaryUnmarchableSeconds)
-      ? Math.max(0, Math.min(30, eb.retreat.postBoundaryUnmarchableSeconds))
-      : DEFAULT_END_BATTLE_CONFIG.retreat.postBoundaryUnmarchableSeconds,
+    typeof retreatAction?.retreatBoundaryZ === 'number' && retreatAction.retreatBoundaryZ <= -1 && retreatAction.retreatBoundaryZ >= -100
+      ? retreatAction.retreatBoundaryZ
+      : DEFAULT_END_BATTLE_CONFIG.retreatAction.retreatBoundaryZ;
+  const defeatedType = eb?.defeatedType === 'destroy' ? 'destroy' : 'defeatRetreat';
+  const defeatRetreat = eb?.defeatRetreat;
+  const retreatActionConfig = {
+    retreatBoundaryZ,
+    postBoundaryUntargetableSeconds: typeof retreatAction?.postBoundaryUntargetableSeconds === 'number' && Number.isFinite(retreatAction.postBoundaryUntargetableSeconds)
+      ? Math.max(0, Math.min(30, retreatAction.postBoundaryUntargetableSeconds))
+      : DEFAULT_END_BATTLE_CONFIG.retreatAction.postBoundaryUntargetableSeconds,
+    postBoundaryUnmarchableSeconds: typeof retreatAction?.postBoundaryUnmarchableSeconds === 'number' && Number.isFinite(retreatAction.postBoundaryUnmarchableSeconds)
+      ? Math.max(0, Math.min(30, retreatAction.postBoundaryUnmarchableSeconds))
+      : DEFAULT_END_BATTLE_CONFIG.retreatAction.postBoundaryUnmarchableSeconds,
   };
-  return { retreatBoundaryZ, defeatedType, retreat };
+  const defeatRetreatConfig = {
+    untargetable: typeof defeatRetreat?.untargetable === 'boolean' ? defeatRetreat.untargetable : DEFAULT_END_BATTLE_CONFIG.defeatRetreat.untargetable,
+    unmarchable: typeof defeatRetreat?.unmarchable === 'boolean' ? defeatRetreat.unmarchable : DEFAULT_END_BATTLE_CONFIG.defeatRetreat.unmarchable,
+    armyLossPercent: typeof defeatRetreat?.armyLossPercent === 'number' && Number.isFinite(defeatRetreat.armyLossPercent)
+      ? Math.max(0, Math.min(1, defeatRetreat.armyLossPercent))
+      : DEFAULT_END_BATTLE_CONFIG.defeatRetreat.armyLossPercent,
+  };
+  return { defeatedType, defeatRetreat: defeatRetreatConfig, retreatAction: retreatActionConfig };
 }
 
 /** Applies Developer HUD end-battle tuning for the current session. */
 export function setActiveEndBattleConfig(config: EndBattleConfig): EndBattleConfig {
   const current = getGameConfigFile();
-  const retreat = config.retreat ?? current.endBattle?.retreat ?? DEFAULT_END_BATTLE_CONFIG.retreat;
+  const defeatRetreat = config.defeatRetreat ?? current.endBattle?.defeatRetreat ?? DEFAULT_END_BATTLE_CONFIG.defeatRetreat;
+  const retreatAction = config.retreatAction ?? current.endBattle?.retreatAction ?? DEFAULT_END_BATTLE_CONFIG.retreatAction;
   cachedConfig = {
     ...current,
     endBattle: {
-      retreatBoundaryZ: Number.isFinite(config.retreatBoundaryZ)
-        ? Math.max(-100, Math.min(-1, config.retreatBoundaryZ))
-        : DEFAULT_END_BATTLE_CONFIG.retreatBoundaryZ,
-      defeatedType: config.defeatedType === 'destroy' || config.defeatedType === 'retreat'
+      defeatedType: config.defeatedType === 'destroy' || config.defeatedType === 'defeatRetreat'
         ? config.defeatedType
         : (current.endBattle?.defeatedType ?? DEFAULT_END_BATTLE_CONFIG.defeatedType),
-      retreat: {
-        untargetable: typeof retreat.untargetable === 'boolean' ? retreat.untargetable : DEFAULT_END_BATTLE_CONFIG.retreat.untargetable,
-        unmarchable: typeof retreat.unmarchable === 'boolean' ? retreat.unmarchable : DEFAULT_END_BATTLE_CONFIG.retreat.unmarchable,
-        armyLossPercent: typeof retreat.armyLossPercent === 'number' ? Math.max(0, Math.min(1, retreat.armyLossPercent)) : DEFAULT_END_BATTLE_CONFIG.retreat.armyLossPercent,
-        postBoundaryUntargetableSeconds: typeof retreat.postBoundaryUntargetableSeconds === 'number' ? Math.max(0, Math.min(30, retreat.postBoundaryUntargetableSeconds)) : DEFAULT_END_BATTLE_CONFIG.retreat.postBoundaryUntargetableSeconds,
-        postBoundaryUnmarchableSeconds: typeof retreat.postBoundaryUnmarchableSeconds === 'number' ? Math.max(0, Math.min(30, retreat.postBoundaryUnmarchableSeconds)) : DEFAULT_END_BATTLE_CONFIG.retreat.postBoundaryUnmarchableSeconds,
+      defeatRetreat: {
+        untargetable: typeof defeatRetreat.untargetable === 'boolean' ? defeatRetreat.untargetable : DEFAULT_END_BATTLE_CONFIG.defeatRetreat.untargetable,
+        unmarchable: typeof defeatRetreat.unmarchable === 'boolean' ? defeatRetreat.unmarchable : DEFAULT_END_BATTLE_CONFIG.defeatRetreat.unmarchable,
+        armyLossPercent: typeof defeatRetreat.armyLossPercent === 'number' ? Math.max(0, Math.min(1, defeatRetreat.armyLossPercent)) : DEFAULT_END_BATTLE_CONFIG.defeatRetreat.armyLossPercent,
+      },
+      retreatAction: {
+        retreatBoundaryZ: typeof retreatAction.retreatBoundaryZ === 'number' ? Math.max(-100, Math.min(-1, retreatAction.retreatBoundaryZ)) : DEFAULT_END_BATTLE_CONFIG.retreatAction.retreatBoundaryZ,
+        postBoundaryUntargetableSeconds: typeof retreatAction.postBoundaryUntargetableSeconds === 'number' ? Math.max(0, Math.min(30, retreatAction.postBoundaryUntargetableSeconds)) : DEFAULT_END_BATTLE_CONFIG.retreatAction.postBoundaryUntargetableSeconds,
+        postBoundaryUnmarchableSeconds: typeof retreatAction.postBoundaryUnmarchableSeconds === 'number' ? Math.max(0, Math.min(30, retreatAction.postBoundaryUnmarchableSeconds)) : DEFAULT_END_BATTLE_CONFIG.retreatAction.postBoundaryUnmarchableSeconds,
       },
     },
   };

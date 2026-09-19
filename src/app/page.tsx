@@ -1512,7 +1512,7 @@ export default function Home() {
       ...(session.battle.retreatingArmyIds ?? []),
       ...(session.armies ?? [session.army]).map(army => army.id),
     ]));
-    const retreatingBattle: Battle = { ...session.battle, retreating: true, retreatingArmyIds, retreatBoundaryZ: getEndBattleConfig().retreatBoundaryZ };
+    const retreatingBattle: Battle = { ...session.battle, retreating: true, retreatingArmyIds, retreatBoundaryZ: getEndBattleConfig().retreatAction.retreatBoundaryZ };
     updateSingleBattle(session, retreatingBattle, true);
     setBattlePaused(false);
     setMessage(`${(session.armies ?? [session.army]).map(army => army.name).join(' + ')} retreating to the withdrawal boundary.`);

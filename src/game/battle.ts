@@ -63,7 +63,7 @@ export function formationCenter(battle: Battle, side: Fighter['side']) {
 }
 
 export function battleRetreatBoundary(battle: Pick<Battle, 'retreatBoundaryZ'>): number {
-  return Number.isFinite(battle.retreatBoundaryZ) ? battle.retreatBoundaryZ! : DEFAULT_END_BATTLE_CONFIG.retreatBoundaryZ;
+  return Number.isFinite(battle.retreatBoundaryZ) ? battle.retreatBoundaryZ! : DEFAULT_END_BATTLE_CONFIG.retreatAction.retreatBoundaryZ;
 }
 
 function retreatingArmies(battle: Battle): ReadonlySet<string> {
@@ -263,7 +263,7 @@ export function createBattle(army: WorldUnit, enemyCountOrTarget: number | World
     }
   }
 
-  return { version: 1, layoutVersion: 2, tick: 0, fighters: members, leaderId: members.find(f => f.heroId === army.leaderId)?.id ?? null, skillCooldown: 0, retreating: false, retreatingArmyIds: [], retreatBoundaryZ: getEndBattleConfig().retreatBoundaryZ, result: null, events: [] };
+  return { version: 1, layoutVersion: 2, tick: 0, fighters: members, leaderId: members.find(f => f.heroId === army.leaderId)?.id ?? null, skillCooldown: 0, retreating: false, retreatingArmyIds: [], retreatBoundaryZ: getEndBattleConfig().retreatAction.retreatBoundaryZ, result: null, events: [] };
 }
 export function reinforceBattle(battle: Battle, army: WorldUnit, roster: readonly ApiAxie[] = []): Battle {
   const retreatingArmyIds = battle.retreatingArmyIds?.length ? battle.retreatingArmyIds : (battle.retreating

@@ -177,10 +177,10 @@ export function commitBattleOutcome(storage: StorageAccess, session: BattleSessi
   const armiesBreakdown: NonNullable<BattleReport['armies']> = [];
   const events = session.replay?.frames.flatMap(frame => frame.events) ?? [];
   const defeatedType = getEndBattleConfig().defeatedType;
-  const defeatRetreat = session.battle.result === 'defeat' && defeatedType === 'retreat';
+  const defeatRetreat = session.battle.result === 'defeat' && defeatedType === 'defeatRetreat';
   const defeatDestroy = session.battle.result === 'defeat' && defeatedType === 'destroy';
   const retreatLossPercent = defeatRetreat
-    ? getEndBattleConfig().retreat.armyLossPercent
+    ? getEndBattleConfig().defeatRetreat.armyLossPercent
     : 0;
 
   for (const army of participantArmies) {
@@ -214,7 +214,7 @@ export function commitBattleOutcome(storage: StorageAccess, session: BattleSessi
       const surviving = { ...army, position: normalizeCoordinate(defaultPosition)!, members, activity: undefined, order: null, status: 'holding' as const };
       const returning = commandUnit(surviving, 'return', now);
       const manualRetreat = session.battle.result === 'retreated';
-      const retreatConfig = getEndBattleConfig().retreat;
+      const retreatConfig = getEndBattleConfig().retreatAction;
       const nextUnit = defeatRetreat
         ? { ...returning, status: 'retreating' as const }
         : manualRetreat

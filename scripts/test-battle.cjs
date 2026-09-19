@@ -162,7 +162,7 @@ assert.equal(rangedStep.fighters[1].z, rangedDefender.z, 'defender archers stop 
 const lethal = { ...melee, hp: 1, stats: { ...melee.stats, attack: 1000, range: 2 } };
 step = b.stepBattle({ ...duel, fighters: [lethal, { ...lethal, side: 'enemy', id: 'enemy:test', z: 1, facing: Math.PI }] });
 assert.equal(step.result, 'draw', 'simultaneous lethal attacks have no ordering advantage');
-gameConfig.setActiveEndBattleConfig({ ...gameConfig.DEFAULT_END_BATTLE_CONFIG, retreatBoundaryZ: -12 });
+gameConfig.setActiveEndBattleConfig({ ...gameConfig.DEFAULT_END_BATTLE_CONFIG, retreatAction: { ...gameConfig.DEFAULT_END_BATTLE_CONFIG.retreatAction, retreatBoundaryZ: -12 } });
 const configuredRetreat = b.createBattle(army);
 assert.equal(configuredRetreat.retreatBoundaryZ, -12, 'new battles snapshot the configured retreat boundary');
 const retreated = run({ ...configuredRetreat, retreating: true, retreatingArmyIds: [army.id] });
@@ -229,7 +229,7 @@ assert.ok(u.restoreUnits(JSON.stringify(outcome.units), outcome.troops, 10000).l
 if (completed.battle.result === 'defeat') {
   const savedMembers = new Map(outcome.units[0].members.map(member => [member.id, member]));
   for (const fighter of completed.battle.fighters.filter(f => f.side === 'player' && f.troopKind)) {
-    const expectedCount = Math.floor(b.livingCount(fighter) * (1 - gameConfig.getEndBattleConfig().retreat.armyLossPercent));
+    const expectedCount = Math.floor(b.livingCount(fighter) * (1 - gameConfig.getEndBattleConfig().defeatRetreat.armyLossPercent));
     assert.equal(savedMembers.get(fighter.memberId)?.count ?? 0, expectedCount, 'defeat retreat applies configured army loss percent');
   }
   const restoredRetreat = u.restoreUnits(JSON.stringify(outcome.units), outcome.troops, 10000)[0];

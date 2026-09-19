@@ -51,16 +51,16 @@ repair:
 endBattle:
   # Tactical Z coordinate a withdrawing player formation must reach.
   # The world view projects this same boundary onto the battle's map heading.
-  retreatBoundaryZ: -4
-  defeatedType: "retreat" # Options: "retreat" | "destroy"
-  retreat: # Automatic retreat after a formation is defeated; separate from the player retreat action.
+  retreatAction:
+    retreatBoundaryZ: -4
+    postBoundaryUntargetableSeconds: 2
+    postBoundaryUnmarchableSeconds: 3
+  defeatedType: "defeatRetreat" # Options: "defeatRetreat" | "destroy"
+  defeatRetreat: # Automatic retreat after a formation is defeated; separate from the player retreat action.
     # The formation remains protected and cannot receive orders until it reaches base.
     untargetable: true # Until it arrives at base.
     unmarchable: true # Until it arrives at base.
     armyLossPercent: 0.6 # 60% of surviving troops are lost during defeat retreat.
-    # Manual retreat protection after the formation crosses retreatBoundaryZ.
-    postBoundaryUntargetableSeconds: 2
-    postBoundaryUnmarchableSeconds: 3
     axieRespawn: true # Axies will return back to active duty
     axieRespawnCooldown: 60 # Axies will respawn after 30 seconds
     # hospitablePercent: 0.3 # 50% of the army is sent to the hospital during retreat

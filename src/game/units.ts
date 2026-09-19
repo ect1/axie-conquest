@@ -53,7 +53,7 @@ export function settleUnit(unit: WorldUnit, now: number): WorldUnit {
 }
 export function isUnitTargetable(unit: WorldUnit, now = Date.now()): boolean {
   if (unit.targetableAt !== undefined && now < unit.targetableAt) return false;
-  return !(unit.status === 'retreating' && getEndBattleConfig().retreat.untargetable);
+  return !(unit.status === 'retreating' && getEndBattleConfig().defeatRetreat.untargetable);
 }
 export function isUnitControllable(unit: WorldUnit, now = Date.now()): boolean {
   return unit.controllableAt === undefined || now >= unit.controllableAt;
@@ -64,7 +64,7 @@ export function commandUnit(unit: WorldUnit, kind: 'move' | 'hold' | 'return', n
   if (!isUnitControllable(unit, now)) {
     throw new Error('This formation is still recovering from retreat and cannot receive orders yet.');
   }
-  if (unit.status === 'retreating' && getEndBattleConfig().retreat.unmarchable) {
+  if (unit.status === 'retreating' && getEndBattleConfig().defeatRetreat.unmarchable) {
     throw new Error('This formation is retreating and cannot receive orders until it reaches base.');
   }
   if (!(UNIT_DEFINITIONS[unit.kind].capabilities as readonly string[]).includes(kind)) throw new Error('Unit cannot perform this command.');
@@ -90,7 +90,7 @@ export function commandWorldAction(unit: WorldUnit, action: WorldAction, object:
   if (!isUnitControllable(unit, now)) {
     throw new Error('This formation is still recovering from retreat and cannot receive orders yet.');
   }
-  if (unit.status === 'retreating' && getEndBattleConfig().retreat.unmarchable) {
+  if (unit.status === 'retreating' && getEndBattleConfig().defeatRetreat.unmarchable) {
     throw new Error('This formation is retreating and cannot receive orders until it reaches base.');
   }
   const option = getWorldObjectActions(object).find(item => item.action === action);
