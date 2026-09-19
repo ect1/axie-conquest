@@ -9,6 +9,7 @@ import {
   getTroopLoadWeights,
   calculateArmyLoadCapacity as calcLoadCapacity,
   calculateGatherRate as calcGatherRate,
+  calculateArmyGatherRate as calcArmyGatherRate,
 } from './stats-config';
 
 export const TROOP_LOAD_WEIGHTS = getTroopLoadWeights();
@@ -53,11 +54,26 @@ export function calculateArmyLoadCapacity(members: readonly UnitMember[], leader
 }
 
 /**
- * Calculates the effective gathering rate (resources per second) for a node.
+ * Calculates the effective gathering rate (resources per second) for a node,
+ * taking into account both the node base rate and per-unit troop contributions.
  * Configured in src/game/config/stats-config.yml
  */
 export function calculateGatherRate(nodeKind: WorldKind | string, baseRate: number, leaderClass?: string): number {
   const rate = calcGatherRate(nodeKind, baseRate, leaderClass);
+  return Math.max(0.5, Number(rate.toFixed(2)));
+}
+
+/**
+ * Calculates the total effective gather rate for an army at a node.
+ * Combines node base rate + per-unit troop contributions + Axie class multipliers.
+ */
+export function calculateArmyGatherRate(
+  nodeKind: WorldKind | string,
+  nodeBaseRate: number,
+  members: readonly UnitMember[],
+  leaderClass?: string
+): number {
+  const rate = calcArmyGatherRate(nodeKind, nodeBaseRate, members, leaderClass);
   return Math.max(0.5, Number(rate.toFixed(2)));
 }
 
@@ -120,7 +136,7 @@ export function stepUnitGathering(
   }
 
   const baseRate = nodeCfg?.gatherRatePerSecond ?? 5;
-  const effectiveRate = calculateGatherRate(node.kind, baseRate, leaderClass);
+  const effectiveRate = calculateArmyGatherRate(node.kind, baseRate, unit.members, leaderClass);
   const desiredGather = effectiveRate * (deltaMs / 1000);
   const actualGather = Math.min(desiredGather, loadSpace, currentNodeCapacity);
 

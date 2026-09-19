@@ -58,6 +58,17 @@ assert.equal(bugStoneRate, 5, 'Bug commander receives +25% gather rate on Stone'
 const bugOilRate = g.calculateGatherRate('oil', 2, 'bug');
 assert.equal(bugOilRate, 2.5, 'Bug commander receives +25% gather rate on Oil');
 
+// 2b. Army Gather Rate — per-unit troop contributions (node base + unit contributions + class bonus)
+// testMembers = 1 hero (2.0/s) + 10 infantry (10*0.08=0.8/s) + 5 archers (5*0.05=0.25/s)
+// total unit contribution = 2.0 + 0.8 + 0.25 = 3.05
+// combined = 5 (farm base) + 3.05 = 8.05 -> rounded to 2dp = 8.05
+const armyFarmRate = g.calculateArmyGatherRate('farm', 5, testMembers);
+assert.ok(armyFarmRate >= 8, 'Army gather rate is boosted by unit contributions on Farm');
+
+// With Plant commander: 8.05 * 1.25 = 10.06 -> rounded to 10.06
+const armyPlantFarmRate = g.calculateArmyGatherRate('farm', 5, testMembers, 'plant');
+assert.ok(armyPlantFarmRate >= 10, 'Plant army gather rate applies class multiplier on top of troop contributions');
+
 // 3. Resource Mapping
 assert.equal(g.nodeKindToCityResource('farm'), 'food');
 assert.equal(g.nodeKindToCityResource('lumber'), 'wood');
@@ -66,6 +77,8 @@ assert.equal(g.nodeKindToCityResource('oil'), 'warSupplies');
 assert.equal(g.nodeKindToCityResource('boss'), null);
 
 // 4. Gathering Step Execution
+// Use a solo hero unit (no troops) for predictable rate checks.
+// Farm base: 5/s + hero unitGatherRate: 2.0/s = 7.0/s effective
 const node = {
   id: 'test-farm',
   kind: 'farm',
@@ -77,6 +90,10 @@ const node = {
   maxCapacity: 100,
 };
 
+const soloHeroMembers = [
+  { id: 'hero-1', heroId: 'ember', count: 1, offset: { x: 0, z: 0 } },
+];
+
 const gatheringUnit = {
   id: 'gatherer-1',
   kind: 'army',
@@ -86,30 +103,30 @@ const gatheringUnit = {
   home: { x: 0, z: 0 },
   position: { x: 50, z: 50 },
   speed: 10,
-  members: testMembers,
+  members: soloHeroMembers,
   order: null,
   status: 'gathering',
   cargo: { resource: 'food', amount: 0, maxLoad: 50 },
 };
 
-// Step 2 seconds of gathering at base 5/s = 10 resources
+// Step 2 seconds at 7.0/s (5 node + 2.0 hero) = 14.0 gathered
 const step1 = g.stepUnitGathering(gatheringUnit, node, 2000, 1000);
-assert.equal(step1.gatheredAmount, 10);
-assert.equal(step1.updatedUnit.cargo.amount, 10);
-assert.equal(step1.updatedNode.currentCapacity, 90);
+assert.equal(step1.gatheredAmount, 14);
+assert.equal(step1.updatedUnit.cargo.amount, 14);
+assert.equal(step1.updatedNode.currentCapacity, 86);
 assert.equal(step1.isFull, false);
 assert.equal(step1.isDepleted, false);
 
-// Gather until capacity full (needs 40 more, 8 seconds at 5/s)
-const step2 = g.stepUnitGathering(step1.updatedUnit, step1.updatedNode, 8000, 9000);
-assert.equal(step2.gatheredAmount, 40);
+// Gather until capacity full (maxLoad = 50, have 14, need 36 more at 7/s ~= 5.14s)
+const step2 = g.stepUnitGathering(step1.updatedUnit, step1.updatedNode, 6000, 9000);
+assert.equal(step2.gatheredAmount, 36);
 assert.equal(step2.updatedUnit.cargo.amount, 50);
 assert.equal(step2.updatedNode.currentCapacity, 50);
 assert.equal(step2.isFull, true, 'Unit flags isFull when load capacity is reached');
 
-// Test node depletion
+// Test node depletion — use large cargo budget so node is the bottleneck
 const lowNode = { ...node, currentCapacity: 15 };
-const smallLoadUnit = { ...gatheringUnit, cargo: { resource: 'food', amount: 0, maxLoad: 500 } };
+const smallLoadUnit = { ...gatheringUnit, members: soloHeroMembers, cargo: { resource: 'food', amount: 0, maxLoad: 500 } };
 const stepDeplete = g.stepUnitGathering(smallLoadUnit, lowNode, 4000, 15000);
 assert.equal(stepDeplete.gatheredAmount, 15);
 assert.equal(stepDeplete.updatedUnit.cargo.amount, 15);
@@ -166,7 +183,7 @@ assert.deepEqual(restoredUnits[0].cargo, step1.updatedUnit.cargo);
 
 const restoredWorld = w.restoreWorld(JSON.stringify([step1.updatedNode]));
 assert.equal(restoredWorld.length, 1);
-assert.equal(restoredWorld[0].currentCapacity, 90);
+assert.equal(restoredWorld[0].currentCapacity, 86); // 100 - 14 (2s * 7/s)
 assert.equal(restoredWorld[0].maxCapacity, 100);
 
 // 10. Multi-formation simultaneous gathering (2+ formations gathering concurrently)
@@ -320,12 +337,14 @@ const team1 = { ...unitFormation1, position: { x: 10, z: 10 }, activity: { actio
 const team2 = { ...unitFormation2, position: { x: 20, z: 20 }, activity: { action: 'gather', targetId: 'node-B' }, cargo: { resource: 'wood', amount: 0, maxLoad: 50 } };
 
 // Both teams step gathering simultaneously
+// Team1: 1 hero (2/s) + 10 infantry (0.8/s) + 5 farm base = 7.8/s — capped by nodeA remaining capacity (10)
+// Team2: 1 hero (2/s) + 10 archers (0.5/s) + 5 lumber base = 7.5/s => 2s = 15
 const stepTeam1 = g.stepUnitGathering(team1, worldTest.find(o => o.id === 'node-A'), 2000, 1000);
 const stepTeam2 = g.stepUnitGathering(team2, worldTest.find(o => o.id === 'node-B'), 2000, 1000);
 
-assert.equal(stepTeam1.gatheredAmount, 10, 'Team 1 gathered all 10 remaining food');
+assert.equal(stepTeam1.gatheredAmount, 10, 'Team 1 gathered all 10 remaining food (node cap)');
 assert.equal(stepTeam1.isDepleted, true, 'Node A depleted by Team 1');
-assert.equal(stepTeam2.gatheredAmount, 10, 'Team 2 gathered 10 wood simultaneously');
+assert.equal(stepTeam2.gatheredAmount, 15, 'Team 2 gathered 15 wood simultaneously (7.5/s × 2s)');
 assert.equal(stepTeam2.isDepleted, false, 'Node B still active');
 
 // Depleted node is removed from world

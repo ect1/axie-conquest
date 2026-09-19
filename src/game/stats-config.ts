@@ -16,6 +16,14 @@ export type TroopLoadCapacities = {
   [key: string]: number | undefined;
 };
 
+export type UnitGatherRates = {
+  hero?: number;
+  infantry?: number;
+  soldier?: number;
+  archer?: number;
+  [key: string]: number | undefined;
+};
+
 export type GatheringClassBonus = {
   loadCapacityMultiplier?: number;
   gatherRateMultiplier?: number;
@@ -27,6 +35,8 @@ export type GatheringStatsConfig = {
   maxTroopLoad?: TroopLoadCapacities;
   maxArmyCapacity?: number;
   minLoadCapacity: number;
+  /** Per-unit contribution to harvest rate (res/sec per unit). Stacks additively with node base rate. */
+  unitGatherRate?: UnitGatherRates;
   classBonuses: {
     beast?: GatheringClassBonus;
     plant?: GatheringClassBonus;
@@ -73,6 +83,12 @@ export const DEFAULT_STATS_CONFIG: StatsConfigFile = {
     },
     maxArmyCapacity: 500,
     minLoadCapacity: 20,
+    unitGatherRate: {
+      hero: 2.0,
+      infantry: 0.08,
+      soldier: 0.10,
+      archer: 0.05,
+    },
     classBonuses: {
       beast: { loadCapacityMultiplier: 1.3 },
       plant: { gatherRateMultiplier: 1.25, targetResources: ['food', 'wood'] },
@@ -218,4 +234,37 @@ export function calculateGatherRate(
   }
 
   return baseRate;
+}
+
+/**
+ * Calculates the total effective gather rate (resources/sec) for an army at a node.
+ * = nodeBaseRate (from resource-spawn-config) + sum of per-unit contributions (from unitGatherRate)
+ * The combined total is then multiplied by any Axie class passive multiplier.
+ */
+export function calculateArmyGatherRate(
+  nodeKind: WorldKind | string,
+  nodeBaseRate: number,
+  members: readonly UnitMember[],
+  leaderClass?: string
+): number {
+  const cfg = getGatheringStatsConfig();
+  const rates = cfg.unitGatherRate;
+
+  // Sum per-unit contributions
+  let unitContribution = 0;
+  if (rates) {
+    for (const member of members) {
+      if (member.heroId) {
+        unitContribution += rates.hero ?? 0;
+      } else if (member.troopKind) {
+        const r = rates[member.troopKind] ?? 0;
+        unitContribution += r * member.count;
+      }
+    }
+  }
+
+  const combined = nodeBaseRate + unitContribution;
+
+  // Apply class gather rate multiplier (e.g. Plant +25% on food/wood)
+  return calculateGatherRate(nodeKind, combined, leaderClass);
 }

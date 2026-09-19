@@ -28,6 +28,16 @@ gathering:
   # Minimum floor load capacity for any deployed gathering march
   minLoadCapacity: 20
 
+  # Per-unit gather rate contribution (resources/sec per unit in army).
+  # Stacks additively with the node base rate (from resource-spawn-config.yml).
+  # Hero: flat bonus per Axie hero in the formation.
+  # Troops: multiplied by troop count in the formation.
+  unitGatherRate:
+    hero: 2.0       # +2.0 res/sec per Axie hero
+    infantry: 0.08  # +0.08 res/sec per infantry soldier
+    soldier: 0.10   # +0.10 res/sec per soldier
+    archer: 0.05    # +0.05 res/sec per archer (light load, bows slow harvest)
+
   # Axie Hero Class Gathering Passives
   classBonuses:
     beast:
