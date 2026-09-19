@@ -5,6 +5,7 @@ import { Coordinate, createRoute, marchTravelTimeMs, normalizeCoordinate, restor
 import { WorldAction, WorldObject, getWorldObjectActions } from './world';
 import { CityResourceKind } from './cities';
 import { activeBattleSettings } from './battle-settings';
+import { getEndBattleConfig } from './game-config';
 
 export const UNITS_SAVE_KEY = 'axie-conquest-units-v1';
 export const UNIT_DEFINITIONS = {
@@ -21,7 +22,10 @@ export type WorldUnit = {
   id: string; kind: UnitKind; ownerId: string; cityId: string; name: string;
   home: Coordinate; position: Coordinate; speed: number; members: UnitMember[];
   formationIndex?: number; order: UnitOrder | null; activity?: UnitActivity;
-  status: 'holding' | 'moving' | 'returning' | 'home' | 'gathering';
+  status: 'holding' | 'moving' | 'returning' | 'retreating' | 'home' | 'gathering';
+  /** Temporary protection applied when a manual retreat crosses the battle boundary. */
+  targetableAt?: number;
+  controllableAt?: number;
   cargo?: UnitCargo;
   repeatGather?: boolean;
   gatherTargetId?: string;
@@ -43,11 +47,26 @@ export function settleUnit(unit: WorldUnit, now: number): WorldUnit {
     activity: isReturn ? undefined : unit.order.activity,
     status: nextStatus,
     order: null,
+    targetableAt: undefined,
+    controllableAt: undefined,
   };
+}
+export function isUnitTargetable(unit: WorldUnit, now = Date.now()): boolean {
+  if (unit.targetableAt !== undefined && now < unit.targetableAt) return false;
+  return !(unit.status === 'retreating' && getEndBattleConfig().retreat.untargetable);
+}
+export function isUnitControllable(unit: WorldUnit, now = Date.now()): boolean {
+  return unit.controllableAt === undefined || now >= unit.controllableAt;
 }
 export function commandUnit(unit: WorldUnit, kind: 'move' | 'hold' | 'return', now: number, destination?: Coordinate, cancelRepeat = false): WorldUnit {
   unit = settleUnit(unit, now);
   if (unit.status === 'home') throw new Error('Deploy a formation before moving it.');
+  if (!isUnitControllable(unit, now)) {
+    throw new Error('This formation is still recovering from retreat and cannot receive orders yet.');
+  }
+  if (unit.status === 'retreating' && getEndBattleConfig().retreat.unmarchable) {
+    throw new Error('This formation is retreating and cannot receive orders until it reaches base.');
+  }
   if (!(UNIT_DEFINITIONS[unit.kind].capabilities as readonly string[]).includes(kind)) throw new Error('Unit cannot perform this command.');
   const position = unitPosition(unit, now);
   const { activity: _activity, ...idleUnit } = unit;
@@ -68,6 +87,12 @@ export function commandUnit(unit: WorldUnit, kind: 'move' | 'hold' | 'return', n
 }
 export function commandWorldAction(unit: WorldUnit, action: WorldAction, object: WorldObject, now: number): WorldUnit {
   unit = settleUnit(unit, now);
+  if (!isUnitControllable(unit, now)) {
+    throw new Error('This formation is still recovering from retreat and cannot receive orders yet.');
+  }
+  if (unit.status === 'retreating' && getEndBattleConfig().retreat.unmarchable) {
+    throw new Error('This formation is retreating and cannot receive orders until it reaches base.');
+  }
   const option = getWorldObjectActions(object).find(item => item.action === action);
   if (!option?.enabled) throw new Error(option?.reason || `${action} is unavailable for this target.`);
   if (action === 'scout' ? unit.kind !== 'scout' : unit.kind !== 'army') throw new Error(`${action === 'scout' ? 'A scout' : 'An army formation'} is required.`);
@@ -160,7 +185,7 @@ export function restoreUnits(raw: string | null, troops: Troops, now: number): W
     if (!Array.isArray(parsed)) return [];
     const result: WorldUnit[] = [];
     for (const u of parsed as WorldUnit[]) {
-      if (!u || !['army', 'scout'].includes(u.kind) || !['holding', 'moving', 'returning', 'home', 'gathering'].includes(u.status) || ![u.id, u.ownerId, u.cityId, u.name].every(v => typeof v === 'string' && v.length > 0) || result.some(v => v.id === u.id)) continue;
+      if (!u || !['army', 'scout'].includes(u.kind) || !['holding', 'moving', 'returning', 'retreating', 'home', 'gathering'].includes(u.status) || ![u.id, u.ownerId, u.cityId, u.name].every(v => typeof v === 'string' && v.length > 0) || result.some(v => v.id === u.id)) continue;
       if (!validPoint(u.home) || !validPoint(u.position) || !Number.isFinite(u.speed) || u.speed <= 0 || !Array.isArray(u.members) || !u.members.length) continue;
       if (u.formationIndex !== undefined && (!Number.isSafeInteger(u.formationIndex) || u.formationIndex < 0)) continue;
       if (u.members.some(m => !m || typeof m.id !== 'string' || !validPoint(m.offset) || !Number.isSafeInteger(m.count) || m.count <= 0 || (m.heroId ? m.count !== 1 || !!m.troopKind || !(typeof m.heroId === 'string' && (/^[1-9][0-9]{0,19}$/.test(m.heroId) || STARTER_HEROES.some(h => h.id === m.heroId))) : !['infantry', 'archer', 'scout'].includes(m.troopKind!)))) continue;
@@ -172,10 +197,11 @@ export function restoreUnits(raw: string | null, troops: Troops, now: number): W
       }
       if (u.order !== null) {
         const o = u.order;
-        if (!o || !['move', 'return'].includes(o.kind) || !validPoint(o.origin) || !validPoint(o.destination) || !Number.isFinite(o.startedAt) || !Number.isFinite(o.arrivesAt) || o.arrivesAt < o.startedAt || u.status !== (o.kind === 'return' ? 'returning' : 'moving')) continue;
+        const expectedMovingStatus = o.kind === 'return' ? (u.status === 'retreating' ? 'retreating' : 'returning') : 'moving';
+        if (!o || !['move', 'return'].includes(o.kind) || !validPoint(o.origin) || !validPoint(o.destination) || !Number.isFinite(o.startedAt) || !Number.isFinite(o.arrivesAt) || o.arrivesAt < o.startedAt || u.status !== expectedMovingStatus) continue;
         if (o.activity && (!['scout', 'attack', 'gather', 'occupy'].includes(o.activity.action) || typeof o.activity.targetId !== 'string' || typeof o.activity.targetLabel !== 'string')) continue;
         if (o.kind === 'return' && (o.destination.x !== u.home.x || o.destination.z !== u.home.z)) continue;
-      } else if (u.status !== 'home' && u.status !== 'holding' && u.status !== 'gathering') continue;
+      } else if (u.status !== 'home' && u.status !== 'holding' && u.status !== 'retreating' && u.status !== 'gathering') continue;
       if (u.activity && (!['scout', 'attack', 'gather', 'occupy'].includes(u.activity.action) || typeof u.activity.targetId !== 'string' || typeof u.activity.targetLabel !== 'string')) continue;
       const settled = settleUnit(u, now);
       if (settled.status === 'home') continue;

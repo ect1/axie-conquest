@@ -162,12 +162,13 @@ assert.equal(rangedStep.fighters[1].z, rangedDefender.z, 'defender archers stop 
 const lethal = { ...melee, hp: 1, stats: { ...melee.stats, attack: 1000, range: 2 } };
 step = b.stepBattle({ ...duel, fighters: [lethal, { ...lethal, side: 'enemy', id: 'enemy:test', z: 1, facing: Math.PI }] });
 assert.equal(step.result, 'draw', 'simultaneous lethal attacks have no ordering advantage');
-gameConfig.setActiveEndBattleConfig({ aggressiveSuspendSeconds: 1.5, retreatBoundaryZ: -12 });
+gameConfig.setActiveEndBattleConfig({ ...gameConfig.DEFAULT_END_BATTLE_CONFIG, retreatBoundaryZ: -12 });
 const configuredRetreat = b.createBattle(army);
 assert.equal(configuredRetreat.retreatBoundaryZ, -12, 'new battles snapshot the configured retreat boundary');
 const retreated = run({ ...configuredRetreat, retreating: true, retreatingArmyIds: [army.id] });
 assert.equal(retreated.result, 'retreated');
 assert.ok(retreated.fighters.filter(fighter => fighter.side === 'player' && fighter.hp > 0).every(fighter => fighter.z === -12), 'survivors stop on the configured retreat boundary');
+assert.ok(retreated.fighters.filter(fighter => fighter.side === 'player' && fighter.hp > 0).every(fighter => fighter.facing === Math.PI), 'retreating formations face south away from the enemy');
 const reinforcement = { ...b.createSandboxArmy('balanced'), id: 'reinforcement', name: 'Relief formation' };
 const reinforcedRetreat = b.reinforceBattle({ ...configuredRetreat, retreating: true, retreatingArmyIds: [army.id] }, reinforcement);
 const reinforcedStep = b.stepBattle(reinforcedRetreat);
@@ -221,10 +222,30 @@ function storageFor(failAt = Infinity) {
 const storage = storageFor();
 const outcome = save.commitBattleOutcome(storage, completed, [attacking], troops, [formation], [target], 10000);
 assert.equal(outcome.troops.infantry, troops.infantry - outcome.report.losses.infantry);
-assert.equal(outcome.units[0].status, 'returning');
+assert.equal(outcome.units[0].status, completed.battle.result === 'defeat' ? 'retreating' : 'returning');
 assert.equal(outcome.units[0].activity, undefined);
 assert.equal(storage.getItem(save.BATTLE_TRANSACTION_KEY), null);
 assert.ok(u.restoreUnits(JSON.stringify(outcome.units), outcome.troops, 10000).length, 'survivors restore and remain reserved');
+if (completed.battle.result === 'defeat') {
+  const savedMembers = new Map(outcome.units[0].members.map(member => [member.id, member]));
+  for (const fighter of completed.battle.fighters.filter(f => f.side === 'player' && f.troopKind)) {
+    const expectedCount = Math.floor(b.livingCount(fighter) * (1 - gameConfig.getEndBattleConfig().retreat.armyLossPercent));
+    assert.equal(savedMembers.get(fighter.memberId)?.count ?? 0, expectedCount, 'defeat retreat applies configured army loss percent');
+  }
+  const restoredRetreat = u.restoreUnits(JSON.stringify(outcome.units), outcome.troops, 10000)[0];
+  assert.equal(restoredRetreat.status, 'retreating', 'defeat retreat survives reload while returning');
+  assert.equal(u.isUnitTargetable(restoredRetreat), false, 'defeat retreat is untargetable during return');
+  assert.equal(u.settleUnit(restoredRetreat, restoredRetreat.order.arrivesAt).status, 'home', 'defeat retreat becomes home at arrival');
+  gameConfig.setActiveEndBattleConfig({ ...gameConfig.DEFAULT_END_BATTLE_CONFIG, defeatedType: 'destroy' });
+  const destroyedOutcome = save.commitBattleOutcome(storageFor(), completed, [attacking], troops, [formation], [target], 10000);
+  assert.equal(destroyedOutcome.units.some(unit => unit.id === attacking.id), false, 'destroy defeat removes the deployed formation');
+  assert.equal(destroyedOutcome.report.survivors, 0, 'destroy defeat reports no survivors');
+  gameConfig.setActiveEndBattleConfig(gameConfig.DEFAULT_END_BATTLE_CONFIG);
+  const manualRetreatOutcome = save.commitBattleOutcome(storageFor(), { ...session, battle: retreated }, [attacking], troops, [formation], [target], 10000);
+  assert.equal(manualRetreatOutcome.units[0].status, 'returning', 'manual retreat returns the formation after boundary exit');
+  assert.equal(manualRetreatOutcome.units[0].targetableAt, 11000, 'manual retreat has one second of target protection');
+  assert.equal(manualRetreatOutcome.units[0].controllableAt, 13000, 'manual retreat has a short control lock');
+}
 assert.equal(save.restoreBattleSave(storage.getItem(save.BATTLE_SAVE_KEY), outcome.troops).active, null);
 assert.ok(save.restoreBattleSave(storage.getItem(save.BATTLE_SAVE_KEY), outcome.troops).report);
 for (let failAt = 2; failAt <= 6; failAt++) {

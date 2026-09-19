@@ -146,6 +146,11 @@ const armyHome = { ...playerArmyOnPath, status: 'home' };
 const encountersHome = portal.detectEnemyMarchEncounters(now, [enemyMarch], [armyHome]);
 assert.equal(encountersHome.length, 0, 'Should ignore army with status "home"');
 
+// Defeated formations must be able to retreat through an aggressive path without re-entering combat.
+const retreatingArmy = { ...playerArmyOnPath, status: 'retreating' };
+const encountersRetreating = portal.detectEnemyMarchEncounters(now, [enemyMarch], [retreatingArmy]);
+assert.equal(encountersRetreating.length, 0, 'Should ignore untargetable retreating formations');
+
 // Should ignore scouts
 const scoutUnit = units.createScout('everleaf-haven', 'Everleaf Haven', 5, 'scout-1');
 const scoutOnPath = { ...scoutUnit, position: { x: 52.5, z: 0 }, status: 'holding' };

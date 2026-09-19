@@ -8,6 +8,7 @@ import { WorldUnit, UNITS_SAVE_KEY, restoreUnits, commandUnit } from './units';
 import { WORLD_SAVE_KEY, WorldObject, restoreWorld } from './world';
 import { getMilitarySaveKey } from './military-service';
 import { Formation, OFFENSE_FORMATIONS_SAVE_KEY, serializeOffenseFormations } from './offense-formations';
+import { getEndBattleConfig } from './game-config';
 
 export const BATTLE_SAVE_KEY = 'axie-conquest-battle-v1';
 export const BATTLE_TRANSACTION_KEY = 'axie-conquest-battle-transaction-v1';
@@ -175,6 +176,12 @@ export function commitBattleOutcome(storage: StorageAccess, session: BattleSessi
   let nextFormations = [...formations];
   const armiesBreakdown: NonNullable<BattleReport['armies']> = [];
   const events = session.replay?.frames.flatMap(frame => frame.events) ?? [];
+  const defeatedType = getEndBattleConfig().defeatedType;
+  const defeatRetreat = session.battle.result === 'defeat' && defeatedType === 'retreat';
+  const defeatDestroy = session.battle.result === 'defeat' && defeatedType === 'destroy';
+  const retreatLossPercent = defeatRetreat
+    ? getEndBattleConfig().retreat.armyLossPercent
+    : 0;
 
   for (const army of participantArmies) {
     const armyFighters = players.filter(f => f.armyId === army.id || (!f.armyId && army.id === session.army.id));
@@ -186,15 +193,39 @@ export function commitBattleOutcome(storage: StorageAccess, session: BattleSessi
         losses[f.troopKind] += lost;
       }
     }
+    const finalCounts = new Map<string, number>();
     const members = army.members.flatMap(member => {
       const fighter = armyFighters.find(f => f.memberId === member.id);
       if (!fighter) return [];
-      const count = livingCount(fighter);
+      const combatCount = livingCount(fighter);
+      const retreatLoss = fighter.troopKind ? Math.floor(combatCount * retreatLossPercent) : 0;
+      const count = fighter.troopKind && defeatDestroy ? 0 : Math.max(0, combatCount - retreatLoss);
+      if (fighter.troopKind) {
+        const extraLoss = combatCount - count;
+        armyLosses[fighter.troopKind === 'infantry' ? 'infantry' : 'archer'] += extraLoss;
+        losses[fighter.troopKind === 'infantry' ? 'infantry' : 'archer'] += extraLoss;
+      }
+      finalCounts.set(member.id, count);
       return member.heroId ? [{ ...member, healthRatio: fighter.hp / fighter.maxHp }] : count ? [{ ...member, count, healthRatio: fighter.hp / (count * fighter.stats.health) }] : [];
     });
-    const surviving = { ...army, position: normalizeCoordinate(defaultPosition)!, members, activity: undefined, order: null, status: 'holding' as const };
-    const returning = commandUnit(surviving, 'return', now);
-    nextUnits = nextUnits.map(unit => unit.id === army.id ? returning : unit);
+    if (defeatDestroy) {
+      nextUnits = nextUnits.filter(unit => unit.id !== army.id);
+    } else {
+      const surviving = { ...army, position: normalizeCoordinate(defaultPosition)!, members, activity: undefined, order: null, status: 'holding' as const };
+      const returning = commandUnit(surviving, 'return', now);
+      const manualRetreat = session.battle.result === 'retreated';
+      const retreatConfig = getEndBattleConfig().retreat;
+      const nextUnit = defeatRetreat
+        ? { ...returning, status: 'retreating' as const }
+        : manualRetreat
+          ? {
+              ...returning,
+              targetableAt: now + retreatConfig.postBoundaryUntargetableSeconds * 1000,
+              controllableAt: now + retreatConfig.postBoundaryUnmarchableSeconds * 1000,
+            }
+          : returning;
+      nextUnits = nextUnits.map(unit => unit.id === army.id ? nextUnit : unit);
+    }
 
     if (army.formationIndex !== undefined) {
       nextFormations = nextFormations.map((formation, index) => {
@@ -206,7 +237,7 @@ export function commitBattleOutcome(storage: StorageAccess, session: BattleSessi
           if (!fighter) return slot;
           if (fighter.troopKind) {
             // Troop squad: update count and persist HP ratio
-            const count = livingCount(fighter);
+            const count = finalCounts.get(fighter.memberId) ?? livingCount(fighter);
             const healthRatio = count > 0 ? fighter.hp / (count * fighter.stats.health) : 0;
             return { ...slot, military: count ? slot.military : null, militaryCount: count, ...(count > 0 ? { healthRatio } : { healthRatio: undefined }) };
           }
@@ -226,7 +257,7 @@ export function commitBattleOutcome(storage: StorageAccess, session: BattleSessi
       name: army.name,
       leaderId: army.leaderId,
       losses: armyLosses,
-      survivors: armyFighters.reduce((sum, f) => sum + livingCount(f), 0),
+      survivors: defeatDestroy ? 0 : armyFighters.reduce((sum, f) => sum + livingCount(f), 0),
       damage: events.filter(e => armyFighters.some(f => f.id === e.from) && e.kind !== 'heal').reduce((sum, e) => sum + e.amount, 0),
       healing: events.filter(e => armyFighters.some(f => f.id === e.from) && e.kind === 'heal').reduce((sum, e) => sum + e.amount, 0),
     });
@@ -240,7 +271,7 @@ export function commitBattleOutcome(storage: StorageAccess, session: BattleSessi
     target: session.target.kind,
     seconds: session.battle.tick / 10,
     losses,
-    survivors: players.reduce((sum, fighter) => sum + livingCount(fighter), 0),
+    survivors: defeatDestroy ? 0 : players.reduce((sum, fighter) => sum + livingCount(fighter), 0),
     id: `${session.army.id}:${session.startedAt ?? now}`,
     completedAt: now,
     location: { x: session.target.x, z: session.target.z },

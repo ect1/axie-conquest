@@ -104,7 +104,7 @@ buildings:
           stone: 20
         production:
           resource: "food"
-          rateUnits: 1 # Number of units produced per cycle
+          rateUnits: 3 # Number of units produced per cycle
           produceEverySeconds: 10 # Interval in seconds (produces 1 food every 10 seconds)
           storageCapacity: 200 # Maximum uncollected output stored
         requirements:
@@ -119,7 +119,7 @@ buildings:
           stone: 50
         production:
           resource: "food"
-          rateUnits: 2 # Produces 2 food every 10 seconds
+          rateUnits: 5 # Produces 2 food every 10 seconds
           produceEverySeconds: 10
           storageCapacity: 400
         requirements:
@@ -134,7 +134,7 @@ buildings:
           stone: 120
         production:
           resource: "food"
-          rateUnits: 4 # Produces 4 food every 10 seconds
+          rateUnits: 7 # Produces 4 food every 10 seconds
           produceEverySeconds: 10
           storageCapacity: 800
         requirements:
@@ -165,7 +165,7 @@ buildings:
           stone: 50
         production:
           resource: "wood"
-          rateUnits: 1 # Produces 1 wood every 10 seconds
+          rateUnits: 3 # Produces 1 wood every 10 seconds
           produceEverySeconds: 10
           storageCapacity: 200
         requirements:
@@ -180,7 +180,7 @@ buildings:
           stone: 100
         production:
           resource: "wood"
-          rateUnits: 2 # Produces 2 wood every 10 seconds
+          rateUnits: 5 # Produces 2 wood every 10 seconds
           produceEverySeconds: 10
           storageCapacity: 400
         requirements:
@@ -195,7 +195,7 @@ buildings:
           stone: 220
         production:
           resource: "wood"
-          rateUnits: 4 # Produces 4 wood every 10 seconds
+          rateUnits: 7 # Produces 4 wood every 10 seconds
           produceEverySeconds: 10
           storageCapacity: 800
         requirements:
@@ -415,7 +415,7 @@ buildings:
           stone: 50
         production:
           resource: "stone"
-          rateUnits: 1 # Produces 1 stone every 15 seconds
+          rateUnits: 3 # Produces 1 stone every 15 seconds
           produceEverySeconds: 15
           storageCapacity: 200
         requirements:
@@ -430,7 +430,7 @@ buildings:
           stone: 100
         production:
           resource: "stone"
-          rateUnits: 2
+          rateUnits: 5
           produceEverySeconds: 15
           storageCapacity: 400
         requirements:
@@ -445,7 +445,7 @@ buildings:
           stone: 220
         production:
           resource: "stone"
-          rateUnits: 4
+          rateUnits: 7
           produceEverySeconds: 15
           storageCapacity: 800
         requirements:

@@ -152,7 +152,6 @@ export default function DeveloperPanel({
     {tab === 'battle' && <fieldset className="battle-debug">
       <legend>End battle</legend>
       <label className="developer-distance">Retreat boundary Z<input type="number" min={-100} max={-1} step={1} value={localEndBattleConfig.retreatBoundaryZ} onChange={event => setLocalEndBattleConfig({ ...localEndBattleConfig, retreatBoundaryZ: Math.max(-100, Math.min(-1, Number(event.target.value) || -1)) })} /></label>
-      <label className="developer-distance">Aggressive intercept delay (seconds)<input type="number" min={0} max={30} step={0.1} value={localEndBattleConfig.aggressiveSuspendSeconds} onChange={event => setLocalEndBattleConfig({ ...localEndBattleConfig, aggressiveSuspendSeconds: Math.max(0, Math.min(30, Number(event.target.value) || 0)) })} /></label>
       <div className="placement-actions"><button className="primary" onClick={() => applyEndBattleSettings()}>Apply end-battle settings</button><button className="secondary" onClick={() => { setLocalEndBattleConfig(DEFAULT_END_BATTLE_CONFIG); applyEndBattleSettings(DEFAULT_END_BATTLE_CONFIG); }}>JSON defaults</button></div>
       <p><small>The retreat boundary is the player-side tactical Z coordinate. The same line is projected into World View. Defaults come from <code>src/game/config/game-config.yml</code>.</small></p>
     </fieldset>}

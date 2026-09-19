@@ -1034,13 +1034,9 @@ export default function Home() {
           );
         } catch { /* storage error */ }
 
-        // Auto-start battle after the suspend window (gives retreating formations time to escape)
-        const suspendMs = Math.round(getEndBattleConfig().aggressiveSuspendSeconds * 1000);
-        if (suspendMs > 0) {
-          window.setTimeout(() => setBattlePaused(false), suspendMs);
-        } else {
-          setBattlePaused(false);
-        }
+        // Aggressive encounters start immediately; retreat protection is handled
+        // by the formation's retreat state and post-boundary protection window.
+        setBattlePaused(false);
       }
     }
 

@@ -2,7 +2,7 @@ import portalData from './portal-config.json';
 import { Coordinate, createRoute, marchTravelTimeMs } from './routes';
 import { BossConfig, BossLeaderConfig, BossMilitarySquad, clearDynamicBosses, registerDynamicBoss } from './bosses';
 import { activeBattleSettings } from './battle-settings';
-import { WorldUnit, getUnitFormationBodyRadius, unitPosition } from './units';
+import { WorldUnit, getUnitFormationBodyRadius, isUnitTargetable, unitPosition } from './units';
 
 export const PORTAL_CONFIG_SAVE_KEY = 'axie-conquest-portal-config-v1';
 export const PORTAL_STATE_SAVE_KEY = 'axie-conquest-portal-state-v1';
@@ -617,6 +617,7 @@ export function detectEnemyMarchEncounters(
       if (
         unit.kind !== 'army' ||
         unit.status === 'home' ||
+        !isUnitTargetable(unit, now) ||
         activeBattleUnitIds.has(unit.id) ||
         engagedUnitIds.has(unit.id)
       ) {

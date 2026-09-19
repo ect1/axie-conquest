@@ -18,6 +18,8 @@ import { DEFAULT_END_BATTLE_CONFIG, getEndBattleConfig } from './game-config';
 
 export const BATTLE_STEP = 0.1;
 export const MAX_BATTLE_TICKS = 3000;
+/** Player formations retreat toward decreasing Z, away from the enemy front. */
+export const RETREAT_FACING = Math.PI;
 export type CombatStats = { health: number; attack: number; defense: number; speed: number; range: number; interval: number; radius: number; projectileSpeed?: number };
 
 const combatDefaults = getCombatStatsConfig();
@@ -378,7 +380,7 @@ export function stepBattle(previous: Battle): Battle {
     if (fighter.hp <= 0) { fighter.state = 'defeated'; fighter.targetId = null; continue; }
     fighter.cooldown = Math.max(0, fighter.cooldown - BATTLE_STEP);
     if (isFighterRetreating(battle, fighter)) {
-      fighter.state = 'retreating'; fighter.targetId = null; fighter.facing = Math.PI;
+      fighter.state = 'retreating'; fighter.targetId = null; fighter.facing = RETREAT_FACING;
       fighter.z = Math.max(battleRetreatBoundary(battle), fighter.z - fighter.stats.speed * BATTLE_STEP); continue;
     }
     const origin = previous.fighters.find(f => f.id === fighter.id)!;
