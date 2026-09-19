@@ -39,6 +39,7 @@ type Props = {
   onResetPortals?: () => void;
   endBattleConfig?: EndBattleConfig;
   onEndBattleConfigChange?: (config: EndBattleConfig) => void;
+  onHideDeveloper?: () => void;
 };
 
 export default function DeveloperPanel({
@@ -50,6 +51,7 @@ export default function DeveloperPanel({
   unitStats = DEFAULT_UNIT_GLOBAL_STATS,
   onUnitStats = stats => setActiveUnitGlobalStats(stats),
   onClose,
+  onHideDeveloper,
   onRegenerate,
   onRemove,
   mobSpawnEnabled,
@@ -143,7 +145,34 @@ export default function DeveloperPanel({
   }
 
   return <section className="developer panel" aria-label="Developer">
-    <div className="catalog-heading"><div><span className="eyebrow">WORLD GENERATION</span><h2>Developer</h2></div><button className="close" aria-label="Close developer tab" onClick={onClose}>&times;</button></div>
+    <div className="catalog-heading">
+      <div>
+        <span className="eyebrow">WORLD GENERATION</span>
+        <h2>Developer</h2>
+      </div>
+      <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+        {onHideDeveloper && (
+          <button
+            type="button"
+            className="secondary"
+            style={{
+              fontSize: '11px',
+              padding: '4px 10px',
+              minHeight: '32px',
+              color: '#b91c1c',
+              borderColor: '#fca5a5',
+              background: '#fff1f2',
+              fontWeight: 600,
+            }}
+            onClick={onHideDeveloper}
+            title="Hide all developer actions and tools across the game"
+          >
+            🔒 Hide Dev Actions
+          </button>
+        )}
+        <button className="close" aria-label="Close developer tab" onClick={onClose}>&times;</button>
+      </div>
+    </div>
     <p>Populate the full {WORLD_WIDTH} × {WORLD_DEPTH} map. Gather resources at wild nodes or attack defended sites to fight chimeras.</p>
     <div className="city-tabs" role="tablist" aria-label="Developer categories"><button role="tab" aria-selected={tab === 'world'} className={tab === 'world' ? 'active' : ''} onClick={() => setTab('world')}>World</button><button role="tab" aria-selected={tab === 'units'} className={tab === 'units' ? 'active' : ''} onClick={() => setTab('units')}>Unit global stats</button><button role="tab" aria-selected={tab === 'battle'} className={tab === 'battle' ? 'active' : ''} onClick={() => setTab('battle')}>Battle</button><button role="tab" aria-selected={tab === 'portal'} className={tab === 'portal' ? 'active' : ''} onClick={() => setTab('portal')}>Portal</button></div>
     {tab === 'units' && <div className="unit-global-stats"><p>Global movement values used to simulate marching.</p><label className="developer-distance">March speed (tiles / second)<input type="number" min={0.1} max={100} step={0.1} value={localStats.marchSpeed} onChange={event => setLocalStats({ marchSpeed: Math.max(0.1, Math.min(100, Number(event.target.value) || 0.1)) })} /></label><div className="placement-actions"><button className="primary" onClick={saveUnitStats}>Save unit stats</button></div><p><small>Higher speed reduces travel time. Edit <code>src/game/unit-stats.json</code> to change the code default.</small></p></div>}
@@ -598,6 +627,22 @@ export default function DeveloperPanel({
       </div>
     )}
     {sandboxOpen && <BattleSandbox layout={{ hexGap: battleSettings.boardHexGap, teamGap: battleSettings.boardTeamGap, columns: battleSettings.boardColumns, rowsPerTeam: battleSettings.boardRows }} range={battleSettings} activeAxies={activeAxies} onSaveLayout={saveBoardLayout} onSaveRange={saveRange} onClose={() => setSandboxOpen(false)} />}
+    {onHideDeveloper && (
+      <div style={{ margin: '14px 0 8px', padding: '10px 12px', background: '#fff1f2', border: '1px solid #fecaca', borderRadius: '10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px' }}>
+        <div>
+          <strong style={{ color: '#991b1b', fontSize: '12px', display: 'block' }}>Developer Tools Active</strong>
+          <small style={{ color: '#7f1d1d' }}>Hide all developer buttons, instant defeat, and mob summon controls.</small>
+        </div>
+        <button
+          type="button"
+          className="secondary"
+          style={{ fontSize: '11px', padding: '5px 12px', minHeight: '34px', color: '#b91c1c', borderColor: '#fca5a5', background: '#fff', flexShrink: 0, fontWeight: 600 }}
+          onClick={onHideDeveloper}
+        >
+          🔒 Hide Actions
+        </button>
+      </div>
+    )}
     <ResetGameControl onBeforeReset={onResetPortals} />
   </section>;
 }

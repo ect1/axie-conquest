@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { type MouseEvent, useCallback, useEffect, useRef, useState } from 'react';
+import packageJson from '../../package.json';
 import { BUILDABLE_KINDS, BUILDING_DEFINITIONS, BuildableKind, BuildingKind, Building, Cell, canPlace, canMoveBuilding, getBuildingDimensions, MAIN_HALL, EMPTY_TROOPS, Troops, TroopKind } from '@/game/base';
 import HeroesPanel from './heroes-panel';
 import MilitaryPanel from './military-panel';
@@ -116,6 +117,10 @@ import {
 type InventoryTab = 'resources' | 'equipment' | 'other';
 type AxieApiResponse = { data?: { axies?: { results?: unknown } }; error?: string };
 
+const GAME_VERSION = packageJson.version;
+const DEVELOPER_TAP_COUNT = 5;
+const DEVELOPER_TAP_WINDOW_MS = 2000;
+
 export default function Home() {
   const unitStats = activeUnitGlobalStats;
   const [battleSessions, setBattleSessions] = useState<BattleSession[]>([]);
@@ -146,6 +151,8 @@ export default function Home() {
   const [nicknameDraft, setNicknameDraft] = useState('');
   const [training, setTraining] = useState(false);
   const [developer, setDeveloper] = useState(false);
+  const [developerUnlocked, setDeveloperUnlocked] = useState(false);
+  const developerTapRef = useRef({ count: 0, lastTapAt: 0 });
   const [generation, setGeneration] = useState<GenerationSettings>(() => getActiveGenerationSettings() as GenerationSettings);
   const [worldObjects, setWorldObjects] = useState<WorldObject[]>([]);
   const [generationStatus, setGenerationStatus] = useState('No objects generated. Changes last for this session.');
@@ -193,6 +200,23 @@ export default function Home() {
     }
   });
   const [selectedPortalId, setSelectedPortalId] = useState<string | null>(null);
+
+  function handleVersionTap(event: MouseEvent<HTMLButtonElement>) {
+    event.stopPropagation();
+    const now = Date.now();
+    const count = now - developerTapRef.current.lastTapAt <= DEVELOPER_TAP_WINDOW_MS
+      ? developerTapRef.current.count + 1
+      : 1;
+    developerTapRef.current = { count, lastTapAt: now };
+    if (count >= DEVELOPER_TAP_COUNT) {
+      setDeveloperUnlocked(true);
+      setDeveloper(true);
+      setMessage('Developer tools unlocked! Developer controls are now active.');
+      developerTapRef.current = { count: 0, lastTapAt: 0 };
+    } else if (count >= 2) {
+      setMessage(`Developer unlock: ${count}/${DEVELOPER_TAP_COUNT} taps...`);
+    }
+  }
 
   const destructionConfig = getCityDestructionConfig(selectedCity?.kind ?? 'capital');
   const [cityHealth, setCityHealthState] = useState<number>(() => {
@@ -1993,11 +2017,21 @@ export default function Home() {
                 </strong>
               </div>
             )}
+            <div className="resource-version">
+              <button
+                type="button"
+                className="game-version"
+                onClick={handleVersionTap}
+                aria-label={`Game version ${GAME_VERSION}. Tap five times to unlock developer tools.`}
+                title="Game version"
+              >
+                v{GAME_VERSION}
+              </button>
+            </div>
           </div>
         );
       })()}
     </header>
-    <aside className="chapter"><span className="eyebrow">CHAPTER 01 / ROOTS OF A KINGDOM</span><h1>A home worth<br />growing.</h1><p>Raise your first farm.<br />Bring life back to Lunacia.</p><div className="objective"><span className={farms ? 'complete' : ''}>{farms ? '✓' : '○'}</span><div>Plant the foundations<small>{farms ? 'First farm established' : 'Build your first farm'}</small></div></div></aside>
     <div className="map-controls"><button aria-label="Zoom in" onClick={() => view.current?.zoom(0.85)}>+</button><button aria-label="Zoom out" onClick={() => view.current?.zoom(1.18)}>−</button><button aria-label="Center on main hall" onClick={() => view.current?.home()}>⌂</button></div>
     <aside className="march-list" aria-label="World units">
       <strong>World units</strong>
@@ -2179,7 +2213,7 @@ export default function Home() {
               March here
             </button>
           </div>
-          <button
+          {developerUnlocked && <button
             className="secondary"
             style={{
               background: 'rgba(127, 29, 29, 0.4)',
@@ -2193,7 +2227,7 @@ export default function Home() {
             title="Developer instant clear"
           >
             💥 Instant Defeat (Dev)
-          </button>
+          </button>}
         </div>
       </section>
     )}
@@ -2598,7 +2632,7 @@ export default function Home() {
         )}
       </div>
     )}
-    {selectedObject && <div className="world-object-actions">{targetActions.map(option => <div key={option.action}><button className={option.action === 'attack' || option.action === 'gather' ? 'primary' : 'secondary'} disabled={!option.enabled} onClick={() => chooseWorldAction(option.action)}>{option.action === 'gather' ? '🌾 Gather' : option.action[0].toUpperCase() + option.action.slice(1)}</button>{option.reason && <small>{option.reason}</small>}</div>)}</div>}{mobSpawnEnabled && !selectedObject && <div className="world-object-actions" style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '10px', background: 'rgba(25, 33, 30, 0.9)', borderRadius: '6px', border: '1px solid #f59e0b', margin: '6px 0' }}><label htmlFor="world-boss-select" style={{ fontSize: '0.8rem', fontWeight: 'bold', color: '#f59e0b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>⚔ Summon Boss Mob</label><select id="world-boss-select" value={selectedBossId} onChange={e => setSelectedBossId(e.target.value)} style={{ padding: '6px 10px', borderRadius: '4px', background: '#151d1a', color: '#fff', border: '1px solid #4a5c54', fontSize: '0.85rem', cursor: 'pointer' }}>{getAllBosses().map(boss => <option key={boss.id} value={boss.id}>{boss.name} {boss.title ? `(${boss.title})` : ''}</option>)}<option value="random">Random Boss</option></select><button className="primary" onClick={() => spawnMobGroup(selectedBossId)}>Summon {selectedBossId === 'random' ? 'Random Boss' : (getBossConfig(selectedBossId)?.name ?? 'Boss')}</button><small style={{ color: '#aaa', fontSize: '0.75rem' }}>Developer HUD enabled: spawn at {target.x.toFixed(1)}, {target.z.toFixed(1)}.</small></div>}<button className={selectedObject ? 'secondary' : 'primary'} onClick={() => chooseMarch('march')}>March here</button><small>{selectedObject ? 'March here moves a formation into position without starting combat.' : 'Choose a formation and send it to this location.'}</small></section>}
+    {selectedObject && <div className="world-object-actions">{targetActions.map(option => <div key={option.action}><button className={option.action === 'attack' || option.action === 'gather' ? 'primary' : 'secondary'} disabled={!option.enabled} onClick={() => chooseWorldAction(option.action)}>{option.action === 'gather' ? '🌾 Gather' : option.action[0].toUpperCase() + option.action.slice(1)}</button>{option.reason && <small>{option.reason}</small>}</div>)}</div>}{developerUnlocked && mobSpawnEnabled && !selectedObject && <div className="world-object-actions" style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '10px', background: 'rgba(25, 33, 30, 0.9)', borderRadius: '6px', border: '1px solid #f59e0b', margin: '6px 0' }}><label htmlFor="world-boss-select" style={{ fontSize: '0.8rem', fontWeight: 'bold', color: '#f59e0b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>⚔ Summon Boss Mob</label><select id="world-boss-select" value={selectedBossId} onChange={e => setSelectedBossId(e.target.value)} style={{ padding: '6px 10px', borderRadius: '4px', background: '#151d1a', color: '#fff', border: '1px solid #4a5c54', fontSize: '0.85rem', cursor: 'pointer' }}>{getAllBosses().map(boss => <option key={boss.id} value={boss.id}>{boss.name} {boss.title ? `(${boss.title})` : ''}</option>)}<option value="random">Random Boss</option></select><button className="primary" onClick={() => spawnMobGroup(selectedBossId)}>Summon {selectedBossId === 'random' ? 'Random Boss' : (getBossConfig(selectedBossId)?.name ?? 'Boss')}</button><small style={{ color: '#aaa', fontSize: '0.75rem' }}>Developer HUD enabled: spawn at {target.x.toFixed(1)}, {target.z.toFixed(1)}.</small></div>}<button className={selectedObject ? 'secondary' : 'primary'} onClick={() => chooseMarch('march')}>March here</button><small>{selectedObject ? 'March here moves a formation into position without starting combat.' : 'Choose a formation and send it to this location.'}</small></section>}
     {!selectedUnit && target && routeAction === 'formation' && selectedAction && (
       <section className="selection world-action panel" aria-label="World actions">
         <button
@@ -2765,7 +2799,7 @@ export default function Home() {
       onTrain={(kind, targetBuildingId) => handleTrain(kind, targetBuildingId)}
       onClose={() => setTraining(false)}
     />}
-    {developer && <DeveloperPanel
+    {developerUnlocked && developer && <DeveloperPanel
       settings={generation}
       onSettings={setGeneration}
       objects={worldObjects}
@@ -2795,6 +2829,12 @@ export default function Home() {
       onResetPortals={() => resetPortalsManual()}
       endBattleConfig={endBattleConfig}
       onEndBattleConfigChange={setEndBattleConfig}
+      onHideDeveloper={() => {
+        setDeveloperUnlocked(false);
+        setDeveloper(false);
+        setBattleDebug(false);
+        setMessage('Developer tools and actions hidden. Tap version 5 times in-game to unlock.');
+      }}
       onClose={() => setDeveloper(false)}
       onRegenerate={regenerate}
       onRemove={() => { view.current?.removeWorld(); try { localStorage.setItem(WORLD_SAVE_KEY, '[]'); localStorage.setItem(DEPLETED_NODES_SAVE_KEY, '[]'); } catch { /* Keep the removal in memory when storage is unavailable. */ } depletedNodesRef.current.clear(); allResourcesDepletedAtRef.current = null; setWorldObjects([]); setGenerationStatus('All generated objects removed.'); }}
@@ -2805,8 +2845,8 @@ export default function Home() {
         config={portalConfig}
         now={now}
         onClose={() => setSelectedPortalId(null)}
-        onTriggerWave={id => triggerPortalWave(id)}
-        onTogglePause={togglePortalPause}
+        onTriggerWave={developerUnlocked ? id => triggerPortalWave(id) : undefined}
+        onTogglePause={developerUnlocked ? togglePortalPause : undefined}
         onAttackPortal={handleAttackPortal}
       />
     )}
@@ -2961,15 +3001,15 @@ export default function Home() {
           setSpectatorSession(null);
         }}
         onRetreat={() => retreatBattle(spectatorSession || battleSessions[0])}
-        debug={battleDebug}
-        hideInspector={!battleDebug}
+        debug={developerUnlocked && battleDebug}
+        hideInspector={!developerUnlocked || !battleDebug}
         onFinish={() => {
           setSpectating(false);
           setSpectatorSession(null);
         }}
       />
     )}
-    <footer className="bottom-bar"><div className="status" role="status"><span className="status-dot" />{message}<small>DRAG TO PAN · PINCH / SCROLL TO ZOOM</small></div><div className="hud-actions"><button className="build-toggle" onClick={toggleDeveloper} aria-expanded={developer}><span>Developer</span></button><button className="build-toggle" onClick={toggleHeroes} aria-expanded={heroes}><span>Axies</span></button>{!worldView && <button className="build-toggle" onClick={toggleTraining} aria-expanded={training}><span>Train</span></button>}<button className="build-toggle" onClick={toggleMail} aria-haspopup="dialog" aria-expanded={mail}><span>Mail</span></button><button className="build-toggle" onClick={toggleMilitary} aria-expanded={military}><span>Military</span></button><button className="build-toggle" onClick={() => { setDeveloper(false); setHeroes(false); setMilitary(false); setTraining(false); if (placing) cancel(); else { setSelected(null); setCatalog(selected ? true : !catalog); } }} aria-expanded={(catalog && !selected) || placing}>▦ <span>{placing ? (moving ? 'Cancel move' : 'Cancel build') : 'Build / Update'}</span></button></div></footer>
+    <footer className="bottom-bar"><div className="status" role="status"><span className="status-dot" />{message}<small>DRAG TO PAN · PINCH / SCROLL TO ZOOM</small></div><div className="hud-actions">{developerUnlocked && <button className="build-toggle" onClick={toggleDeveloper} aria-expanded={developer}><span>Developer</span></button>}<button className="build-toggle" onClick={toggleHeroes} aria-expanded={heroes}><span>Axies</span></button>{!worldView && <button className="build-toggle" onClick={toggleTraining} aria-expanded={training}><span>Train</span></button>}<button className="build-toggle" onClick={toggleMail} aria-haspopup="dialog" aria-expanded={mail}><span>Mail</span></button><button className="build-toggle" onClick={toggleMilitary} aria-expanded={military}><span>Military</span></button><button className="build-toggle" onClick={() => { setDeveloper(false); setHeroes(false); setMilitary(false); setTraining(false); if (placing) cancel(); else { setSelected(null); setCatalog(selected ? true : !catalog); } }} aria-expanded={(catalog && !selected) || placing}>▦ <span>{placing ? (moving ? 'Cancel move' : 'Cancel build') : 'Build / Update'}</span></button></div></footer>
     {showIntro && <IntroScreen onStartGame={handleStartGame} onRestartGame={handleRestartGame} />}
   </main>;
 }

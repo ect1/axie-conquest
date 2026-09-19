@@ -1,5 +1,6 @@
 {
   "name": "axie-conquest",
+  "version": "0.1.0",
   "private": true,
   "scripts": {
     "test:axie-models": "node scripts/test-axie-models.cjs",
