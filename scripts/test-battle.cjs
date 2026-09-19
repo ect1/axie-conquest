@@ -263,7 +263,7 @@ assert.equal(won.units[0].id, attacking.id);
 assert.equal(won.units[0].status, 'returning', 'victorious formation returns to base');
 assert.ok(won.units[0].order && won.units[0].order.kind === 'return');
 assert.equal(won.units[0].activity, undefined, 'finished attack cannot restart');
-assert.equal(u.commandUnit(won.units[0], 'move', 10001, { x: 55, z: 25 }).status, 'moving', 'survivors accept the next order');
+assert.throws(() => u.commandUnit(won.units[0], 'move', 10001, { x: 55, z: 25 }), /below 25% HP/, 'injured survivors cannot receive a march order');
 assert.equal(u.restoreUnits(JSON.stringify(won.units), won.troops, 10001)[0].status, 'returning', 'victorious survivors remain commandable after reload');
 const projection = load('src/game/battle-world.ts');
 for (const point of [{ x: 24, z: 0 }, { x: 40, z: -16 }, { x: 40, z: 0 }, { x: 45, z: 5 }]) {

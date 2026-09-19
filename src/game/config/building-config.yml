@@ -104,8 +104,8 @@ buildings:
           stone: 20
         production:
           resource: "food"
-          rateUnits: 3 # Number of units produced per cycle
-          produceEverySeconds: 10 # Interval in seconds (produces 1 food every 10 seconds)
+          rateUnits: 2 # Number of units produced per cycle
+          produceEverySeconds: 1 # Interval in seconds (produces 1 food every 10 seconds)
           storageCapacity: 200 # Maximum uncollected output stored
         requirements:
           cityHallLevel: 1
@@ -119,8 +119,8 @@ buildings:
           stone: 50
         production:
           resource: "food"
-          rateUnits: 5 # Produces 2 food every 10 seconds
-          produceEverySeconds: 10
+          rateUnits: 4 # Produces 2 food every 10 seconds
+          produceEverySeconds: 1
           storageCapacity: 400
         requirements:
           cityHallLevel: 2
@@ -134,8 +134,8 @@ buildings:
           stone: 120
         production:
           resource: "food"
-          rateUnits: 7 # Produces 4 food every 10 seconds
-          produceEverySeconds: 10
+          rateUnits: 6 # Produces 4 food every 10 seconds
+          produceEverySeconds: 1
           storageCapacity: 800
         requirements:
           cityHallLevel: 3
@@ -165,8 +165,8 @@ buildings:
           stone: 50
         production:
           resource: "wood"
-          rateUnits: 3 # Produces 1 wood every 10 seconds
-          produceEverySeconds: 10
+          rateUnits: 2 # Produces 1 wood every 10 seconds
+          produceEverySeconds: 1
           storageCapacity: 200
         requirements:
           cityHallLevel: 1
@@ -180,8 +180,8 @@ buildings:
           stone: 100
         production:
           resource: "wood"
-          rateUnits: 5 # Produces 2 wood every 10 seconds
-          produceEverySeconds: 10
+          rateUnits: 4 # Produces 2 wood every 10 seconds
+          produceEverySeconds: 1
           storageCapacity: 400
         requirements:
           cityHallLevel: 2
@@ -195,8 +195,8 @@ buildings:
           stone: 220
         production:
           resource: "wood"
-          rateUnits: 7 # Produces 4 wood every 10 seconds
-          produceEverySeconds: 10
+          rateUnits: 6 # Produces 4 wood every 10 seconds
+          produceEverySeconds: 1
           storageCapacity: 800
         requirements:
           cityHallLevel: 3
@@ -229,7 +229,6 @@ buildings:
           food: 500
           wood: 500
           stone: 500
-          warSupplies: 250
         requirements:
           cityHallLevel: 1
       level2:
@@ -244,7 +243,6 @@ buildings:
           food: 1000
           wood: 1000
           stone: 1000
-          warSupplies: 500
         requirements:
           cityHallLevel: 2
       level3:
@@ -259,7 +257,6 @@ buildings:
           food: 2000
           wood: 2000
           stone: 2000
-          warSupplies: 1000
         requirements:
           cityHallLevel: 3
 
@@ -289,7 +286,6 @@ buildings:
           food: 100
           wood: 150
           stone: 100
-          warSupplies: 30
         unlocks:
           troops:
             - "infantry"
@@ -303,7 +299,6 @@ buildings:
           food: 200
           wood: 300
           stone: 200
-          warSupplies: 60
         unlocks:
           troops:
             - "infantry"
@@ -318,7 +313,6 @@ buildings:
           food: 400
           wood: 600
           stone: 400
-          warSupplies: 120
         unlocks:
           troops:
             - "infantry"
@@ -350,7 +344,6 @@ buildings:
           food: 120
           wood: 180
           stone: 80
-          warSupplies: 40
         unlocks:
           troops:
             - "archer"
@@ -364,7 +357,6 @@ buildings:
           food: 240
           wood: 360
           stone: 160
-          warSupplies: 80
         unlocks:
           troops:
             - "archer"
@@ -379,7 +371,6 @@ buildings:
           food: 480
           wood: 720
           stone: 320
-          warSupplies: 160
         unlocks:
           troops:
             - "archer"
@@ -415,8 +406,8 @@ buildings:
           stone: 50
         production:
           resource: "stone"
-          rateUnits: 3 # Produces 1 stone every 15 seconds
-          produceEverySeconds: 15
+          rateUnits: 2 # Produces 1 stone every 15 seconds
+          produceEverySeconds: 1
           storageCapacity: 200
         requirements:
           cityHallLevel: 2
@@ -430,8 +421,8 @@ buildings:
           stone: 100
         production:
           resource: "stone"
-          rateUnits: 5
-          produceEverySeconds: 15
+          rateUnits: 4
+          produceEverySeconds: 2
           storageCapacity: 400
         requirements:
           cityHallLevel: 2
@@ -445,8 +436,8 @@ buildings:
           stone: 220
         production:
           resource: "stone"
-          rateUnits: 7
-          produceEverySeconds: 15
+          rateUnits: 6
+          produceEverySeconds: 2
           storageCapacity: 800
         requirements:
           cityHallLevel: 3
@@ -474,7 +465,6 @@ buildings:
           food: 80
           wood: 100
           stone: 40
-          warSupplies: 20
         unlocks:
           troops:
             - "scout"
@@ -488,7 +478,6 @@ buildings:
           food: 160
           wood: 200
           stone: 80
-          warSupplies: 40
         unlocks:
           troops:
             - "scout"
@@ -502,7 +491,6 @@ buildings:
           food: 320
           wood: 400
           stone: 160
-          warSupplies: 80
         unlocks:
           troops:
             - "scout"
@@ -514,7 +502,7 @@ buildings:
     name: "Healing Lodge"
     category: "Community"
     description: "A gentle refuge where healer Axies tend to wounded friends and restore their strength."
-    available: false # Locked for now
+    available: true
     movable: false
     removable: true
     maxLevel: 3
@@ -526,35 +514,35 @@ buildings:
     levels:
       level1:
         health: 1100
+        healingMultiplier: 1.0
         buildTimeSeconds: 120
         removeTimerSeconds: 30
         cost:
           food: 120
           wood: 150
           stone: 80
-          warSupplies: 30
         requirements:
           cityHallLevel: 2
       level2:
         health: 1650
+        healingMultiplier: 1.5
         buildTimeSeconds: 240
         removeTimerSeconds: 40
         cost:
           food: 240
           wood: 300
           stone: 160
-          warSupplies: 60
         requirements:
           cityHallLevel: 2
       level3:
         health: 2400
+        healingMultiplier: 2.0
         buildTimeSeconds: 480
         removeTimerSeconds: 50
         cost:
           food: 480
           wood: 600
           stone: 320
-          warSupplies: 120
         requirements:
           cityHallLevel: 3
 
@@ -581,7 +569,6 @@ buildings:
           food: 150
           wood: 200
           stone: 100
-          warSupplies: 30
         requirements:
           cityHallLevel: 2
       level2:
@@ -592,7 +579,6 @@ buildings:
           food: 300
           wood: 400
           stone: 200
-          warSupplies: 60
         requirements:
           cityHallLevel: 2
       level3:
@@ -603,7 +589,6 @@ buildings:
           food: 600
           wood: 800
           stone: 400
-          warSupplies: 120
         requirements:
           cityHallLevel: 3
 
@@ -630,7 +615,6 @@ buildings:
           food: 100
           wood: 200
           stone: 120
-          warSupplies: 50
         requirements:
           cityHallLevel: 2
       level2:
@@ -641,7 +625,6 @@ buildings:
           food: 200
           wood: 400
           stone: 240
-          warSupplies: 100
         requirements:
           cityHallLevel: 2
       level3:
@@ -652,7 +635,6 @@ buildings:
           food: 400
           wood: 800
           stone: 480
-          warSupplies: 200
         requirements:
           cityHallLevel: 3
 
@@ -679,9 +661,10 @@ buildings:
           food: 40
           wood: 80
           stone: 20
-          warSupplies: 20
         capacityBonus:
-          warSupplies: 250
+          food: 100
+          wood: 100
+          stone: 100
         requirements:
           cityHallLevel: 2
       level2:
@@ -692,9 +675,10 @@ buildings:
           food: 80
           wood: 160
           stone: 40
-          warSupplies: 40
         capacityBonus:
-          warSupplies: 500
+          food: 200
+          wood: 200
+          stone: 200
         requirements:
           cityHallLevel: 2
       level3:
@@ -705,9 +689,10 @@ buildings:
           food: 160
           wood: 320
           stone: 80
-          warSupplies: 80
         capacityBonus:
-          warSupplies: 1000
+          food: 400
+          wood: 400
+          stone: 400
         requirements:
           cityHallLevel: 3
 

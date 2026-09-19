@@ -28,8 +28,6 @@ export function nodeKindToCityResource(nodeKind: WorldKind | string): CityResour
       return 'wood';
     case 'stone':
       return 'stone';
-    case 'oil':
-      return 'warSupplies';
     default:
       return null;
   }

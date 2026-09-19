@@ -5,7 +5,7 @@ import { getStartingResources, getCapitalCityIdentity } from './game-config';
 import { getCityBaseCapacity } from './city-config';
 
 /** The ownership boundary for a settlement, base, or garrison. */
-export type CityResourceKind = 'food' | 'wood' | 'stone' | 'warSupplies';
+export type CityResourceKind = 'food' | 'wood' | 'stone';
 export type CityResources = Record<CityResourceKind, { amount: number; capacity: number }>;
 export type CityState = { id: string; name: string; kind: 'capital' | 'base' | 'garrison'; resources: CityResources; troops: Troops; deployedAxieIds: string[] };
 export const CAPITAL_CITY_ID = 'everleaf-haven';
@@ -15,7 +15,6 @@ export const BASE_CITY_CAPACITY: Record<CityResourceKind, number> = {
   get food() { return getCityBaseCapacity('capital').food; },
   get wood() { return getCityBaseCapacity('capital').wood; },
   get stone() { return getCityBaseCapacity('capital').stone; },
-  get warSupplies() { return getCityBaseCapacity('capital').warSupplies; },
 };
 
 export function calculateCityCapacities(
@@ -29,7 +28,6 @@ export function calculateCityCapacities(
       if (cfg.capacityBonus.food) caps.food += cfg.capacityBonus.food;
       if (cfg.capacityBonus.wood) caps.wood += cfg.capacityBonus.wood;
       if (cfg.capacityBonus.stone) caps.stone += cfg.capacityBonus.stone;
-      if (cfg.capacityBonus.warSupplies) caps.warSupplies += cfg.capacityBonus.warSupplies;
     }
   }
   return caps;
@@ -47,7 +45,6 @@ export function createCapitalCity(): CityState {
       food: { amount: startingRes.food, capacity: baseCaps.food },
       wood: { amount: startingRes.wood, capacity: baseCaps.wood },
       stone: { amount: startingRes.stone, capacity: baseCaps.stone },
-      warSupplies: { amount: startingRes.warSupplies, capacity: baseCaps.warSupplies },
     },
     troops: { ...EMPTY_TROOPS },
     deployedAxieIds: getDefaultDeployedAxieIds(),
@@ -64,7 +61,6 @@ export function createSubCity(id: string, name: string, kind: 'base' | 'garrison
       food: { amount: 0, capacity: baseCaps.food },
       wood: { amount: 0, capacity: baseCaps.wood },
       stone: { amount: 0, capacity: baseCaps.stone },
-      warSupplies: { amount: 0, capacity: baseCaps.warSupplies },
     },
     troops: { ...EMPTY_TROOPS },
     deployedAxieIds: [],
@@ -102,7 +98,6 @@ export function restoreCities(value: string | null): CityState[] {
           food: stock(r?.food, fallback.resources.food),
           wood: stock(r?.wood, fallback.resources.wood),
           stone: stock(r?.stone, fallback.resources.stone),
-          warSupplies: stock(r?.warSupplies, fallback.resources.warSupplies),
         },
         troops: restoreTroops(JSON.stringify(city.troops ?? EMPTY_TROOPS)),
         deployedAxieIds: restoreCityAxieIds(city.deployedAxieIds),
@@ -127,14 +122,12 @@ export function applyResourceProduction(
     food: { amount: resources.food.amount, capacity: caps.food },
     wood: { amount: resources.wood.amount, capacity: caps.wood },
     stone: { amount: resources.stone.amount, capacity: caps.stone },
-    warSupplies: { amount: resources.warSupplies.amount, capacity: caps.warSupplies },
   };
 
   if (
     caps.food !== resources.food.capacity ||
     caps.wood !== resources.wood.capacity ||
-    caps.stone !== resources.stone.capacity ||
-    caps.warSupplies !== resources.warSupplies.capacity
+    caps.stone !== resources.stone.capacity
   ) {
     changed = true;
   }
@@ -163,7 +156,6 @@ export function calculateCityProductionRates(
     food: 0,
     wood: 0,
     stone: 0,
-    warSupplies: 0,
   };
   for (const b of buildings) {
     const level = b.level ?? 1;

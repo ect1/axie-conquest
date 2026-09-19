@@ -35,7 +35,6 @@ const DEFAULT_CAPITAL_CAPACITY: CityBaseCapacity = {
   food: 500,
   wood: 500,
   stone: 500,
-  warSupplies: 250,
 };
 
 const DEFAULT_CITY_CONFIG: CityConfigFile = {
@@ -115,7 +114,6 @@ export function getCityBaseCapacity(kind: string = 'capital'): CityBaseCapacity 
     food: caps?.food ?? DEFAULT_CAPITAL_CAPACITY.food,
     wood: caps?.wood ?? DEFAULT_CAPITAL_CAPACITY.wood,
     stone: caps?.stone ?? DEFAULT_CAPITAL_CAPACITY.stone,
-    warSupplies: caps?.warSupplies ?? DEFAULT_CAPITAL_CAPACITY.warSupplies,
   };
 }
 

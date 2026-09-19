@@ -192,7 +192,6 @@ export function deductTrainingCost(resources: CityResources, cost: TrainingCost)
     food: { ...resources.food },
     wood: { ...resources.wood },
     stone: { ...resources.stone },
-    warSupplies: { ...resources.warSupplies },
   };
   for (const [key, amount] of Object.entries(cost) as [keyof CityResources, number][]) {
     if (typeof amount === 'number' && amount > 0 && next[key]) {

@@ -26,6 +26,7 @@ import {
   createDefaultRepairState,
 } from '@/game/repair-service';
 import { RepairConfig, DEFAULT_REPAIR_CONFIG } from '@/game/game-config';
+import { getCombatStatsConfig } from '@/game/stats-config';
 
 type Section = 'repair' | 'offense' | 'leader' | 'slot' | null;
 
@@ -58,11 +59,13 @@ function AxieRow({
   hero,
   assigned,
   unavailable,
+  health,
   onAssign,
 }: {
   hero: ApiAxie;
   assigned: boolean;
   unavailable?: string;
+  health: { current: number; max: number; ratio: number };
   onAssign: () => void;
 }) {
   const style = AXIE_CLASSES[hero.class.toLowerCase() as AxieClass] ?? AXIE_CLASSES.beast;
@@ -81,7 +84,7 @@ function AxieRow({
       </span>
       <span className="assignment-copy">
         <strong>{hero.name}</strong>
-        <small>{style.name} · {style.role}</small>
+        <small>{style.name} · {style.role} · {health.current} / {health.max} HP ({Math.round(health.ratio * 100)}%)</small>
       </span>
       <span className="assignment-action">{assigned ? 'Unassign' : unavailable || 'Assign'}</span>
     </button>
@@ -170,6 +173,21 @@ export default function MilitaryPanel({
   const formationHeroIds = new Set(formationSlots(activeFormation).map(slot => slot.heroId).filter(Boolean));
   const deployedHeroes = axies.filter(hero => deployedIds.includes(hero.id));
   const leaderCandidates = deployedHeroes.filter(hero => formationHeroIds.has(hero.id));
+  const axieHealth = (heroId: string) => {
+    const deployedMember = units
+      .filter(unit => unit.cityId === cityId && unit.status !== 'home')
+      .flatMap(unit => unit.members)
+      .find(member => member.heroId === heroId);
+    const formationSlot = formations
+      .flatMap(formation => formation.assignments)
+      .find(slot => slot.heroId === heroId);
+    const wounded = formations
+      .map(formation => formation.woundedAxies?.[heroId])
+      .find(Boolean);
+    const ratio = Math.max(0, Math.min(1, deployedMember?.healthRatio ?? formationSlot?.healthRatio ?? wounded?.healthRatio ?? 1));
+    const max = getCombatStatsConfig().axieHero.health;
+    return { current: Math.round(max * ratio), max, ratio };
+  };
 
   const otherOffenseHeroes = new Set(
     formations
@@ -402,6 +420,7 @@ export default function MilitaryPanel({
                         key={hero.id}
                         hero={hero}
                         assigned={assigned}
+                        health={axieHealth(hero.id)}
                         unavailable={unavailable}
                         onAssign={() => {
                           const willAssign = !assigned;
@@ -480,7 +499,7 @@ export default function MilitaryPanel({
                   <span>◈</span>
                   <div>
                     <strong>Requires resources</strong>
-                    <small>500 provisions + 250 war supplies to prepare this march</small>
+                    <small>500 provisions to prepare this march</small>
                   </div>
                   <b>Static</b>
                 </div>
@@ -595,7 +614,7 @@ export default function MilitaryPanel({
                   <span>◈</span>
                   <div>
                     <strong>Requires resources</strong>
-                    <small>500 provisions + 250 war supplies per march</small>
+                    <small>500 provisions per march</small>
                   </div>
                   <b>Static</b>
                 </div>
@@ -708,6 +727,7 @@ export default function MilitaryPanel({
                           key={hero.id}
                           hero={hero}
                           assigned={assigned}
+                          health={axieHealth(hero.id)}
                           unavailable={unavailable}
                           onAssign={() => (popup === 'leader' ? assignLeader(hero.id) : assignSlotAxie(hero.id))}
                         />

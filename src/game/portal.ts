@@ -108,6 +108,8 @@ export type EnemyMarch = {
   formation: PortalWaveFormation;
   status?: 'marching' | 'arrived' | 'fighting' | 'defeated';
   fightingPosition?: Coordinate;
+  /** Remaining HP ratios keyed by the generated boss fighter member id. */
+  defenderHealth?: Record<string, number>;
 };
 
 export type DestroyedSubportalRecord = {
@@ -474,7 +476,12 @@ export function restorePortalState(raw: string | null, config: PortalMobSummonin
     });
 
     const activeEnemyMarches: EnemyMarch[] = Array.isArray(parsed.activeEnemyMarches)
-      ? parsed.activeEnemyMarches.filter((m: any) => m && m.id && typeof m.startedAt === 'number')
+      ? parsed.activeEnemyMarches.filter((m: any) => m && m.id && typeof m.startedAt === 'number').map((m: any) => {
+        const defenderHealth = m.defenderHealth && typeof m.defenderHealth === 'object'
+          ? Object.fromEntries(Object.entries(m.defenderHealth).filter(([id, value]) => id && typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1)) as Record<string, number>
+          : undefined;
+        return { ...m, ...(defenderHealth && Object.keys(defenderHealth).length ? { defenderHealth } : {}) };
+      })
       : [];
 
     activeEnemyMarches.forEach(m => {

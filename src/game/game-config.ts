@@ -91,7 +91,7 @@ const DEFAULT_GAME_CONFIG: GameConfigFile = {
     capitalCity: {
       id: 'everleaf-haven',
       defaultName: 'City #1',
-      resources: { food: 240, wood: 180, stone: 120, warSupplies: 80 },
+      resources: { food: 240, wood: 180, stone: 120 },
     },
   },
 };
@@ -152,7 +152,6 @@ export function getStartingResources(): GameStartingResources {
     food: res?.food ?? 240,
     wood: res?.wood ?? 180,
     stone: res?.stone ?? 120,
-    warSupplies: res?.warSupplies ?? 80,
   };
 }
 

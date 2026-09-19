@@ -6,6 +6,7 @@ import { WorldAction, WorldObject, getWorldObjectActions } from './world';
 import { CityResourceKind } from './cities';
 import { activeBattleSettings } from './battle-settings';
 import { getEndBattleConfig } from './game-config';
+import { getBaseHealingRecoveryConfig } from './stats-config';
 
 export const UNITS_SAVE_KEY = 'axie-conquest-units-v1';
 export const UNIT_DEFINITIONS = {
@@ -58,6 +59,16 @@ export function isUnitTargetable(unit: WorldUnit, now = Date.now()): boolean {
 export function isUnitControllable(unit: WorldUnit, now = Date.now()): boolean {
   return unit.controllableAt === undefined || now >= unit.controllableAt;
 }
+/** Returns the march restriction for an army with an injured assigned Axie. */
+export function unitHealthError(unit: WorldUnit): string | null {
+  const configured = getBaseHealingRecoveryConfig().minimumAxieHealthForMarch;
+  const threshold = Number.isFinite(configured) ? Math.max(0, Math.min(1, configured!)) : 0.25;
+  if (unit.kind !== 'army' || threshold <= 0) return null;
+  if (unit.members.some(member => member.heroId && (member.healthRatio ?? 1) < threshold)) {
+    return `This formation cannot march, attack, or gather while an Axie is below ${Math.round(threshold * 100)}% HP.`;
+  }
+  return null;
+}
 export function commandUnit(unit: WorldUnit, kind: 'move' | 'hold' | 'return', now: number, destination?: Coordinate, cancelRepeat = false): WorldUnit {
   unit = settleUnit(unit, now);
   if (unit.status === 'home') throw new Error('Deploy a formation before moving it.');
@@ -66,6 +77,10 @@ export function commandUnit(unit: WorldUnit, kind: 'move' | 'hold' | 'return', n
   }
   if (unit.status === 'retreating' && getEndBattleConfig().defeatRetreat.unmarchable) {
     throw new Error('This formation is retreating and cannot receive orders until it reaches base.');
+  }
+  if (kind === 'move') {
+    const healthError = unitHealthError(unit);
+    if (healthError) throw new Error(healthError);
   }
   if (!(UNIT_DEFINITIONS[unit.kind].capabilities as readonly string[]).includes(kind)) throw new Error('Unit cannot perform this command.');
   const position = unitPosition(unit, now);
@@ -92,6 +107,10 @@ export function commandWorldAction(unit: WorldUnit, action: WorldAction, object:
   }
   if (unit.status === 'retreating' && getEndBattleConfig().defeatRetreat.unmarchable) {
     throw new Error('This formation is retreating and cannot receive orders until it reaches base.');
+  }
+  if (action === 'attack' || action === 'gather') {
+    const healthError = unitHealthError(unit);
+    if (healthError) throw new Error(healthError);
   }
   const option = getWorldObjectActions(object).find(item => item.action === action);
   if (!option?.enabled) throw new Error(option?.reason || `${action} is unavailable for this target.`);
@@ -147,7 +166,11 @@ export function getUnitFormationBodyRadius(unit: WorldUnit): number {
   }
   return maxOffsetDist + memberRadius;
 }
-export function deploymentError(candidate: WorldUnit, units: readonly WorldUnit[], troops: Troops, now: number): string | null {
+export function deploymentError(candidate: WorldUnit, units: readonly WorldUnit[], troops: Troops, now: number, enforceHealth = true): string | null {
+  if (enforceHealth) {
+    const healthError = unitHealthError(candidate);
+    if (healthError) return healthError;
+  }
   const active = units.map(u => settleUnit(u, now)).filter(u => u.status !== 'home');
   if (active.some(u => u.cityId === candidate.cityId && candidate.formationIndex !== undefined && u.formationIndex === candidate.formationIndex)) return 'This formation is already deployed.';
   const heroes = candidate.members.flatMap(m => m.heroId ? [m.heroId] : []);
@@ -193,7 +216,7 @@ export function restoreUnits(raw: string | null, troops: Troops, now: number): W
       if (u.members.some(m => m.healthRatio !== undefined && (!Number.isFinite(m.healthRatio) || m.healthRatio < 0 || m.healthRatio > 1))) continue;
       if (u.leaderId != null && !u.members.some(m => m.heroId === u.leaderId)) continue;
       if (u.cargo !== undefined) {
-        if (typeof u.cargo !== 'object' || u.cargo === null || !['food', 'wood', 'stone', 'warSupplies'].includes(u.cargo.resource) || !Number.isFinite(u.cargo.amount) || u.cargo.amount < 0 || !Number.isFinite(u.cargo.maxLoad) || u.cargo.maxLoad <= 0) continue;
+        if (typeof u.cargo !== 'object' || u.cargo === null || !['food', 'wood', 'stone'].includes(u.cargo.resource) || !Number.isFinite(u.cargo.amount) || u.cargo.amount < 0 || !Number.isFinite(u.cargo.maxLoad) || u.cargo.maxLoad <= 0) continue;
       }
       if (u.order !== null) {
         const o = u.order;
@@ -205,7 +228,8 @@ export function restoreUnits(raw: string | null, troops: Troops, now: number): W
       if (u.activity && (!['scout', 'attack', 'gather', 'occupy'].includes(u.activity.action) || typeof u.activity.targetId !== 'string' || typeof u.activity.targetLabel !== 'string')) continue;
       const settled = settleUnit(u, now);
       if (settled.status === 'home') continue;
-      if (!deploymentError(settled, result, troops, now)) {
+      // Existing deployed units may be injured; validate their save without applying the new-order restriction.
+      if (!deploymentError(settled, result, troops, now, false)) {
         result.push({
           ...settled,
           repeatGather: typeof u.repeatGather === 'boolean' ? u.repeatGather : undefined,

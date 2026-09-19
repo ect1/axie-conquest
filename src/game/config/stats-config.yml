@@ -48,10 +48,9 @@ gathering:
         - food
         - wood
     bug:
-      gatherRateMultiplier: 1.25 # +25% gather rate on Stone and Oil
+      gatherRateMultiplier: 1.25 # +25% gather rate on Stone
       targetResources:
         - stone
-        - warSupplies
 
 # ------------------------------------------------------------------------------
 # 2. Combat Unit Base Stats
@@ -92,3 +91,11 @@ combat:
     defense: 15
     speed: 2.3
     attackSpeed: 0.83
+
+baseHealingRecovery:
+  # Aggregate HP recovered per second per living Axie/troop member while home.
+  # Example: a 20-soldier squad heals at 20 * this rate before hospital bonuses.
+  baseHealingRate: 20
+  # Block march, attack, and gather if any assigned Axie is below 25% HP.
+  # Set to 0 to disable this restriction. Injured Axies remain in their formation and heal at base.
+  minimumAxieHealthForMarch: 0.25

@@ -5,7 +5,7 @@ import { TROOP_DEFINITIONS } from '@/game/base';
 import { ApiAxie } from '@/game/axie-roster';
 
 type Props = { city: CityState; axies: readonly ApiAxie[]; onClose: () => void };
-const resources: { kind: CityResourceKind; label: string; icon: string }[] = [{ kind: 'food', label: 'Provisions', icon: '🌾' }, { kind: 'wood', label: 'Timber', icon: '🪵' }, { kind: 'stone', label: 'Stone', icon: '⛏' }, { kind: 'warSupplies', label: 'War supplies', icon: '◈' }];
+const resources: { kind: CityResourceKind; label: string; icon: string }[] = [{ kind: 'food', label: 'Provisions', icon: '🌾' }, { kind: 'wood', label: 'Timber', icon: '🪵' }, { kind: 'stone', label: 'Stone', icon: '⛏' }];
 
 export default function CityUnitPanel({ city, axies, onClose }: Props) {
   const [tab, setTab] = useState<'resources' | 'military' | 'axies'>('resources');

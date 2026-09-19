@@ -56,9 +56,10 @@ import {
 import GameOverDialog from './game-over-dialog';
 import { fetchLiveStatsConfig } from '@/game/stats-config';
 import { createEmptyFormations, Formation, OFFENSE_FORMATIONS_SAVE_KEY, restoreOffenseFormations, serializeOffenseFormations } from '@/game/offense-formations';
+import { recoverFormationHealth } from '@/game/formation-recovery';
 import { BATTLE_SETTINGS_SAVE_KEY, restoreActiveBattleSettings } from '@/game/battle-settings';
 import { Coordinate, createRoute, formatDuration, isValidFormation, marchTravelTimeMs, WorldTarget } from '@/game/routes';
-import { WorldUnit, UNITS_SAVE_KEY, createArmy, createScout, deployUnit, commandUnit, commandWorldAction, deploymentError, restoreUnits, migrateMarches, settleUnit, unitPosition, UnitActivity } from '@/game/units';
+import { WorldUnit, UNITS_SAVE_KEY, createArmy, createScout, deployUnit, commandUnit, commandWorldAction, deploymentError, restoreUnits, migrateMarches, settleUnit, unitPosition, UnitActivity, unitHealthError } from '@/game/units';
 import { createMilitaryService } from '@/game/military-service';
 import { activeUnitGlobalStats } from '@/game/unit-stats';
 import { ApiAxie, AXIE_ROSTER_SAVE_KEY, createAxieRoster, restoreAxieRoster } from '@/game/axie-roster';
@@ -938,6 +939,21 @@ export default function Home() {
     return () => window.clearInterval(timer);
   }, []);
   useEffect(() => {
+    if (!ready || !formationsLoaded) return;
+    const hospital = buildings.find(building => building.kind === 'hospital');
+    const hospitalLevel = hospital?.level ?? 0;
+    const hospitalHealingMultiplier = hospital ? getBuildingLevelConfig('hospital', hospital.level)?.healingMultiplier ?? 1 : 1;
+    const blockedFormationIndices = new Set(
+      units
+        .filter(unit => unit.formationIndex !== undefined && unit.status !== 'home')
+        .map(unit => unit.formationIndex!),
+    );
+    setFormations(current => {
+      const recovered = recoverFormationHealth(current, hospitalLevel, hospitalHealingMultiplier, now, blockedFormationIndices);
+      return recovered.changed ? recovered.formations : current;
+    });
+  }, [now, ready, formationsLoaded, buildings, units]);
+  useEffect(() => {
     if (!ready) return;
     const { state: nextState, newMarchesSpawned, arrivedMarchesCount } = stepPortalSystem(
       now,
@@ -990,6 +1006,7 @@ export default function Home() {
             loot: { apple: 0 },
             bossId: `portal-boss-${march.id}`,
             bossName: march.name,
+            defenderHealth: march.defenderHealth,
           };
 
           // Halt player army at encounter point and initiate attack
@@ -1207,6 +1224,7 @@ export default function Home() {
             loot: { apple: 0 },
             bossId: `portal-boss-${hostile.id}`,
             bossName: hostile.name,
+            defenderHealth: hostile.defenderHealth,
           };
         } else {
           const subPortal = portalState.portals.find(p => p.id === targetId && p.id !== 'portal-prime');
@@ -1468,6 +1486,22 @@ export default function Home() {
       view.current?.refreshMilitary();
       setMessage(`${outcome.report.result}: ${outcome.report.losses.infantry} infantry and ${outcome.report.losses.archer} archers lost. ${outcome.report.result === 'victory' ? 'Victorious army returning home.' : 'Survivors returning home.'}`);
 
+      const portalHostile = portalState.activeEnemyMarches.find(m => m.id === session.target.id);
+      const portalDefenderHealth = portalHostile && session.battle.result !== 'victory'
+        ? Object.fromEntries(session.battle.fighters
+          .filter(fighter => fighter.side === 'enemy')
+          .map(fighter => [fighter.memberId, Math.max(0, Math.min(1, fighter.hp / fighter.maxHp))]))
+        : undefined;
+      if (portalHostile && portalDefenderHealth) {
+        const nextPortalState = {
+          ...portalState,
+          activeEnemyMarches: portalState.activeEnemyMarches.map(m => m.id === portalHostile.id ? { ...m, defenderHealth: portalDefenderHealth } : m),
+        };
+        setPortalState(nextPortalState);
+        view.current?.setPortalState(nextPortalState, selectedUnitId);
+        try { localStorage.setItem(PORTAL_STATE_SAVE_KEY, JSON.stringify(nextPortalState)); } catch { /* session only */ }
+      }
+
       if (session.battle.result === 'victory') {
         if (portalState.activeEnemyMarches.some(m => m.id === session.target.id)) {
           handleDefeatHostileMarch(session.target.id);
@@ -1475,7 +1509,7 @@ export default function Home() {
           handleDestroySubPortal(session.target.id);
         }
       } else {
-        const hostile = portalState.activeEnemyMarches.find(m => m.id === session.target.id);
+        const hostile = portalHostile;
         if (hostile && hostile.status === 'fighting') {
           const currentPos = hostile.fightingPosition || enemyMarchPosition(hostile, now);
           const route = createRoute(hostile.destination, currentPos);
@@ -1489,6 +1523,7 @@ export default function Home() {
                   arrivesAt: now + travelTime,
                   status: travelTime === 0 ? ('arrived' as const) : ('marching' as const),
                   fightingPosition: undefined,
+                  defenderHealth: portalDefenderHealth,
                 }
               : m
           );
@@ -1691,6 +1726,29 @@ export default function Home() {
     setGenerationStatus(`${objects.length} / ${requested} generated.${objects.length < requested ? ' Not enough space for all objects. Reduce counts or minimum distance.' : ''} Session only.`);
     view.current.setWorldView(true);
   }
+  const townAxieHealth: Record<string, number> = {};
+  for (const formation of formations) {
+    for (const slot of formation.assignments) {
+      if (slot.heroId) townAxieHealth[slot.heroId] = slot.healthRatio ?? 1;
+    }
+    for (const [heroId, wounded] of Object.entries(formation.woundedAxies ?? {})) {
+      townAxieHealth[heroId] = wounded.healthRatio;
+    }
+  }
+  for (const unit of units) {
+    if (unit.cityId !== selectedCity.id || settleUnit(unit, now).status === 'home') continue;
+    for (const member of unit.members) {
+      if (member.heroId) townAxieHealth[member.heroId] = member.healthRatio ?? 1;
+    }
+  }
+  for (const session of battleSessions) {
+    for (const fighter of session.battle.fighters) {
+      if (fighter.side === 'player' && fighter.heroId && fighter.maxHp > 0) {
+        townAxieHealth[fighter.heroId] = fighter.hp / fighter.maxHp;
+      }
+    }
+  }
+
   function formationIssue(index: number): string | null {
     const active = units.find(unit => unit.kind === 'army' && unit.cityId === selectedCity.id && unit.formationIndex === index);
     if (active) {
@@ -1699,6 +1757,9 @@ export default function Home() {
       }
       if (selectedAction === 'gather' && active.cargo && active.cargo.amount > 0) {
         return `Carrying ${Math.round(active.cargo.amount)} ${active.cargo.resource}. Return to base first.`;
+      }
+      if (selectedAction === 'march' || selectedAction === 'attack' || selectedAction === 'gather') {
+        return unitHealthError(active);
       }
       return null;
     }
@@ -1723,6 +1784,7 @@ export default function Home() {
             loot: { apple: 0 },
             bossId: `portal-boss-${hostile.id}`,
             bossName: hostile.name,
+            defenderHealth: hostile.defenderHealth,
           };
         } else {
           const subPortal = portalState.portals.find(p => p.id === target.id && p.id !== 'portal-prime');
@@ -2523,7 +2585,7 @@ export default function Home() {
       <div style={{ margin: '8px 0', padding: '8px 10px', background: 'rgba(21, 29, 26, 0.85)', borderRadius: '6px', border: '1px solid #4a5c54' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <strong style={{ color: '#38bdf8', fontSize: '0.85rem' }}>
-            {selectedObject.kind === 'farm' ? '🌾 Wild Farm' : selectedObject.kind === 'lumber' ? '🪵 Lumber Grove' : selectedObject.kind === 'stone' ? '🪨 Stone Quarry' : '🛢️ Oil Spring (War Supplies)'}
+            {selectedObject.kind === 'farm' ? '🌾 Wild Farm' : selectedObject.kind === 'lumber' ? '🪵 Lumber Grove' : selectedObject.kind === 'stone' ? '🪨 Stone Quarry' : '🛢️ Oil Spring'}
           </strong>
           <span style={{ fontWeight: 'bold', fontSize: '0.85rem', color: (selectedObject.currentCapacity ?? 0) <= 0 ? '#ef4444' : '#10b981' }}>
             {(selectedObject.currentCapacity ?? 0) <= 0 ? 'Depleted' : `${Math.round(selectedObject.currentCapacity ?? selectedObject.maxCapacity ?? 500)} / ${selectedObject.maxCapacity ?? 500}`}
@@ -2693,7 +2755,7 @@ export default function Home() {
       </div>
       <div className="empty-state" role="tabpanel"><span className="empty-state-icon" aria-hidden="true">▧</span><strong>No {inventoryTab} yet</strong><p>Your {inventoryTab} will appear here as you explore and rebuild Lunacia.</p></div>
     </section>}
-    {heroes && !placing && !selected && <HeroesPanel axies={apiAxies} deployedIds={selectedCity.deployedAxieIds.filter(id => apiAxies.some(axie => axie.id === id))} status={axieSyncStatus} error={axieSyncError} syncedAt={axieSyncedAt} onDeploy={id => setSelectedCity(city => city.deployedAxieIds.includes(id) ? city : { ...city, deployedAxieIds: [...city.deployedAxieIds.filter(deployedId => apiAxies.some(axie => axie.id === deployedId)), id] })} onEnlist={id => setSelectedCity(city => ({ ...city, deployedAxieIds: city.deployedAxieIds.filter(deployedId => deployedId !== id) }))} onClose={() => setHeroes(false)} />}
+    {heroes && !placing && !selected && <HeroesPanel healthById={townAxieHealth} axies={apiAxies} deployedIds={selectedCity.deployedAxieIds.filter(id => apiAxies.some(axie => axie.id === id))} status={axieSyncStatus} error={axieSyncError} syncedAt={axieSyncedAt} onDeploy={id => setSelectedCity(city => city.deployedAxieIds.includes(id) ? city : { ...city, deployedAxieIds: [...city.deployedAxieIds.filter(deployedId => apiAxies.some(axie => axie.id === deployedId)), id] })} onEnlist={id => setSelectedCity(city => ({ ...city, deployedAxieIds: city.deployedAxieIds.filter(deployedId => deployedId !== id) }))} onClose={() => setHeroes(false)} />}
     {!worldView && training && <TrainingDialog
       buildings={buildings}
       troops={troops}

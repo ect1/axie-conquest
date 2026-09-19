@@ -278,6 +278,8 @@ h2 { font: bold 19px Georgia, serif; margin: 3px 0 0; }
 .hero-card > span { font-size: 11px; margin-top: 3px; }
 .hero-card small { font-size: 9px; margin-top: 4px; }
 .hero-card.deployed { border-color: #d8c99d; background: #f0ebdb; }
+.town-axie-health { display: flex; flex-direction: column; gap: 4px; width: 100%; padding: 4px; font-size: 11px; font-weight: 700; }
+.town-axie-health progress { width: 100%; height: 9px; accent-color: #42935d; }
 .api-axie-fallback { display: grid; place-items: center; width: 62px; height: 62px; border-radius: 50%; background: #dce7d1; color: #315f44; font: bold 24px Georgia, serif; }
 .owned-axies-heading { display: flex; align-items: baseline; justify-content: space-between; margin: 4px 2px 8px; }
 .owned-axies-heading strong { font: bold 16px Georgia, serif; }

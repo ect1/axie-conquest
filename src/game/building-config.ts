@@ -1,7 +1,7 @@
 import { BuildingKind } from './base';
 import { CityResources } from './cities';
 
-export type BuildingCost = Partial<Record<'food' | 'wood' | 'stone' | 'warSupplies', number>>;
+export type BuildingCost = Partial<Record<'food' | 'wood' | 'stone', number>>;
 
 export type BuildingProduction = {
   resource: 'food' | 'wood' | 'stone';
@@ -10,7 +10,7 @@ export type BuildingProduction = {
   storageCapacity?: number;
 };
 
-export type BuildingCapacityBonus = Partial<Record<'food' | 'wood' | 'stone' | 'warSupplies', number>>;
+export type BuildingCapacityBonus = Partial<Record<'food' | 'wood' | 'stone', number>>;
 
 export type BuildingLevelConfig = {
   health: number;
@@ -21,6 +21,7 @@ export type BuildingLevelConfig = {
   capacityBonus?: BuildingCapacityBonus;
   unlocks?: { troops?: string[] };
   trainingSpeedBonusPercent?: number;
+  healingMultiplier?: number;
   requirements?: { cityHallLevel?: number };
 };
 
@@ -145,7 +146,6 @@ export function deductBuildingCost(resources: CityResources, cost: BuildingCost)
     food: { ...resources.food },
     wood: { ...resources.wood },
     stone: { ...resources.stone },
-    warSupplies: { ...resources.warSupplies },
   };
 
   for (const [resKey, amount] of Object.entries(cost)) {
@@ -178,7 +178,6 @@ export function refundBuildingCost(resources: CityResources, refund: BuildingCos
     food: { ...resources.food },
     wood: { ...resources.wood },
     stone: { ...resources.stone },
-    warSupplies: { ...resources.warSupplies },
   };
 
   for (const [resKey, amount] of Object.entries(refund)) {

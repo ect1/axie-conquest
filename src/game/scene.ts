@@ -325,6 +325,14 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
   const generatedRoots: TransformNode[] = [];
   const worldObjectsById = new Map<string, WorldObject>();
   const worldCombatDebugs = new Map<string, TransformNode>();
+  const worldHealthBack = new StandardMaterial('world defender health background', scene);
+  worldHealthBack.diffuseColor = Color3.FromHexString('#26332f');
+  worldHealthBack.emissiveColor = worldHealthBack.diffuseColor;
+  worldHealthBack.disableLighting = true;
+  const worldHealthFill = new StandardMaterial('world defender health fill', scene);
+  worldHealthFill.diffuseColor = Color3.FromHexString('#e16d61');
+  worldHealthFill.emissiveColor = worldHealthFill.diffuseColor;
+  worldHealthFill.disableLighting = true;
   let selectedTargetId: string | null = null;
   let lastWorldBattleSettings: typeof activeBattleSettings | null = null;
   const targetRings = new Map<string, ReturnType<typeof MeshBuilder.CreateTorus>>();
@@ -456,6 +464,16 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
       box('site roof', 3.7, 0.4, 3.3, 0, garrison ? 3 : 2, 0, garrison ? accents.barracks : roof, root);
       box('site door', 0.7, 1, 0.1, 0, 0.55, -1.35, dark, root);
       box('loot crate', 0.6, 0.6, 0.6, 1.5, 0.4, -1.5, gold, root);
+    }
+    const healthValues = object.state === 'defended' && object.defenderHealth ? Object.values(object.defenderHealth) : [];
+    const damagedHealth = healthValues.length ? healthValues.reduce((sum, value) => sum + value, 0) / healthValues.length : 1;
+    if (damagedHealth < 1) {
+      const back = MeshBuilder.CreatePlane(`world defender health background ${object.id}`, { width: 4.4, height: 0.48 }, scene);
+      const fill = MeshBuilder.CreatePlane(`world defender health fill ${object.id}`, { width: 4, height: 0.24 }, scene);
+      back.parent = root; fill.parent = back;
+      back.position.y = 4.2; back.billboardMode = Mesh.BILLBOARDMODE_ALL; back.material = worldHealthBack; back.isPickable = false;
+      fill.material = worldHealthFill; fill.billboardMode = Mesh.BILLBOARDMODE_ALL; fill.position.z = -0.02; fill.isPickable = false;
+      fill.scaling.x = Math.max(0.001, damagedHealth); fill.position.x = -2 * (1 - damagedHealth);
     }
     const label = object.bossName ?? WORLD_DEFINITIONS[object.kind].name;
     let description: string;
@@ -1028,6 +1046,8 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
         cityHealthTexture = null;
         cityHealthMat = null;
       }
+      worldHealthBack.dispose();
+      worldHealthFill.dispose();
       worldFight.dispose(); portalScene.dispose(); clearMarches(); scene.dispose(); engine.dispose();
     },
   };

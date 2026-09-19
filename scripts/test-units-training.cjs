@@ -91,7 +91,6 @@ const mockResources = {
   food: { amount: 100, capacity: 500, productionRate: 1 },
   wood: { amount: 50, capacity: 500, productionRate: 1 },
   stone: { amount: 0, capacity: 500, productionRate: 1 },
-  warSupplies: { amount: 0, capacity: 500, productionRate: 1 },
 };
 
 assert.equal(trainingConfig.canAffordTraining(mockResources, { food: 80, wood: 20 }), true);

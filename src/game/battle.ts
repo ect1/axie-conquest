@@ -263,6 +263,16 @@ export function createBattle(army: WorldUnit, enemyCountOrTarget: number | World
     }
   }
 
+  const defenderHealth = typeof enemyCountOrTarget === 'object' && 'defenderHealth' in enemyCountOrTarget
+    ? (enemyCountOrTarget as WorldObject).defenderHealth
+    : undefined;
+  if (defenderHealth) {
+    for (const fighter of members) {
+      if (fighter.side === 'enemy' && defenderHealth[fighter.memberId] !== undefined) {
+        fighter.hp = fighter.maxHp * defenderHealth[fighter.memberId];
+      }
+    }
+  }
   return { version: 1, layoutVersion: 2, tick: 0, fighters: members, leaderId: members.find(f => f.heroId === army.leaderId)?.id ?? null, skillCooldown: 0, retreating: false, retreatingArmyIds: [], retreatBoundaryZ: getEndBattleConfig().retreatAction.retreatBoundaryZ, result: null, events: [] };
 }
 export function reinforceBattle(battle: Battle, army: WorldUnit, roster: readonly ApiAxie[] = []): Battle {

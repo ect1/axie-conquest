@@ -200,7 +200,6 @@ export function showMarches(
       food: { bg: 'rgba(28, 20, 8, 0.94)', border: '#f59e0b', emblemBg: '#451a03', accent: '#fcd34d', icon: '🌾', name: 'FOOD' },
       wood: { bg: 'rgba(10, 28, 18, 0.94)', border: '#10b981', emblemBg: '#064e3b', accent: '#6ee7b7', icon: '🪵', name: 'LUMBER' },
       stone: { bg: 'rgba(12, 22, 36, 0.94)', border: '#38bdf8', emblemBg: '#0c4a6e', accent: '#7dd3fc', icon: '🪨', name: 'STONE' },
-      warSupplies: { bg: 'rgba(34, 12, 16, 0.94)', border: '#ef4444', emblemBg: '#7f1d1d', accent: '#fca5a5', icon: '📦', name: 'SUPPLIES' },
     };
     const cfg = configs[resource] ?? configs.food;
 
@@ -337,7 +336,7 @@ export function showMarches(
           if (cargoSprite.texture) {
             drawResourceCargoSprite(cargoSprite.texture, cargo.resource, amt);
           } else if (cargoSprite.plane.material) {
-            const colors: Record<string, string> = { food: '#f59e0b', wood: '#10b981', stone: '#38bdf8', warSupplies: '#ef4444' };
+            const colors: Record<string, string> = { food: '#f59e0b', wood: '#10b981', stone: '#38bdf8' };
             (cargoSprite.plane.material as StandardMaterial).diffuseColor = Color3.FromHexString(colors[cargo.resource] ?? '#f59e0b');
           }
         }

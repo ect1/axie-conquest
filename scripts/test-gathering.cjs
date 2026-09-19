@@ -56,7 +56,7 @@ const bugStoneRate = g.calculateGatherRate('stone', 4, 'bug');
 assert.equal(bugStoneRate, 5, 'Bug commander receives +25% gather rate on Stone');
 
 const bugOilRate = g.calculateGatherRate('oil', 2, 'bug');
-assert.equal(bugOilRate, 2.5, 'Bug commander receives +25% gather rate on Oil');
+assert.equal(bugOilRate, 2, 'Bug commander has normal gather rate on Oil since warSupplies is removed');
 
 // 2b. Army Gather Rate — per-unit troop contributions (node base + unit contributions + class bonus)
 // testMembers = 1 hero (2.0/s) + 10 infantry (10*0.08=0.8/s) + 5 archers (5*0.05=0.25/s)
@@ -73,7 +73,7 @@ assert.ok(armyPlantFarmRate >= 10, 'Plant army gather rate applies class multipl
 assert.equal(g.nodeKindToCityResource('farm'), 'food');
 assert.equal(g.nodeKindToCityResource('lumber'), 'wood');
 assert.equal(g.nodeKindToCityResource('stone'), 'stone');
-assert.equal(g.nodeKindToCityResource('oil'), 'warSupplies');
+assert.equal(g.nodeKindToCityResource('oil'), null);
 assert.equal(g.nodeKindToCityResource('boss'), null);
 
 // 4. Gathering Step Execution
@@ -364,7 +364,6 @@ const mockCitySave = JSON.stringify([{
     food: { amount: 1200, capacity: 500 },
     wood: { amount: 850, capacity: 500 },
     stone: { amount: 300, capacity: 500 },
-    warSupplies: { amount: 100, capacity: 500 },
   },
 }]);
 const restoredCities = c.restoreCities(mockCitySave);
@@ -432,7 +431,7 @@ assert.equal(afterProd.food.amount, 1200, 'Passive city production does not redu
   assert.equal(cargoRoot.isEnabled(), true, 'Cargo sprite is enabled while returning with cargo');
 
   // Verify each resource updates the cargo sprite
-  for (const res of ['food', 'wood', 'stone', 'warSupplies']) {
+  for (const res of ['food', 'wood', 'stone']) {
     testArmyGathering.cargo = { resource: res, amount: 40, maxLoad: 50 };
     scene.render();
     assert.equal(cargoRoot.isEnabled(), true, `Cargo sprite enabled for ${res}`);

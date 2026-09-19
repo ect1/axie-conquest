@@ -206,7 +206,11 @@ export function commitBattleOutcome(storage: StorageAccess, session: BattleSessi
         losses[fighter.troopKind === 'infantry' ? 'infantry' : 'archer'] += extraLoss;
       }
       finalCounts.set(member.id, count);
-      return member.heroId ? [{ ...member, healthRatio: fighter.hp / fighter.maxHp }] : count ? [{ ...member, count, healthRatio: fighter.hp / (count * fighter.stats.health) }] : [];
+      return member.heroId
+        ? [{ ...member, healthRatio: fighter.hp / fighter.maxHp }]
+        : count
+          ? [{ ...member, count, healthRatio: fighter.hp / (count * fighter.stats.health) }]
+          : [];
     });
     if (defeatDestroy) {
       nextUnits = nextUnits.filter(unit => unit.id !== army.id);
@@ -239,15 +243,22 @@ export function commitBattleOutcome(storage: StorageAccess, session: BattleSessi
             // Troop squad: update count and persist HP ratio
             const count = finalCounts.get(fighter.memberId) ?? livingCount(fighter);
             const healthRatio = count > 0 ? fighter.hp / (count * fighter.stats.health) : 0;
-            return { ...slot, military: count ? slot.military : null, militaryCount: count, ...(count > 0 ? { healthRatio } : { healthRatio: undefined }) };
+            return {
+              ...slot,
+              military: count ? slot.military : null,
+              militaryCount: count,
+              ...(count > 0 ? { healthRatio, healthUpdatedAt: healthRatio < 1 ? now : undefined } : { healthRatio: undefined, healthUpdatedAt: undefined }),
+            };
           }
           if (fighter.heroId) {
             // Hero: persist HP ratio so the Axie re-enters battle with post-battle health
-            const healthRatio = fighter.hp / fighter.maxHp;
-            return { ...slot, healthRatio: healthRatio > 0 ? healthRatio : undefined };
+            const healthRatio = Math.max(0, Math.min(1, fighter.hp / fighter.maxHp));
+            // Keep even a knocked-out Axie in its slot. It must heal before this formation can march again.
+            return { ...slot, healthRatio, healthUpdatedAt: healthRatio < 1 ? now : undefined };
           }
           return slot;
         });
+        if (next.leader && !next.assignments.some(slot => slot.heroId === next.leader)) next.leader = null;
         return next;
       });
     }
@@ -264,7 +275,14 @@ export function commitBattleOutcome(storage: StorageAccess, session: BattleSessi
   }
 
   const nextTroops = { ...troops, infantry: Math.max(0, troops.infantry - losses.infantry), archer: Math.max(0, troops.archer - losses.archer) };
-  const nextObjects = objects.map(object => object.id === session.target.id && session.battle.result === 'victory' ? { ...object, state: 'defeated' as const } : object);
+  const nextObjects = objects.map(object => {
+    if (object.id !== session.target.id) return object;
+    if (session.battle.result === 'victory') return { ...object, state: 'defeated' as const, defenderHealth: undefined };
+    const defenderHealth = Object.fromEntries(session.battle.fighters
+      .filter(fighter => fighter.side === 'enemy')
+      .map(fighter => [fighter.memberId, Math.max(0, Math.min(1, fighter.hp / fighter.maxHp))]));
+    return { ...object, defenderHealth };
+  });
 
   const report: BattleReport = {
     result: session.battle.result,

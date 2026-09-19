@@ -35,6 +35,8 @@ export type WorldObject = {
   maxCapacity?: number;
   depletedAt?: number;
   respawnAt?: number;
+  /** Remaining defender health by stable fighter/member id, persisted between assaults. */
+  defenderHealth?: Record<string, number>;
 };
 export type SpawnableMobGroup = 'chimera-pack';
 export const SPAWNABLE_MOB_GROUPS: Record<SpawnableMobGroup, { label: string; kind: 'boss' }> = {
@@ -116,12 +118,17 @@ export function restoreWorld(value: string | null): WorldObject[] | null {
         : defaultCap;
       const depletedAt = typeof candidate.depletedAt === 'number' ? candidate.depletedAt : undefined;
       const respawnAt = typeof candidate.respawnAt === 'number' ? candidate.respawnAt : undefined;
+      const defenderHealth: Record<string, number> | undefined = candidate.defenderHealth && typeof candidate.defenderHealth === 'object'
+        ? Object.fromEntries(Object.entries(candidate.defenderHealth as Record<string, unknown>)
+          .filter((entry): entry is [string, number] => entry[0].length > 0 && typeof entry[1] === 'number' && Number.isFinite(entry[1]) && entry[1] >= 0 && entry[1] <= 1)) as Record<string, number>
+        : undefined;
 
       // Villages were resource sites in older saves. Promote that legacy state to the new defended lifecycle.
       return {
         ...object,
         state: object.kind === 'village' && state === 'available' ? 'defended' : state,
         ...(isRes ? { currentCapacity, maxCapacity, depletedAt, respawnAt } : {}),
+        ...(defenderHealth && Object.keys(defenderHealth).length ? { defenderHealth } : {}),
       };
     }).filter(object => {
       const isRes = ['farm', 'lumber', 'stone', 'oil'].includes(object.kind);

@@ -39,6 +39,8 @@ type EnemyMarchVisualNode = {
   trailLine: LinesMesh;
   unitNodes: TransformNode[];
   billboardMesh: Mesh;
+  healthBack: Mesh;
+  healthFill: Mesh;
   texture: DynamicTexture;
   lastDrawnText: string;
 };
@@ -145,6 +147,14 @@ export class PortalSceneManager {
       });
 
       // Update unit head ETA billboard sprite
+      const healthValues = march.defenderHealth ? Object.values(march.defenderHealth) : [];
+      const healthRatio = healthValues.length ? healthValues.reduce((sum, value) => sum + value, 0) / healthValues.length : 1;
+      visual.healthBack.setEnabled(healthRatio < 1);
+      visual.healthFill.setEnabled(healthRatio < 1);
+      if (healthRatio < 1) {
+        visual.healthFill.scaling.x = Math.max(0.001, healthRatio);
+        visual.healthFill.position.x = -2 * (1 - healthRatio);
+      }
       this.updateMarchBillboard(visual, now);
     }
   }
@@ -478,6 +488,28 @@ export class PortalSceneManager {
     billboardMesh.isPickable = true;
     billboardMesh.metadata = { unitId: march.id, isEnemy: true };
 
+    const healthBackMat = new StandardMaterial(`march-health-back-mat-${march.id}`, this.scene);
+    healthBackMat.diffuseColor = Color3.FromHexString('#26332f');
+    healthBackMat.emissiveColor = healthBackMat.diffuseColor;
+    healthBackMat.disableLighting = true;
+    this.sharedMaterials.push(healthBackMat);
+    const healthFillMat = new StandardMaterial(`march-health-fill-mat-${march.id}`, this.scene);
+    healthFillMat.diffuseColor = Color3.FromHexString('#e16d61');
+    healthFillMat.emissiveColor = healthFillMat.diffuseColor;
+    healthFillMat.disableLighting = true;
+    this.sharedMaterials.push(healthFillMat);
+    const healthBack = MeshBuilder.CreatePlane(`march-health-back-${march.id}`, { width: 3.4, height: 0.32 }, this.scene);
+    healthBack.parent = root;
+    healthBack.position.y = 3.25;
+    healthBack.billboardMode = Mesh.BILLBOARDMODE_ALL;
+    healthBack.material = healthBackMat;
+    healthBack.isPickable = false;
+    const healthFill = MeshBuilder.CreatePlane(`march-health-fill-${march.id}`, { width: 3.1, height: 0.16 }, this.scene);
+    healthFill.parent = healthBack;
+    healthFill.position.z = -0.02;
+    healthFill.material = healthFillMat;
+    healthFill.isPickable = false;
+
     return {
       march,
       root,
@@ -485,6 +517,8 @@ export class PortalSceneManager {
       trailLine,
       unitNodes,
       billboardMesh,
+      healthBack,
+      healthFill,
       texture,
       lastDrawnText: '',
     };

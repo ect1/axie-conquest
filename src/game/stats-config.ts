@@ -62,10 +62,18 @@ export type CombatStatsConfig = {
   chimera: UnitCombatProfile;
 };
 
+export type BaseHealingRecoveryConfig = {
+  /** Aggregate HP recovered per second per living Axie/troop member while home. */
+  baseHealingRate: number;
+  /** Block march, attack, and gather when any assigned Axie is below this health ratio. */
+  minimumAxieHealthForMarch?: number;
+};
+
 export type StatsConfigFile = {
   version: number;
   gathering: GatheringStatsConfig;
   combat: CombatStatsConfig;
+  baseHealingRecovery: BaseHealingRecoveryConfig;
 };
 
 export const DEFAULT_STATS_CONFIG: StatsConfigFile = {
@@ -92,7 +100,7 @@ export const DEFAULT_STATS_CONFIG: StatsConfigFile = {
     classBonuses: {
       beast: { loadCapacityMultiplier: 1.3 },
       plant: { gatherRateMultiplier: 1.25, targetResources: ['food', 'wood'] },
-      bug: { gatherRateMultiplier: 1.25, targetResources: ['stone', 'warSupplies'] },
+      bug: { gatherRateMultiplier: 1.25, targetResources: ['stone'] },
     },
   },
   combat: {
@@ -101,6 +109,10 @@ export const DEFAULT_STATS_CONFIG: StatsConfigFile = {
     archer: { health: 38, attack: 8, defense: 6, speed: 2.3, attackSpeed: 0.63, projectileSpeed: 12 },
     scout: { health: 70, attack: 5, defense: 10, speed: 3.5, attackSpeed: 0.71 },
     chimera: { health: 75, attack: 12, defense: 15, speed: 2.3, attackSpeed: 0.83 },
+  },
+  baseHealingRecovery: {
+    baseHealingRate: 3,
+    minimumAxieHealthForMarch: 0.25,
   },
 };
 
@@ -171,6 +183,19 @@ export function getCombatStatsConfig(): CombatStatsConfig {
   return getStatsConfigFile().combat ?? DEFAULT_STATS_CONFIG.combat;
 }
 
+export function getBaseHealingRecoveryConfig(): BaseHealingRecoveryConfig {
+  const configured = getStatsConfigFile().baseHealingRecovery ?? DEFAULT_STATS_CONFIG.baseHealingRecovery;
+  const minimumAxieHealthForMarch = configured.minimumAxieHealthForMarch;
+  return {
+    baseHealingRate: Number.isFinite(configured.baseHealingRate) && configured.baseHealingRate >= 0
+      ? configured.baseHealingRate
+      : DEFAULT_STATS_CONFIG.baseHealingRecovery.baseHealingRate,
+    minimumAxieHealthForMarch: typeof minimumAxieHealthForMarch === 'number' && Number.isFinite(minimumAxieHealthForMarch) && minimumAxieHealthForMarch >= 0 && minimumAxieHealthForMarch <= 1
+      ? minimumAxieHealthForMarch
+      : DEFAULT_STATS_CONFIG.baseHealingRecovery.minimumAxieHealthForMarch,
+  };
+}
+
 export function calculateArmyLoadCapacity(members: readonly UnitMember[], leaderClass?: string): number {
   const cfg = getGatheringStatsConfig();
   const weights = cfg.loadCapacity ?? DEFAULT_STATS_CONFIG.gathering.loadCapacity;
@@ -217,7 +242,7 @@ export function calculateGatherRate(
 
   // Check specific resource affiliation
   if (bonus.targetResources && bonus.targetResources.length > 0) {
-    const resMap: Record<string, string> = { farm: 'food', lumber: 'wood', stone: 'stone', oil: 'warSupplies' };
+    const resMap: Record<string, string> = { farm: 'food', lumber: 'wood', stone: 'stone' };
     const res = resMap[nodeKind] ?? nodeKind;
     if (bonus.targetResources.includes(res)) {
       return baseRate * bonus.gatherRateMultiplier;
@@ -229,7 +254,7 @@ export function calculateGatherRate(
   if (leaderClass === 'plant' && (nodeKind === 'farm' || nodeKind === 'lumber')) {
     return baseRate * bonus.gatherRateMultiplier;
   }
-  if (leaderClass === 'bug' && (nodeKind === 'stone' || nodeKind === 'oil')) {
+  if (leaderClass === 'bug' && nodeKind === 'stone') {
     return baseRate * bonus.gatherRateMultiplier;
   }
 
