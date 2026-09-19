@@ -5,6 +5,14 @@
 
 version: 1
 
+# Default City Destruction / Defense Mode
+# type options:
+#   - "health": base has hit points; when depleted to 0, base is destroyed (game over)
+#   - "walls": walls can break into city and hostiles destroy all buildings until no units remain
+destruction:
+  type: "health"
+  maxHealth: 10000
+
 cityTypes:
   # Main City / Capital
   capital:
@@ -17,6 +25,9 @@ cityTypes:
       food: 500
       wood: 500
       stone: 500
+    destruction:
+      type: "health" # Options: "health" | "walls"
+      maxHealth: 10000
 
   # Sub-city: Resource/Expansion Outpost
   base:

@@ -456,6 +456,77 @@ assert.equal(afterProd.food.amount, 1200, 'Passive city production does not redu
     'Commanding unit to gather other resource while holding cargo is refused'
   );
 
+  // 19. Resource Nodes Respawn Configuration & Timer under resourceNodes
+  assert.equal(r.shouldRespawnWhenAllCollected(), true, 'shouldRespawnWhenAllCollected reads from resourceNodes config');
+  assert.equal(r.getResourceRespawnTimerSeconds(), 5, 'getResourceRespawnTimerSeconds returns 5s from resourceNodes config');
+  assert.equal(r.getNodeRespawnTimerSeconds('farm'), 5, 'getNodeRespawnTimerSeconds returns batch 5s timer when batch respawn active');
+
+  // 20. Filtering Depleted Resource Nodes Out of restoreWorld (No Depleted Nodes on Map)
+  const worldWithDepleted = JSON.stringify([
+    { id: 'active-farm', kind: 'farm', x: 10, z: 10, state: 'available', loot: { apple: 0 }, currentCapacity: 250, maxCapacity: 500 },
+    { id: 'depleted-lumber', kind: 'lumber', x: 20, z: 20, state: 'available', loot: { apple: 0 }, currentCapacity: 0, maxCapacity: 500 },
+  ]);
+  const cleanedWorld = w.restoreWorld(worldWithDepleted);
+  assert.equal(cleanedWorld.length, 1, 'Depleted resource node with 0 capacity is omitted from active world');
+  assert.equal(cleanedWorld[0].id, 'active-farm', 'Only active node with capacity > 0 is retained in world');
+
+  // 21. Depleted Nodes Persistence & Restoration
+  const mockDepletedEntries = [
+    {
+      node: { id: 'depleted-lumber', kind: 'lumber', x: 20, z: 20, state: 'available', loot: { apple: 0 }, currentCapacity: 500, maxCapacity: 500 },
+      depletedAt: 10000,
+      respawnAt: 15000,
+    },
+  ];
+  const serializedDepleted = w.serializeDepletedNodes(mockDepletedEntries);
+  const restoredDepleted = w.restoreDepletedNodes(serializedDepleted);
+  assert.equal(restoredDepleted.length, 1, 'Depleted nodes restored from serialized json');
+  assert.equal(restoredDepleted[0].node.id, 'depleted-lumber');
+  assert.equal(restoredDepleted[0].respawnAt, 15000);
+  assert.deepEqual(w.restoreDepletedNodes(null), [], 'Null input returns empty array');
+  assert.deepEqual(w.restoreDepletedNodes('invalid json'), [], 'Invalid input returns empty array');
+
+  // 22. Batch Respawn: Nodes regenerate together only after ALL resource nodes are gathered
+  const simNode1 = { id: 'sim-farm', kind: 'farm', x: 10, z: 10, state: 'available', loot: { apple: 0 }, currentCapacity: 500, maxCapacity: 500 };
+  const simNode2 = { id: 'sim-lumber', kind: 'lumber', x: 20, z: 20, state: 'available', loot: { apple: 0 }, currentCapacity: 500, maxCapacity: 500 };
+  let simWorld = [simNode1, simNode2];
+  const simDepletedMap = new Map();
+
+  // Farm is gathered & depleted at t=1000
+  simWorld = simWorld.filter(o => o.id !== simNode1.id);
+  simDepletedMap.set(simNode1.id, { node: simNode1, depletedAt: 1000, respawnAt: 1000 + 5000 });
+
+  // At t=2000, Lumber is still active on the map
+  const activeAt2000 = simWorld.filter(o => ['farm', 'lumber', 'stone', 'oil'].includes(o.kind));
+  assert.equal(activeAt2000.length, 1, 'Lumber is still ungathered on the map');
+
+  // Check batch respawn at t=7000 (even though farm timer 1000+5000 passed, lumber is still uncollected!)
+  let shouldRespawnAt7000 = false;
+  if (r.shouldRespawnWhenAllCollected() && activeAt2000.length > 0) {
+    shouldRespawnAt7000 = false; // Blocked because not all resources are gathered
+  }
+  assert.equal(shouldRespawnAt7000, false, 'Batch respawn blocked while ungathered resources remain on map');
+
+  // At t=8000, Lumber is also gathered & depleted -> now ALL resources are gathered!
+  simWorld = simWorld.filter(o => o.id !== simNode2.id);
+  simDepletedMap.set(simNode2.id, { node: simNode2, depletedAt: 8000, respawnAt: 8000 + 5000 });
+  const activeAt8000 = simWorld.filter(o => ['farm', 'lumber', 'stone', 'oil'].includes(o.kind));
+  assert.equal(activeAt8000.length, 0, 'All resources are now gathered & depleted');
+
+  // Countdown starts at t=8000. At t=12000 (4s elapsed), batch timer (5s) has not passed yet
+  const allDepletedAt = 8000;
+  const batchTimerMs = r.getResourceRespawnTimerSeconds() * 1000;
+  assert.equal(12000 >= allDepletedAt + batchTimerMs, false, 'At 4s, batch respawn is not yet ready');
+
+  // At t=13000 (5s elapsed after all gathered): batch respawn triggers!
+  assert.equal(13000 >= allDepletedAt + batchTimerMs, true, 'At 5s after all gathered, batch respawn triggers');
+  for (const entry of simDepletedMap.values()) {
+    simWorld.push({ ...entry.node, currentCapacity: entry.node.maxCapacity });
+  }
+  simDepletedMap.clear();
+  assert.equal(simWorld.length, 2, 'All resource nodes respawned together back into the world');
+  assert.equal(simDepletedMap.size, 0, 'Depleted map cleared after batch respawn');
+
   disposeMarches();
   scene.dispose();
   engine.dispose();

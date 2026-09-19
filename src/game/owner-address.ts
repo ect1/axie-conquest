@@ -10,8 +10,8 @@ export const AXIE_INPUT_OWNER_KEY = 'axie-conquest-owner-address';
 export const AXIE_SAVED_OWNER_KEY = 'axie-conquest-game-owner';
 
 /** Normalizes a Ronin or Ethereum hex address. */
-export function normalizeOwnerAddress(address: string | null | undefined): string {
-  if (!address) return DEFAULT_OWNER;
+export function normalizeOwnerAddress(address: unknown): string {
+  if (typeof address !== 'string' || !address) return DEFAULT_OWNER;
   let trimmed = address.trim();
   if (trimmed.startsWith('ronin:')) {
     trimmed = '0x' + trimmed.slice(6);

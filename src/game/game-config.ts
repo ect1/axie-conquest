@@ -1,9 +1,48 @@
 import type { CityResourceKind } from './cities';
+import type { CityDestructionConfig } from './city-config';
+import { DEFAULT_CITY_DESTRUCTION } from './city-config';
 
 export type GameStartingResources = Record<CityResourceKind, number>;
 
+export type RepairCostPer100Hp = {
+  wood?: number;
+  stone?: number;
+  food?: number;
+};
+
+export type RepairCityHallLevelConfig = {
+  maxAssignableAxies: number;
+  repairMultiplier: number;
+  costMultiplier: number;
+};
+
+export type RepairConfig = {
+  baseRepair: number;
+  defaultAutoRepair: boolean;
+  costPer100Hp: RepairCostPer100Hp;
+  axieMultiplier: number;
+  cityHallLevels: Record<number | string, RepairCityHallLevelConfig>;
+};
+
+export const DEFAULT_REPAIR_CONFIG: RepairConfig = {
+  baseRepair: 50,
+  defaultAutoRepair: true,
+  costPer100Hp: {
+    wood: 5,
+    stone: 5,
+  },
+  axieMultiplier: 0.25,
+  cityHallLevels: {
+    1: { maxAssignableAxies: 1, repairMultiplier: 1.0, costMultiplier: 1.0 },
+    2: { maxAssignableAxies: 2, repairMultiplier: 1.35, costMultiplier: 0.9 },
+    3: { maxAssignableAxies: 3, repairMultiplier: 1.75, costMultiplier: 0.8 },
+  },
+};
+
 export type GameConfigFile = {
   version: number;
+  destruction?: CityDestructionConfig;
+  repair?: RepairConfig;
   startingState: {
     capitalCity: {
       id: string;
@@ -15,6 +54,8 @@ export type GameConfigFile = {
 
 const DEFAULT_GAME_CONFIG: GameConfigFile = {
   version: 1,
+  destruction: DEFAULT_CITY_DESTRUCTION,
+  repair: DEFAULT_REPAIR_CONFIG,
   startingState: {
     capitalCity: {
       id: 'everleaf-haven',
@@ -90,5 +131,39 @@ export function getCapitalCityIdentity(): { id: string; defaultName: string } {
   return {
     id: cap?.id ?? 'everleaf-haven',
     defaultName: cap?.defaultName ?? 'City #1',
+  };
+}
+
+export function getRepairConfig(): RepairConfig {
+  const cfg = getGameConfigFile();
+  const repair = cfg?.repair;
+  if (!repair) return DEFAULT_REPAIR_CONFIG;
+
+  const baseRepair = typeof repair.baseRepair === 'number' && repair.baseRepair > 0
+    ? repair.baseRepair
+    : DEFAULT_REPAIR_CONFIG.baseRepair;
+
+  const defaultAutoRepair = typeof repair.defaultAutoRepair === 'boolean'
+    ? repair.defaultAutoRepair
+    : DEFAULT_REPAIR_CONFIG.defaultAutoRepair;
+
+  const costPer100Hp: RepairCostPer100Hp = {
+    wood: typeof repair.costPer100Hp?.wood === 'number' ? repair.costPer100Hp.wood : DEFAULT_REPAIR_CONFIG.costPer100Hp.wood,
+    stone: typeof repair.costPer100Hp?.stone === 'number' ? repair.costPer100Hp.stone : DEFAULT_REPAIR_CONFIG.costPer100Hp.stone,
+    food: typeof repair.costPer100Hp?.food === 'number' ? repair.costPer100Hp.food : DEFAULT_REPAIR_CONFIG.costPer100Hp.food,
+  };
+
+  const axieMultiplier = typeof repair.axieMultiplier === 'number' && repair.axieMultiplier >= 0
+    ? repair.axieMultiplier
+    : DEFAULT_REPAIR_CONFIG.axieMultiplier;
+
+  const cityHallLevels = repair.cityHallLevels ?? DEFAULT_REPAIR_CONFIG.cityHallLevels;
+
+  return {
+    baseRepair,
+    defaultAutoRepair,
+    costPer100Hp,
+    axieMultiplier,
+    cityHallLevels,
   };
 }

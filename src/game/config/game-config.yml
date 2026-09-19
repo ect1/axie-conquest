@@ -15,3 +15,33 @@ startingState:
       food: 240
       wood: 350
       stone: 220
+
+# City Destruction / Defense Mode
+# type options:
+#   - "health": base has hit points; when depleted to 0, base is destroyed (game over)
+#   - "walls": walls can break into city and hostiles destroy all buildings until no units remain
+destruction:
+  type: "health" # Options: "health" | "walls"
+  maxHealth: 10000
+
+# Settlement Base & Building Repair Configuration
+repair:
+  baseRepair: 50 # Base HP repaired per second
+  defaultAutoRepair: true # Default auto-repair state
+  costPer100Hp:
+    wood: 5
+    stone: 5
+  axieMultiplier: 0.25 # +25% bonus repair speed per additional assigned Axie
+  cityHallLevels:
+    1:
+      maxAssignableAxies: 1
+      repairMultiplier: 1.0 # 1.0x repair speed
+      costMultiplier: 1.0 # 100% cost (0% discount)
+    2:
+      maxAssignableAxies: 2
+      repairMultiplier: 1.35 # 1.35x repair speed (+35%)
+      costMultiplier: 0.9 # 90% cost (10% discount)
+    3:
+      maxAssignableAxies: 3
+      repairMultiplier: 1.75 # 1.75x repair speed (+75%)
+      costMultiplier: 0.8 # 80% cost (20% discount)

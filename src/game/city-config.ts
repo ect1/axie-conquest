@@ -2,6 +2,14 @@ import type { CityResourceKind } from './cities';
 
 export type CityBaseCapacity = Record<CityResourceKind, number>;
 
+export type CityDestructionType = 'health' | 'walls';
+
+export type CityDestructionConfig = {
+  type: CityDestructionType;
+  maxHealth: number;
+  damageMultiplier?: number;
+};
+
 export type CityTypeConfig = {
   id: string;
   name: string;
@@ -9,11 +17,18 @@ export type CityTypeConfig = {
   isCapital: boolean;
   maxPerPlayer?: number;
   baseCapacity: CityBaseCapacity;
+  destruction?: CityDestructionConfig;
 };
 
 export type CityConfigFile = {
   version: number;
+  destruction?: CityDestructionConfig;
   cityTypes: Record<string, CityTypeConfig>;
+};
+
+export const DEFAULT_CITY_DESTRUCTION: CityDestructionConfig = {
+  type: 'health',
+  maxHealth: 10000,
 };
 
 const DEFAULT_CAPITAL_CAPACITY: CityBaseCapacity = {
@@ -25,6 +40,7 @@ const DEFAULT_CAPITAL_CAPACITY: CityBaseCapacity = {
 
 const DEFAULT_CITY_CONFIG: CityConfigFile = {
   version: 1,
+  destruction: DEFAULT_CITY_DESTRUCTION,
   cityTypes: {
     capital: {
       id: 'capital',
@@ -33,6 +49,7 @@ const DEFAULT_CITY_CONFIG: CityConfigFile = {
       isCapital: true,
       maxPerPlayer: 1,
       baseCapacity: DEFAULT_CAPITAL_CAPACITY,
+      destruction: DEFAULT_CITY_DESTRUCTION,
     },
   },
 };
@@ -99,5 +116,30 @@ export function getCityBaseCapacity(kind: string = 'capital'): CityBaseCapacity 
     wood: caps?.wood ?? DEFAULT_CAPITAL_CAPACITY.wood,
     stone: caps?.stone ?? DEFAULT_CAPITAL_CAPACITY.stone,
     warSupplies: caps?.warSupplies ?? DEFAULT_CAPITAL_CAPACITY.warSupplies,
+  };
+}
+
+export function getCityDestructionConfig(kind: string = 'capital'): CityDestructionConfig {
+  const file = getCityConfigFile();
+  const typeConfig = getCityTypeConfig(kind) ?? getCityTypeConfig('capital');
+  const candidate = typeConfig?.destruction ?? file?.destruction;
+
+  const validTypes: CityDestructionType[] = ['health', 'walls'];
+  const type: CityDestructionType = validTypes.includes(candidate?.type as CityDestructionType)
+    ? (candidate!.type as CityDestructionType)
+    : DEFAULT_CITY_DESTRUCTION.type;
+
+  const maxHealth = typeof candidate?.maxHealth === 'number' && candidate.maxHealth > 0
+    ? candidate.maxHealth
+    : DEFAULT_CITY_DESTRUCTION.maxHealth;
+
+  const damageMultiplier = typeof candidate?.damageMultiplier === 'number' && candidate.damageMultiplier > 0
+    ? candidate.damageMultiplier
+    : (DEFAULT_CITY_DESTRUCTION.damageMultiplier ?? 0.25);
+
+  return {
+    type,
+    maxHealth,
+    damageMultiplier,
   };
 }

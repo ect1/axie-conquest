@@ -6,6 +6,7 @@ export const WORLD_WIDTH = 200;
 export const WORLD_DEPTH = 200;
 export const WORLD_OBJECT_RADIUS = 3;
 export const WORLD_SAVE_KEY = 'axie-conquest-world-v1';
+export const DEPLETED_NODES_SAVE_KEY = 'axie-conquest-depleted-nodes-v1';
 export const WORLD_DEFINITIONS = {
   farm: { name: 'Farm', count: 5 },
   lumber: { name: 'Lumber', count: 5 },
@@ -122,10 +123,47 @@ export function restoreWorld(value: string | null): WorldObject[] | null {
         state: object.kind === 'village' && state === 'available' ? 'defended' : state,
         ...(isRes ? { currentCapacity, maxCapacity, depletedAt, respawnAt } : {}),
       };
+    }).filter(object => {
+      const isRes = ['farm', 'lumber', 'stone', 'oil'].includes(object.kind);
+      // Depleted resource nodes must not remain in the active world
+      if (isRes && object.currentCapacity !== undefined && object.currentCapacity <= 0) {
+        return false;
+      }
+      return true;
     });
   } catch {
     return null;
   }
+}
+
+export type DepletedNodeEntry = {
+  node: WorldObject;
+  depletedAt: number;
+  respawnAt: number;
+};
+
+export function restoreDepletedNodes(value: string | null): DepletedNodeEntry[] {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((item): item is DepletedNodeEntry => {
+      return (
+        item &&
+        typeof item === 'object' &&
+        item.node &&
+        typeof (item.node as WorldObject).id === 'string' &&
+        typeof item.depletedAt === 'number' &&
+        typeof item.respawnAt === 'number'
+      );
+    });
+  } catch {
+    return [];
+  }
+}
+
+export function serializeDepletedNodes(entries: DepletedNodeEntry[]): string {
+  return JSON.stringify(entries);
 }
 
 /** Regenerate depleted resource nodes that have reached their respawn time. */

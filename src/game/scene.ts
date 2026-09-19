@@ -22,6 +22,7 @@ import { TrainingQueue, secondsRemaining, jobProgress } from './training-queue';
 type Events = { fighterSelect?: (id: string) => void; watchBattle?: (sessionId?: string) => void; troops: (troops: Troops) => void; change: (b: Building[]) => void; preview: (c: Cell | null) => void; select: (b: Building | null) => void; unitSelect: (id: string) => void; portalSelect?: (portalId: string) => void; target: (target: WorldTarget | null) => void; message: (s: string) => void; viewMode: (mode: 'base' | 'world') => void };
 export type BaseView = { focusBattle: (targetSession?: BattleSession) => void; setBattle: (session: BattleSession | null, selectedId?: string | null) => void; setBattles: (sessions: readonly BattleSession[]) => void; setPortalState: (state: PortalRuntimeState | null, selectedId?: string | null) => void; refreshMilitary: () => void; setUnits: (orders: WorldUnit[], selectedId: string | null) => void; setSelectedTarget: (id: string | null) => void; focusCoordinate: (coordinate: Coordinate) => void; regenerateWorld: (settings: GenerationSettings) => WorldObject[]; loadWorld: (objects: WorldObject[]) => void; removeWorld: () => void; train: (kind: TroopKind) => boolean; rotate: (id: string) => boolean; move: (id: string) => boolean; remove: (id: string) => boolean; upgrade: (id: string, nextLevel: number) => boolean; begin: (kind: BuildableKind) => void; cancel: () => void; confirm: () => boolean; setGridVisible: (visible: boolean) => void; setWorldView: (enabled: boolean) => void; setRoute: (route: { origin: Coordinate; destination: Coordinate } | null) => void; zoom: (factor: number) => void; home: () => void; dispose: () => void;
   setTrainingQueue: (queue: TrainingQueue) => void;
+  setCityHealth: (current: number, max: number, underAttack?: boolean) => void;
   /** Project a building's world-space top-centre to canvas pixel coordinates. Returns null if the building or canvas is not available. */
   getScreenPosition: (buildingId: string) => { x: number; y: number } | null;
 };
@@ -375,6 +376,11 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
     refreshWorldCombatDebugs();
   }
   function makeWorldObject(object: WorldObject) {
+    const isResource = ['farm', 'lumber', 'stone', 'oil'].includes(object.kind);
+    if (isResource && object.currentCapacity !== undefined && object.currentCapacity <= 0) {
+      // Depleted resource nodes are gone from the world until they regenerate
+      return;
+    }
     const root = new TransformNode(object.id, scene);
     root.position.set(object.x, 0, object.z);
     generatedRoots.push(root);
@@ -452,16 +458,11 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
       box('loot crate', 0.6, 0.6, 0.6, 1.5, 0.4, -1.5, gold, root);
     }
     const label = object.bossName ?? WORLD_DEFINITIONS[object.kind].name;
-    const isResource = ['farm', 'lumber', 'stone', 'oil'].includes(object.kind);
     let description: string;
     if (isResource) {
-      if (object.currentCapacity !== undefined && object.currentCapacity <= 0) {
-        description = `${label}: Depleted · Respawns soon`;
-      } else {
-        const cap = object.currentCapacity !== undefined ? Math.round(object.currentCapacity) : (object.maxCapacity ?? 500);
-        const max = object.maxCapacity ?? 500;
-        description = `${label}: ${cap} / ${max} available to gather`;
-      }
+      const cap = object.currentCapacity !== undefined ? Math.round(object.currentCapacity) : (object.maxCapacity ?? 500);
+      const max = object.maxCapacity ?? 500;
+      description = `${label}: ${cap} / ${max} available to gather`;
     } else {
       description = `${label}: ${object.state}${object.state === 'defended' ? ' - Attack to battle the defenders' : ''}`;
     }
@@ -718,6 +719,137 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
     });
   }
 
+  // City Base Health Bar Sprite (rendered when city health < 100%)
+  let cityHealthPlane: Mesh | null = null;
+  let cityHealthTexture: DynamicTexture | null = null;
+  let cityHealthMat: StandardMaterial | null = null;
+  let lastDrawnHealthKey = '';
+
+  function drawRoundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.arcTo(x + w, y, x + w, y + r, r);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
+    ctx.lineTo(x + r, y + h);
+    ctx.arcTo(x, y + h, x, y + h - r, r);
+    ctx.lineTo(x, y + r);
+    ctx.arcTo(x, y, x + r, y, r);
+    ctx.closePath();
+  }
+
+  function updateCityHealthBar(current: number, max: number, underAttack = false) {
+    if (typeof document === 'undefined') return;
+    const hall = buildings.find(b => b.kind === 'hall');
+    const hallRoot = hall ? buildingRoots.get(hall.id) : null;
+
+    // Hide health bar sprite if health is full (>= 100%), destroyed (<= 0), or hall is missing
+    if (current >= max || current <= 0 || !hallRoot) {
+      if (cityHealthPlane) cityHealthPlane.setEnabled(false);
+      lastDrawnHealthKey = '';
+      return;
+    }
+
+    if (!cityHealthPlane) {
+      cityHealthPlane = MeshBuilder.CreatePlane('city-health-bb', { width: 5.4, height: 1.6 }, scene);
+      cityHealthPlane.billboardMode = Mesh.BILLBOARDMODE_ALL;
+      cityHealthPlane.isPickable = false;
+
+      cityHealthTexture = new DynamicTexture('city-health-tex', { width: 384, height: 112 }, scene, false);
+      cityHealthTexture.hasAlpha = true;
+
+      cityHealthMat = new StandardMaterial('city-health-mat', scene);
+      cityHealthMat.diffuseTexture = cityHealthTexture;
+      cityHealthMat.emissiveColor = Color3.White();
+      cityHealthMat.specularColor = Color3.Black();
+      cityHealthMat.useAlphaFromDiffuseTexture = true;
+      cityHealthMat.disableLighting = true;
+      cityHealthMat.backFaceCulling = false;
+      cityHealthPlane.material = cityHealthMat;
+    }
+
+    // Anchor directly above the Main Hall
+    cityHealthPlane.parent = hallRoot;
+    cityHealthPlane.position.set(0, 5.0, 0);
+    cityHealthPlane.setEnabled(!overviewActive);
+
+    const pct = Math.max(0, Math.min(1, current / max));
+    const pctInt = Math.round(pct * 100);
+    const curRounded = Math.round(current);
+    const key = `${curRounded}-${max}-${underAttack}-${pctInt}`;
+    if (key === lastDrawnHealthKey) return;
+    lastDrawnHealthKey = key;
+
+    if (!cityHealthTexture) return;
+    const ctx = cityHealthTexture.getContext() as unknown as CanvasRenderingContext2D;
+    if (ctx && typeof ctx.clearRect === 'function') {
+      const w = 384;
+      const h = 112;
+      ctx.clearRect(0, 0, w, h);
+
+      // Dark badge container
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.94)';
+      drawRoundRect(ctx, 6, 6, w - 12, h - 12, 14);
+      ctx.fill();
+
+      // Border: pulsing/bright red when attacked, or slate/cyan when resting
+      ctx.lineWidth = underAttack ? 3 : 2;
+      ctx.strokeStyle = underAttack ? '#ef4444' : '#64748b';
+      ctx.stroke();
+
+      // Header row
+      ctx.font = 'bold 18px system-ui, -apple-system, sans-serif';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      if (underAttack) {
+        ctx.fillStyle = '#f87171';
+        ctx.fillText('⚔️ BASE UNDER ATTACK!', 20, 28);
+      } else {
+        ctx.fillStyle = '#e2e8f0';
+        ctx.fillText('🏰 Everleaf City Base', 20, 28);
+      }
+
+      // Percent text right-aligned
+      ctx.font = 'bold 17px system-ui, -apple-system, sans-serif';
+      ctx.textAlign = 'right';
+      ctx.fillStyle = pct > 0.5 ? '#4ade80' : pct > 0.25 ? '#facc15' : '#f87171';
+      ctx.fillText(`${curRounded} / ${max} (${pctInt}%)`, w - 20, 28);
+
+      // Health bar track
+      const trackX = 20;
+      const trackY = 54;
+      const trackW = w - 40;
+      const trackH = 26;
+
+      ctx.fillStyle = 'rgba(30, 41, 59, 0.95)';
+      drawRoundRect(ctx, trackX, trackY, trackW, trackH, 8);
+      ctx.fill();
+
+      // Health bar fill
+      const fillW = Math.max(0, trackW * pct);
+      if (fillW > 0) {
+        const fillColor = pct > 0.5 ? '#22c55e' : pct > 0.25 ? '#eab308' : '#ef4444';
+        ctx.fillStyle = fillColor;
+        drawRoundRect(ctx, trackX, trackY, fillW, trackH, 8);
+        ctx.fill();
+      }
+
+      // Gloss line
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.18)';
+      drawRoundRect(ctx, trackX + 2, trackY + 2, Math.max(0, fillW - 4), Math.floor(trackH / 2) - 2, 4);
+      ctx.fill();
+
+      // HP text inside/centered on bar
+      ctx.font = 'bold 14px system-ui, -apple-system, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#ffffff';
+      ctx.fillText(`${curRounded} HP`, trackX + trackW / 2, trackY + trackH / 2 + 1);
+
+      cityHealthTexture.update();
+    }
+  }
+
   const resize = () => engine.resize(); window.addEventListener('resize', resize);
   engine.runRenderLoop(() => {
     if (lastWorldBattleSettings !== activeBattleSettings) {
@@ -743,6 +875,9 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
     setTrainingQueue(queue: TrainingQueue) {
       activeTrainingQueue = queue;
       updateTrainingBillboards(activeTrainingQueue);
+    },
+    setCityHealth(current: number, max: number, underAttack = false) {
+      updateCityHealthBar(current, max, underAttack);
     },
     getScreenPosition(buildingId: string) {
       const root = buildingRoots.get(buildingId);
@@ -885,6 +1020,14 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
         bb.material.dispose();
       });
       trainingBillboards.clear();
+      if (cityHealthPlane) {
+        cityHealthPlane.dispose();
+        cityHealthTexture?.dispose();
+        cityHealthMat?.dispose();
+        cityHealthPlane = null;
+        cityHealthTexture = null;
+        cityHealthMat = null;
+      }
       worldFight.dispose(); portalScene.dispose(); clearMarches(); scene.dispose(); engine.dispose();
     },
   };

@@ -1,12 +1,12 @@
 military:
   - scout:
-      enabled: true
+      enabled: false
       id: scout
       name: Scout
-  - defense:
-      enabled: false
-      id: defense
-      name: Defense
+  - repair:
+      enabled: true
+      id: repair
+      name: Repair
   - formation:
       enabled: true
       id: formation

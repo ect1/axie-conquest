@@ -11,10 +11,10 @@ import BattleSpectatorModal from './battle-spectator';
 import { activateCommanderSkill, Battle, MAX_BATTLE_TICKS, stepBattle } from '@/game/battle';
 import { BATTLE_SAVE_KEY, BATTLE_TRANSACTION_KEY, BattleSession, BattleReport, createBattleSession, reinforceBattleSession, restoreBattleSave, readBattleReports, recoverBattleTransaction, commitBattleOutcome } from '@/game/battle-save';
 import { beginReplay, recordReplay } from '@/game/battle-replay';
-import { createMobGroup, DEFAULT_GENERATION, GenerationSettings, getWorldObjectActions, restoreWorld, SpawnableMobGroup, WORLD_SAVE_KEY, WorldAction, WorldObject, stepWorldResourceRespawn, WORLD_DEFINITIONS, WorldKind } from '@/game/world';
+import { createMobGroup, DEFAULT_GENERATION, GenerationSettings, getWorldObjectActions, restoreWorld, SpawnableMobGroup, WORLD_SAVE_KEY, DEPLETED_NODES_SAVE_KEY, restoreDepletedNodes, serializeDepletedNodes, DepletedNodeEntry, DEFAULT_RESOURCE_CAPACITIES, WorldAction, WorldObject, stepWorldResourceRespawn, WORLD_DEFINITIONS, WorldKind } from '@/game/world';
 import { clearDynamicBosses, getAllBosses, getBossConfig, registerDynamicBoss } from '@/game/bosses';
 import { stepUnitGathering, getLeaderClass, isResourceNode, nodeKindToCityResource, calculateArmyLoadCapacity } from '@/game/gathering';
-import { fetchLiveResourceSpawnConfig, getActiveGenerationSettings, isWorldKindEnabled, shouldRespawnWhenAllCollected, getResourceNodeConfig } from '@/game/resource-spawn-config';
+import { fetchLiveResourceSpawnConfig, getActiveGenerationSettings, isWorldKindEnabled, shouldRespawnWhenAllCollected, getResourceNodeConfig, getNodeRespawnTimerSeconds, getResourceRespawnTimerSeconds } from '@/game/resource-spawn-config';
 import type { BaseView } from '@/game/scene';
 import CityUnitPanel from './city-unit-panel';
 import { CAPITAL_CITY_ID, CITIES_SAVE_KEY, CityState, createCapitalCity, restoreCities, applyResourceProduction, calculateCityProductionRates } from '@/game/cities';
@@ -30,8 +30,30 @@ import {
   fetchLiveBuildingConfig,
   type BuildingCost,
 } from '@/game/building-config';
-import { fetchLiveGameConfig } from '@/game/game-config';
-import { fetchLiveCityConfig } from '@/game/city-config';
+import { fetchLiveGameConfig, getRepairConfig, RepairConfig } from '@/game/game-config';
+import { fetchLiveCityConfig, getCityDestructionConfig } from '@/game/city-config';
+import {
+  CITY_HEALTH_SAVE_KEY,
+  UNITS_PRODUCED_SAVE_KEY,
+  restoreCityHealth,
+  restoreUnitsProduced,
+  calculateHostileMarchDps,
+  calculateCityAssaultDps,
+  isMarchEngagedByFormation,
+  applyCityDamage,
+  calculateGameOverScore,
+} from '@/game/city-defense';
+import {
+  CITY_REPAIR_SAVE_KEY,
+  getCityRepairSaveKey,
+  restoreCityRepair,
+  serializeCityRepair,
+  processRepairTick,
+  calculateRepairRate,
+  CityRepairState,
+  createDefaultRepairState,
+} from '@/game/repair-service';
+import GameOverDialog from './game-over-dialog';
 import { fetchLiveStatsConfig } from '@/game/stats-config';
 import { createEmptyFormations, Formation, OFFENSE_FORMATIONS_SAVE_KEY, restoreOffenseFormations, serializeOffenseFormations } from '@/game/offense-formations';
 import { BATTLE_SETTINGS_SAVE_KEY, restoreActiveBattleSettings } from '@/game/battle-settings';
@@ -169,6 +191,57 @@ export default function Home() {
     }
   });
   const [selectedPortalId, setSelectedPortalId] = useState<string | null>(null);
+
+  const destructionConfig = getCityDestructionConfig(selectedCity?.kind ?? 'capital');
+  const [cityHealth, setCityHealthState] = useState<number>(() => {
+    try {
+      return restoreCityHealth(destructionConfig.maxHealth, localStorage.getItem(CITY_HEALTH_SAVE_KEY));
+    } catch {
+      return destructionConfig.maxHealth;
+    }
+  });
+  const [unitsProduced, setUnitsProduced] = useState<number>(() => {
+    try {
+      return restoreUnitsProduced(localStorage.getItem(UNITS_PRODUCED_SAVE_KEY));
+    } catch {
+      return 0;
+    }
+  });
+  const [isGameOver, setIsGameOver] = useState<boolean>(() => {
+    try {
+      const savedHp = localStorage.getItem(CITY_HEALTH_SAVE_KEY);
+      return savedHp !== null && Number(savedHp) <= 0;
+    } catch {
+      return false;
+    }
+  });
+  const [showGameOverModal, setShowGameOverModal] = useState<boolean>(() => {
+    try {
+      const savedHp = localStorage.getItem(CITY_HEALTH_SAVE_KEY);
+      return savedHp !== null && Number(savedHp) <= 0;
+    } catch {
+      return false;
+    }
+  });
+  const [lastDamageNoticeTime, setLastDamageNoticeTime] = useState<number>(0);
+  const lastCityDamageTickRef = useRef<number>(Date.now());
+  const [repairConfig, setRepairConfig] = useState<RepairConfig>(getRepairConfig);
+  const [repairState, setRepairState] = useState<CityRepairState>(() => {
+    try {
+      const key = selectedCity ? getCityRepairSaveKey(selectedCity.id) : CITY_REPAIR_SAVE_KEY;
+      return restoreCityRepair(localStorage.getItem(key) ?? localStorage.getItem(CITY_REPAIR_SAVE_KEY), getRepairConfig().defaultAutoRepair);
+    } catch {
+      return createDefaultRepairState(getRepairConfig().defaultAutoRepair);
+    }
+  });
+
+  useEffect(() => {
+    if (!ready) return;
+    try {
+      const key = selectedCity ? getCityRepairSaveKey(selectedCity.id) : CITY_REPAIR_SAVE_KEY;
+      localStorage.setItem(key, serializeCityRepair(repairState));
+    } catch { /* ignore */ }
+  }, [repairState, selectedCity, ready]);
 
   function togglePortalPause() {
     const updated = { ...portalConfig, paused: !portalConfig.paused };
@@ -326,12 +399,22 @@ export default function Home() {
     }
   }
 
-  function handleRestartGame(address: string) {
-    const normalized = normalizeOwnerAddress(address);
+  function handleRestartGame(address?: unknown) {
+    const owner = typeof address === 'string' && address ? address : ownerAddress;
+    const normalized = normalizeOwnerAddress(owner);
     resetPortalsManual();
     resetGame(window.localStorage);
     setActiveGameOwner(normalized);
     setPersistedOwner(normalized);
+    try {
+      window.localStorage.removeItem(CITY_HEALTH_SAVE_KEY);
+      window.localStorage.removeItem(UNITS_PRODUCED_SAVE_KEY);
+    } catch { /* ignore */ }
+    setCityHealthState(destructionConfig.maxHealth);
+    setUnitsProduced(0);
+    setIsGameOver(false);
+    setShowGameOverModal(false);
+    view.current?.setCityHealth(destructionConfig.maxHealth, destructionConfig.maxHealth, false);
     if (ready) {
       window.location.reload();
       return;
@@ -354,6 +437,9 @@ export default function Home() {
     ]).then(([bCfg, gCfg, cCfg, rCfg, sCfg]) => {
       if (bCfg || gCfg || cCfg || rCfg || sCfg) {
         setConfigVersion(v => v + 1);
+        if (gCfg) {
+          setRepairConfig(getRepairConfig());
+        }
         if (rCfg) {
           setGeneration(getActiveGenerationSettings() as GenerationSettings);
           setWorldObjects(prev => {
@@ -365,6 +451,23 @@ export default function Home() {
             }
             return prev;
           });
+        }
+        // Ensure city health syncs with live destruction configuration
+        const liveDestruction = getCityDestructionConfig(selectedCity?.kind ?? 'capital');
+        const savedHealth = localStorage.getItem(CITY_HEALTH_SAVE_KEY);
+        if (savedHealth === null) {
+          setCityHealthState(liveDestruction.maxHealth);
+          view.current?.setCityHealth(liveDestruction.maxHealth, liveDestruction.maxHealth, false);
+        } else {
+          const parsed = Number(savedHealth);
+          if (parsed <= 0) {
+            setIsGameOver(true);
+            setShowGameOverModal(true);
+          } else if (parsed >= 1500 && liveDestruction.maxHealth > 1500) {
+            setCityHealthState(liveDestruction.maxHealth);
+            try { localStorage.setItem(CITY_HEALTH_SAVE_KEY, String(liveDestruction.maxHealth)); } catch { /* ignore */ }
+            view.current?.setCityHealth(liveDestruction.maxHealth, liveDestruction.maxHealth, false);
+          }
         }
       }
     });
@@ -394,15 +497,17 @@ export default function Home() {
   useEffect(() => { if (ready) view.current?.setUnits(units, selectedUnitId); }, [units, selectedUnitId, ready]);
   useEffect(() => { if (ready) view.current?.setBattles(battleSessions); }, [battleSessions, ready]);
   useEffect(() => { if (ready) view.current?.setSelectedTarget(target?.id ?? null); }, [target, ready]);
-  const depletedNodesRef = useRef<Map<string, { node: WorldObject; depletedAt: number; respawnAt: number }>>(new Map());
+  const depletedNodesRef = useRef<Map<string, DepletedNodeEntry>>(new Map());
+  const allResourcesDepletedAtRef = useRef<number | null>(null);
   const lastGatherTimeRef = useRef<number>(Date.now());
 
   useEffect(() => {
     if (!ready || showIntro) return;
 
-    const lastTime = lastGatherTimeRef.current;
+    if (now <= lastGatherTimeRef.current) return;
+    const deltaMs = Math.min(1000, Math.max(0, now - lastGatherTimeRef.current));
+    if (deltaMs < 50) return;
     lastGatherTimeRef.current = now;
-    const deltaMs = Math.max(100, Math.min(1000, now - lastTime));
 
     let nextWorld = [...worldObjects];
     let worldLayoutChanged = false;
@@ -410,34 +515,52 @@ export default function Home() {
     // 1. Check respawn of depleted resource nodes that were removed from the world
     if (depletedNodesRef.current.size > 0) {
       const batchRespawn = shouldRespawnWhenAllCollected();
-      const respawnEntries: Array<{ node: WorldObject; depletedAt: number; respawnAt: number }> = [];
+      const batchTimerSeconds = getResourceRespawnTimerSeconds();
+      const activeResourceNodes = nextWorld.filter(o => ['farm', 'lumber', 'stone', 'oil'].includes(o.kind));
+      const respawnEntries: DepletedNodeEntry[] = [];
 
-      depletedNodesRef.current.forEach(entry => {
-        if (now >= entry.respawnAt) {
-          if (batchRespawn) {
-            const hasActiveSameKind = nextWorld.some(o => o.kind === entry.node.kind);
-            if (!hasActiveSameKind) {
-              respawnEntries.push(entry);
-            }
-          } else {
+      if (batchRespawn) {
+        // Batch respawn: nodes only respawn when ALL resource nodes on the map are collected/depleted
+        if (activeResourceNodes.length === 0) {
+          if (allResourcesDepletedAtRef.current === null) {
+            allResourcesDepletedAtRef.current = now;
+          }
+          const batchReadyTime = allResourcesDepletedAtRef.current + batchTimerSeconds * 1000;
+          if (now >= batchReadyTime) {
+            depletedNodesRef.current.forEach(entry => respawnEntries.push(entry));
+            allResourcesDepletedAtRef.current = null;
+          }
+        } else {
+          allResourcesDepletedAtRef.current = null;
+        }
+      } else {
+        // Individual respawn: each node respawns when its individual respawn timer has passed
+        depletedNodesRef.current.forEach(entry => {
+          if (now >= entry.respawnAt) {
             respawnEntries.push(entry);
           }
-        }
-      });
+        });
+      }
 
       if (respawnEntries.length > 0) {
         for (const entry of respawnEntries) {
           depletedNodesRef.current.delete(entry.node.id);
           const restoredNode: WorldObject = {
             ...entry.node,
-            currentCapacity: entry.node.maxCapacity ?? 500,
+            currentCapacity: entry.node.maxCapacity ?? DEFAULT_RESOURCE_CAPACITIES[entry.node.kind] ?? 500,
             depletedAt: undefined,
             respawnAt: undefined,
           };
           nextWorld.push(restoredNode);
           worldLayoutChanged = true;
         }
-        setMessage(`🌱 ${respawnEntries.length > 1 ? `${respawnEntries.length} resource nodes have` : 'A resource node has'} regenerated on the world map!`);
+        try {
+          localStorage.setItem(
+            DEPLETED_NODES_SAVE_KEY,
+            serializeDepletedNodes(Array.from(depletedNodesRef.current.values()))
+          );
+        } catch { /* storage optional */ }
+        setMessage(`🌱 ${respawnEntries.length > 1 ? `All ${respawnEntries.length} resource nodes have` : 'A resource node has'} regenerated on the world map!`);
       }
     }
 
@@ -483,6 +606,10 @@ export default function Home() {
             continue;
           } else {
             // Node is depleted and removed from map! Disband home
+            if (targetNode && (targetNode.currentCapacity ?? 0) <= 0) {
+              nextWorld = nextWorld.filter(o => o.id !== targetNode.id);
+              worldLayoutChanged = true;
+            }
             nextUnits.push({
               ...settleUnit(u, now),
               repeatGather: false,
@@ -510,6 +637,10 @@ export default function Home() {
           continue;
         } else {
           // Node was depleted while marching! Turn around and return home
+          if (targetNode && (targetNode.currentCapacity ?? 0) <= 0) {
+            nextWorld = nextWorld.filter(o => o.id !== targetNode.id);
+            worldLayoutChanged = true;
+          }
           const returning = commandUnit(
             { ...u, position: { ...u.order!.destination }, activity: undefined },
             'return',
@@ -583,16 +714,28 @@ export default function Home() {
             nextWorld = nextWorld.filter(o => o.id !== node.id);
             worldLayoutChanged = true;
 
-            const nodeCfg = getResourceNodeConfig(node.kind);
-            const respawnSeconds = nodeCfg?.respawnTimerSeconds ?? 300;
+            const respawnSeconds = getNodeRespawnTimerSeconds(node.kind);
             depletedNodesRef.current.set(node.id, {
               node: {
                 ...node,
-                currentCapacity: node.maxCapacity ?? 500,
+                currentCapacity: node.maxCapacity ?? DEFAULT_RESOURCE_CAPACITIES[node.kind] ?? 500,
               },
               depletedAt: now,
               respawnAt: now + respawnSeconds * 1000,
             });
+            try {
+              localStorage.setItem(
+                DEPLETED_NODES_SAVE_KEY,
+                serializeDepletedNodes(Array.from(depletedNodesRef.current.values()))
+              );
+            } catch { /* storage optional */ }
+
+            // Clear target selection if target was the depleted node
+            if (target?.id === node.id) {
+              setTarget(null);
+              setRouteAction(null);
+              setSelectedAction(null);
+            }
 
             // Return home immediately (cancels repeat since node is gone)
             const returned = commandUnit({ ...step.updatedUnit, activity: undefined }, 'return', now, undefined, true);
@@ -673,6 +816,11 @@ export default function Home() {
         for (const job of finished) {
           view.current.train(job.kind);
         }
+        setUnitsProduced(prev => {
+          const nextCount = prev + finished.length;
+          try { localStorage.setItem(UNITS_PRODUCED_SAVE_KEY, String(nextCount)); } catch { /* ignore */ }
+          return nextCount;
+        });
       }
     }, 250);
     return () => clearInterval(id);
@@ -740,6 +888,10 @@ export default function Home() {
       view.current = createBase(canvas.current, { watchBattle: (sessionId) => { const session = battleSessionsRef.current.find(s => (s.id || s.army.id) === sessionId) || battleSessionsRef.current[0]; if (session) { setSpectatorSession(session); setSpectating(true); } }, fighterSelect: setSelectedFighterId, change: setBuildings, preview: setCell, unitSelect: id => { setSelectedUnitId(id); setSelectedPortalId(null); setTarget(null); setRouteAction(null); setSelectedAction(null); }, portalSelect: portalId => { setSelectedPortalId(portalId); setSelectedUnitId(null); setSelected(null); setTarget(null); setDeveloper(false); setMilitary(false); setTraining(false); setHeroes(false); setInventory(false); }, target: next => { setTarget(next); setRouteAction(next ? 'choose' : null); setSelectedAction(null); setFormationIndex(null); if (next?.id) setSelectedUnitId(null); if (next) { setSelected(null); setDeveloper(false); setMilitary(false); setTraining(false); setHeroes(false); setInventory(false); setCatalog(false); } }, viewMode: mode => { setWorldView(mode === 'world'); if (mode === 'world') { setTraining(false); setSelected(null); } if (mode !== 'world') { setSelectedUnitId(null); setTarget(null); setRouteAction(null); setSelectedAction(null); } }, select: building => { setSelected(building); if (building) { setDeveloper(false); setMilitary(false); setTraining(false); setHeroes(false); setInventory(false); } }, message: setMessage, troops: setTroops });
       let initialObjects: WorldObject[];
       let savedObjects: WorldObject[] | null = null;
+      try {
+        const savedDepleted = restoreDepletedNodes(localStorage.getItem(DEPLETED_NODES_SAVE_KEY));
+        savedDepleted.forEach(entry => depletedNodesRef.current.set(entry.node.id, entry));
+      } catch { /* storage optional */ }
       try { savedObjects = restoreWorld(localStorage.getItem(WORLD_SAVE_KEY)); } catch { savedObjects = null; }
       if (savedObjects !== null) {
         view.current.loadWorld(savedObjects);
@@ -800,9 +952,123 @@ export default function Home() {
       });
     }
     if (arrivedMarchesCount > 0) {
-      setMessage('⚠️ Hostile forces have surrounded the city perimeter and halted outside!');
+      setMessage('⚠️ Hostile forces have surrounded the perimeter and are attacking the city base!');
     }
-  }, [now, ready, portalConfig]);
+
+    // Process hostile damage against the city base
+    const arrivedMarches = nextState.activeEnemyMarches.filter(
+      m => m.status === 'arrived' || (m.status === 'marching' && now >= m.arrivesAt)
+    );
+
+    const { totalDps, attackingMarches, engagedMarches } = calculateCityAssaultDps(
+      arrivedMarches,
+      battleSessionsRef.current,
+      units
+    );
+
+    const nowTime = now;
+    const lastTick = lastCityDamageTickRef.current;
+    const elapsedSeconds = Math.max(0, Math.min(1.0, (nowTime - lastTick) / 1000));
+    lastCityDamageTickRef.current = nowTime;
+
+    const hallLevel = buildings.find(b => b.kind === 'hall')?.level ?? 1;
+
+    setCityHealthState(prevHp => {
+      let nextHp = prevHp;
+      let isDestroyed = false;
+      const isUnderAttack = totalDps > 0 && attackingMarches.length > 0;
+
+      // 1. Hostile damage application
+      if (totalDps > 0 && !isGameOver && elapsedSeconds > 0) {
+        const tickDamage = totalDps * elapsedSeconds;
+        const damageResult = applyCityDamage(prevHp, tickDamage);
+        nextHp = damageResult.currentHealth;
+        isDestroyed = damageResult.isDestroyed;
+
+        if (isDestroyed && !isGameOver) {
+          setIsGameOver(true);
+          setShowGameOverModal(true);
+          setMessage('🚨 Defeat! City base destroyed by hostile rift forces.');
+        }
+      }
+
+      // 2. Axie repair crew processing
+      let repairedHp = 0;
+      if (
+        !isDestroyed &&
+        nextHp > 0 &&
+        nextHp < destructionConfig.maxHealth &&
+        elapsedSeconds > 0 &&
+        repairState.autoRepair &&
+        repairState.assignedAxieIds.length > 0
+      ) {
+        const repairRes = processRepairTick({
+          currentHealth: nextHp,
+          maxHealth: destructionConfig.maxHealth,
+          resources: {
+            wood: selectedCity.resources.wood.amount,
+            stone: selectedCity.resources.stone.amount,
+            food: selectedCity.resources.food.amount,
+          },
+          elapsedSeconds,
+          hallLevel,
+          assignedAxieCount: repairState.assignedAxieIds.length,
+          autoRepair: repairState.autoRepair,
+          config: repairConfig,
+        });
+
+        if (repairRes.isRepairing && repairRes.hpRepaired > 0) {
+          repairedHp = repairRes.hpRepaired;
+          nextHp = repairRes.nextHealth;
+
+          if (repairRes.consumed.wood > 0 || repairRes.consumed.stone > 0) {
+            setSelectedCity(prevCity => ({
+              ...prevCity,
+              resources: {
+                ...prevCity.resources,
+                wood: {
+                  ...prevCity.resources.wood,
+                  amount: Math.max(0, prevCity.resources.wood.amount - repairRes.consumed.wood),
+                },
+                stone: {
+                  ...prevCity.resources.stone,
+                  amount: Math.max(0, prevCity.resources.stone.amount - repairRes.consumed.stone),
+                },
+              },
+            }));
+          }
+        }
+      }
+
+      try {
+        localStorage.setItem(CITY_HEALTH_SAVE_KEY, String(Math.round(nextHp)));
+      } catch { /* ignore */ }
+      view.current?.setCityHealth(nextHp, destructionConfig.maxHealth, isUnderAttack);
+
+      if (totalDps > 0 && now - lastDamageNoticeTime > 4000) {
+        setLastDamageNoticeTime(now);
+        const engageText = engagedMarches.length > 0 ? ` (${engagedMarches.length} engaged by army)` : '';
+        const repairText = repairedHp > 0 ? ` (Repairing: +${Math.round(calculateRepairRate(repairConfig, hallLevel, repairState.assignedAxieIds.length))} HP/s)` : '';
+        setMessage(`⚠️ ${attackingMarches.length} hostile wave(s) assaulting city base! -${Math.round(totalDps)} HP/s${engageText}${repairText}`);
+      }
+
+      return nextHp;
+    });
+  }, [
+    now,
+    ready,
+    portalConfig,
+    isGameOver,
+    destructionConfig.maxHealth,
+    lastDamageNoticeTime,
+    units,
+    buildings,
+    repairState,
+    repairConfig,
+    selectedCity.resources.wood.amount,
+    selectedCity.resources.stone.amount,
+    selectedCity.resources.food.amount,
+  ]);
   useEffect(() => {
     if (!ready || battleError) return;
     const activeAttackerIds = new Set(battleSessionsRef.current.map(s => s.army.id));
@@ -1313,6 +1579,9 @@ export default function Home() {
   function formationIssue(index: number): string | null {
     const active = units.find(unit => unit.kind === 'army' && unit.cityId === selectedCity.id && unit.formationIndex === index);
     if (active) {
+      if (battleSessionsRef.current.some(s => (s.armies ?? [s.army]).some(a => a.id === active.id) && !s.battle.result)) {
+        return 'Currently fighting in battle. Use Retreat in battle controls.';
+      }
       if (selectedAction === 'gather' && active.cargo && active.cargo.amount > 0) {
         return `Carrying ${Math.round(active.cargo.amount)} ${active.cargo.resource}. Return to base first.`;
       }
@@ -1531,6 +1800,22 @@ export default function Home() {
               <span>✦</span>
               <strong>{buildings.find(b => b.kind === 'hall')?.level ?? 1}<small>HALL LEVEL</small></strong>
             </div>
+            {cityHealth < destructionConfig.maxHealth && (
+              <div
+                className="level"
+                title={`City Base Health: ${Math.round(cityHealth)} / ${destructionConfig.maxHealth}${repairState.autoRepair && repairState.assignedAxieIds.length > 0 ? ` (Repairing: +${calculateRepairRate(repairConfig, buildings.find(b => b.kind === 'hall')?.level ?? 1, repairState.assignedAxieIds.length)} HP/s)` : ''}`}
+                style={{ borderColor: cityHealth / destructionConfig.maxHealth > 0.5 ? '#22c55e' : '#ef4444' }}
+              >
+                <span>{repairState.autoRepair && repairState.assignedAxieIds.length > 0 ? '🛠️' : '🛡️'}</span>
+                <strong style={{ color: cityHealth / destructionConfig.maxHealth > 0.5 ? '#86efac' : '#fca5a5' }}>
+                  {Math.round(cityHealth)} / {destructionConfig.maxHealth}
+                  <small>
+                    CITY HP ({Math.round((cityHealth / destructionConfig.maxHealth) * 100)}%)
+                    {repairState.autoRepair && repairState.assignedAxieIds.length > 0 ? ` · +${calculateRepairRate(repairConfig, buildings.find(b => b.kind === 'hall')?.level ?? 1, repairState.assignedAxieIds.length)}/s` : ''}
+                  </small>
+                </strong>
+              </div>
+            )}
           </div>
         );
       })()}
@@ -1566,11 +1851,13 @@ export default function Home() {
           >
             <strong style={{ color: '#b91c1c' }}>⚠️ {march.name}</strong>
             <small style={{ color: '#991b1b' }}>
-              {march.status === 'fighting'
-                ? '⚔️ In battle'
-                : march.status === 'arrived' || now >= march.arrivesAt
-                ? '⚔️ Halted outside city'
-                : `Hostile wave · ETA ${formatDuration(etaMs)}`}
+              {(() => {
+                const isEngaged = isMarchEngagedByFormation(march, battleSessionsRef.current, units);
+                if (march.status === 'fighting') return '⚔️ In battle';
+                if (isEngaged) return '🛡️ Engaged with defenders';
+                if (march.status === 'arrived' || now >= march.arrivesAt) return '🔥 Attacking city base';
+                return `Hostile wave · ETA ${formatDuration(etaMs)}`;
+              })()}
             </small>
             <span className="unit-coordinate">⌖ {position.x.toFixed(1)}, {position.z.toFixed(1)} · View enemy</span>
           </button>
@@ -2135,8 +2422,104 @@ export default function Home() {
       </div>
     )}
     {selectedObject && <div className="world-object-actions">{targetActions.map(option => <div key={option.action}><button className={option.action === 'attack' || option.action === 'gather' ? 'primary' : 'secondary'} disabled={!option.enabled} onClick={() => chooseWorldAction(option.action)}>{option.action === 'gather' ? '🌾 Gather' : option.action[0].toUpperCase() + option.action.slice(1)}</button>{option.reason && <small>{option.reason}</small>}</div>)}</div>}{mobSpawnEnabled && !selectedObject && <div className="world-object-actions" style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '10px', background: 'rgba(25, 33, 30, 0.9)', borderRadius: '6px', border: '1px solid #f59e0b', margin: '6px 0' }}><label htmlFor="world-boss-select" style={{ fontSize: '0.8rem', fontWeight: 'bold', color: '#f59e0b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>⚔ Summon Boss Mob</label><select id="world-boss-select" value={selectedBossId} onChange={e => setSelectedBossId(e.target.value)} style={{ padding: '6px 10px', borderRadius: '4px', background: '#151d1a', color: '#fff', border: '1px solid #4a5c54', fontSize: '0.85rem', cursor: 'pointer' }}>{getAllBosses().map(boss => <option key={boss.id} value={boss.id}>{boss.name} {boss.title ? `(${boss.title})` : ''}</option>)}<option value="random">Random Boss</option></select><button className="primary" onClick={() => spawnMobGroup(selectedBossId)}>Summon {selectedBossId === 'random' ? 'Random Boss' : (getBossConfig(selectedBossId)?.name ?? 'Boss')}</button><small style={{ color: '#aaa', fontSize: '0.75rem' }}>Developer HUD enabled: spawn at {target.x.toFixed(1)}, {target.z.toFixed(1)}.</small></div>}<button className={selectedObject ? 'secondary' : 'primary'} onClick={() => chooseMarch('march')}>March here</button><small>{selectedObject ? 'March here moves a formation into position without starting combat.' : 'Choose a formation and send it to this location.'}</small></section>}
-    {!selectedUnit && target && routeAction === 'formation' && selectedAction && <section className="selection world-action panel" aria-label="World actions"><button className="close" aria-label="Close world actions" onClick={() => { setRouteAction('choose'); setFormationIndex(null); }}>&times;</button><span className="eyebrow">{selectedAction === 'march' ? `MARCH · ${target.label || 'DESTINATION'}` : `${selectedAction.toUpperCase()} · ${target.label}`}</span><h2>Choose formation</h2><p>At-home and deployed formations can take this order.</p>{formations.map((formation, index) => { const active = units.find(unit => unit.kind === 'army' && unit.cityId === selectedCity.id && unit.formationIndex === index); const issue = formationIssue(index); const origin = active ? unitPosition(active, now) : { x: 0, z: 0 }; const eta = marchTravelTimeMs(createRoute(target, origin), active?.speed ?? unitStats.marchSpeed); return <button key={index} className="building-card" aria-pressed={formationIndex === index} disabled={!!issue} onClick={() => setFormationIndex(index)}><strong>Formation {index + 1}{active ? ' · Deployed' : ' · At home'}{formationIndex === index ? ' · Selected' : ''}</strong><small>{issue || `${active ? `${settleUnit(active, now).status} · ${active.members.reduce((sum, member) => sum + member.count, 0)} members` : 'Ready to deploy'} · ETA ${formatDuration(eta)}`}</small></button>; })}{!formations.some(isValidFormation) && !units.some(unit => unit.kind === 'army') && <button className="secondary" onClick={() => { setTarget(null); setRouteAction(null); setSelectedAction(null); setMilitary(true); }}>Configure formations in Military</button>}<button className="primary" disabled={formationIndex === null || !!formationIssue(formationIndex)} onClick={() => { if (formationIndex !== null) deploy(formationIndex, selectedAction); }}>{selectedAction === 'march' ? 'Send march' : selectedAction === 'attack' ? 'Send attack' : selectedAction === 'occupy' ? 'Send occupiers' : '🌾 Send gatherers'}</button></section>}
-    {military && !placing && !selected && <MilitaryPanel troops={troops} units={units} cityId={selectedCity.id} now={now} axies={apiAxies} deployedIds={selectedCity.deployedAxieIds.filter(id => apiAxies.some(axie => axie.id === id))} formations={formations} onFormationsChange={setFormations} onClose={() => setMilitary(false)} />}
+    {!selectedUnit && target && routeAction === 'formation' && selectedAction && (
+      <section className="selection world-action panel" aria-label="World actions">
+        <button
+          className="close"
+          aria-label="Close world actions"
+          onClick={() => {
+            setRouteAction('choose');
+            setFormationIndex(null);
+          }}
+        >
+          &times;
+        </button>
+        <span className="eyebrow">
+          {selectedAction === 'march' ? `MARCH · ${target.label || 'DESTINATION'}` : `${selectedAction.toUpperCase()} · ${target.label}`}
+        </span>
+        <h2>Choose formation</h2>
+        <p>At-home and deployed formations can take this order.</p>
+        {formations.map((formation, index) => {
+          const active = units.find(unit => unit.kind === 'army' && unit.cityId === selectedCity.id && unit.formationIndex === index);
+          const issue = formationIssue(index);
+          const origin = active ? unitPosition(active, now) : { x: 0, z: 0 };
+          const eta = marchTravelTimeMs(createRoute(target, origin), active?.speed ?? unitStats.marchSpeed);
+          return (
+            <button
+              key={index}
+              className={`building-card ${issue ? 'formation-has-issue' : ''}`}
+              aria-pressed={formationIndex === index}
+              onClick={() => setFormationIndex(index)}
+            >
+              <strong>
+                Formation {index + 1}
+                {active ? ' · Deployed' : ' · At home'}
+                {formationIndex === index ? ' · Selected' : ''}
+              </strong>
+              <small style={{ color: issue ? '#fca5a5' : undefined }}>
+                {issue
+                  ? `⚠️ ${issue}`
+                  : `${active ? `${settleUnit(active, now).status} · ${active.members.reduce((sum, member) => sum + member.count, 0)} members` : 'Ready to deploy'} · ETA ${formatDuration(eta)}`}
+              </small>
+            </button>
+          );
+        })}
+        {formationIndex !== null && formationIssue(formationIndex) && (
+          <div style={{ margin: '6px 0', padding: '8px 12px', background: 'rgba(239, 68, 68, 0.15)', border: '1px solid #ef4444', borderRadius: '6px' }}>
+            <small style={{ color: '#fca5a5', fontWeight: 600 }}>
+              Formation {formationIndex + 1}: {formationIssue(formationIndex)}
+            </small>
+          </div>
+        )}
+        {((!formations.some(isValidFormation) && !units.some(unit => unit.kind === 'army')) || (formationIndex !== null && formationIssue(formationIndex) === 'Assign at least one Axie.')) && (
+          <button
+            className="secondary"
+            onClick={() => {
+              setTarget(null);
+              setRouteAction(null);
+              setSelectedAction(null);
+              setMilitary(true);
+            }}
+          >
+            Configure Formation {formationIndex !== null ? formationIndex + 1 : ''} in Military
+          </button>
+        )}
+        <button
+          className="primary"
+          disabled={formationIndex === null || !!formationIssue(formationIndex)}
+          onClick={() => {
+            if (formationIndex !== null) deploy(formationIndex, selectedAction);
+          }}
+        >
+          {selectedAction === 'march'
+            ? 'Send march'
+            : selectedAction === 'attack'
+            ? 'Send attack'
+            : selectedAction === 'occupy'
+            ? 'Send occupiers'
+            : '🌾 Send gatherers'}
+        </button>
+      </section>
+    )}
+    {military && !placing && !selected && (
+      <MilitaryPanel
+        troops={troops}
+        units={units}
+        cityId={selectedCity.id}
+        now={now}
+        axies={apiAxies}
+        deployedIds={selectedCity.deployedAxieIds.filter(id => apiAxies.some(axie => axie.id === id))}
+        formations={formations}
+        onFormationsChange={setFormations}
+        onClose={() => setMilitary(false)}
+        repairState={repairState}
+        onRepairStateChange={setRepairState}
+        cityHallLevel={buildings.find(b => b.kind === 'hall')?.level ?? 1}
+        repairConfig={repairConfig}
+        cityHealth={cityHealth}
+        maxCityHealth={destructionConfig.maxHealth}
+      />
+    )}
     {cityUnit && !placing && !selected && <CityUnitPanel city={{ ...selectedCity, troops }} axies={apiAxies} onClose={() => setCityUnit(false)} />}
     <button
       className="portal-toggle build-toggle"
@@ -2235,7 +2618,7 @@ export default function Home() {
       onResetPortals={() => resetPortalsManual()}
       onClose={() => setDeveloper(false)}
       onRegenerate={regenerate}
-      onRemove={() => { view.current?.removeWorld(); try { localStorage.setItem(WORLD_SAVE_KEY, '[]'); } catch { /* Keep the removal in memory when storage is unavailable. */ } setWorldObjects([]); setGenerationStatus('All generated objects removed.'); }}
+      onRemove={() => { view.current?.removeWorld(); try { localStorage.setItem(WORLD_SAVE_KEY, '[]'); localStorage.setItem(DEPLETED_NODES_SAVE_KEY, '[]'); } catch { /* Keep the removal in memory when storage is unavailable. */ } depletedNodesRef.current.clear(); allResourcesDepletedAtRef.current = null; setWorldObjects([]); setGenerationStatus('All generated objects removed.'); }}
     />}
     {selectedPortalId && (
       <PortalDialog
@@ -2247,6 +2630,56 @@ export default function Home() {
         onTogglePause={togglePortalPause}
         onAttackPortal={handleAttackPortal}
       />
+    )}
+    {showGameOverModal && (
+      <GameOverDialog
+        portalLevel={Math.max(1, ...(portalState.portals?.map(p => p.level) ?? [1]), ...(portalState.activeEnemyMarches?.map(m => m.level) ?? [1]))}
+        unitsProduced={unitsProduced}
+        score={calculateGameOverScore(
+          Math.max(1, ...(portalState.portals?.map(p => p.level) ?? [1]), ...(portalState.activeEnemyMarches?.map(m => m.level) ?? [1])),
+          unitsProduced
+        )}
+        maxHealth={destructionConfig.maxHealth}
+        onRestart={() => handleRestartGame()}
+        onClose={() => setShowGameOverModal(false)}
+      />
+    )}
+    {isGameOver && !showGameOverModal && (
+      <aside
+        style={{
+          position: 'fixed',
+          bottom: '24px',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          zIndex: 900,
+          background: 'rgba(239, 68, 68, 0.95)',
+          color: '#ffffff',
+          padding: '12px 20px',
+          borderRadius: '16px',
+          boxShadow: '0 4px 20px rgba(239, 68, 68, 0.5)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '12px',
+          fontWeight: 'bold',
+          fontSize: '14px',
+        }}
+      >
+        <span>☠️ Base Destroyed! Game Over</span>
+        <button
+          style={{
+            background: '#ffffff',
+            color: '#b91c1c',
+            border: 'none',
+            borderRadius: '8px',
+            padding: '6px 14px',
+            fontWeight: 800,
+            cursor: 'pointer',
+          }}
+          onClick={() => setShowGameOverModal(true)}
+        >
+          View Score & Restart
+        </button>
+      </aside>
     )}
     {mail && <MailDialog battleReports={battleReports} onClose={() => setMail(false)} />}
     {battleSessions.length > 0 && !spectating && (
@@ -2360,6 +2793,7 @@ export default function Home() {
         }}
         onRetreat={() => retreatBattle(spectatorSession || battleSessions[0])}
         debug={battleDebug}
+        hideInspector={!battleDebug}
         onFinish={() => {
           setSpectating(false);
           setSpectatorSession(null);

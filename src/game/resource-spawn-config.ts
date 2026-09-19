@@ -50,17 +50,31 @@ export type WorldSettingsConfig = {
   objectRadius: number;
   defaultSpacing: number;
   cityBufferDistance: number;
-  globalSpawnTimerSeconds: number;
-  respawnWhenAllCollected: boolean;
+  globalSpawnTimerSeconds?: number;
+  respawnWhenAllCollected?: boolean;
   // Legacy aliases
   globalSpwanTimerSecods?: number;
   respawnWhenDepletion?: boolean;
 };
 
+export type ResourceNodesContainerConfig = {
+  respawnWhenAllCollected?: boolean;
+  respawnWhenAllGathered?: boolean;
+  batchRespawn?: boolean;
+  respawnTimerSeconds?: number;
+  globalTimerSeconds?: number;
+  batchRespawnTimerSeconds?: number;
+  farm?: ResourceNodeConfig;
+  lumber?: ResourceNodeConfig;
+  stone?: ResourceNodeConfig;
+  oil?: ResourceNodeConfig;
+  [key: string]: ResourceNodeConfig | boolean | number | undefined;
+};
+
 export type ResourceSpawnConfigFile = {
   version: number;
   worldSettings: WorldSettingsConfig;
-  resourceNodes: Record<string, ResourceNodeConfig>;
+  resourceNodes: ResourceNodesContainerConfig;
   bossMobs: {
     defaultSpawnCount: number;
     respawnTimerSeconds: number;
@@ -77,10 +91,10 @@ const DEFAULT_RESOURCE_SPAWN_CONFIG: ResourceSpawnConfigFile = {
     objectRadius: 3,
     defaultSpacing: 8,
     cityBufferDistance: 14,
-    globalSpawnTimerSeconds: 300,
-    respawnWhenAllCollected: true,
   },
   resourceNodes: {
+    respawnWhenAllCollected: true,
+    respawnTimerSeconds: 5,
     farm: {
       enabled: true,
       id: 'farm',
@@ -229,32 +243,68 @@ export function getResourceSpawnConfigFile(): ResourceSpawnConfigFile {
 }
 
 export function getGlobalSpawnTimerSeconds(): number {
-  const cfg = getResourceSpawnConfigFile();
-  return (
-    cfg?.worldSettings?.globalSpawnTimerSeconds ??
-    cfg?.worldSettings?.globalSpwanTimerSecods ??
-    300
-  );
+  return getResourceRespawnTimerSeconds();
 }
 
+/**
+ * Checks whether resource nodes should only respawn together once ALL resource nodes
+ * on the world map have been collected/depleted.
+ */
 export function shouldRespawnWhenAllCollected(): boolean {
   const cfg = getResourceSpawnConfigFile();
+  const nodes = cfg?.resourceNodes;
   return (
+    nodes?.respawnWhenAllCollected ??
+    nodes?.respawnWhenAllGathered ??
+    nodes?.batchRespawn ??
     cfg?.worldSettings?.respawnWhenAllCollected ??
     cfg?.worldSettings?.respawnWhenDepletion ??
     true
   );
 }
 
+/**
+ * Returns the batch/global respawn countdown timer in seconds for gatherable resource nodes.
+ */
+export function getResourceRespawnTimerSeconds(): number {
+  const cfg = getResourceSpawnConfigFile();
+  const nodes = cfg?.resourceNodes;
+  return (
+    nodes?.respawnTimerSeconds ??
+    nodes?.globalTimerSeconds ??
+    nodes?.batchRespawnTimerSeconds ??
+    cfg?.worldSettings?.globalSpawnTimerSeconds ??
+    cfg?.worldSettings?.globalSpwanTimerSecods ??
+    5
+  );
+}
+
+/**
+ * Returns the respawn timer in seconds for a specific node kind.
+ * If batch respawn (respawnWhenAllCollected) is active, returns the batch timer.
+ */
+export function getNodeRespawnTimerSeconds(nodeKind: string): number {
+  const cfg = getResourceSpawnConfigFile();
+  if (shouldRespawnWhenAllCollected()) {
+    return getResourceRespawnTimerSeconds();
+  }
+  const nodeCfg = getResourceNodeConfig(nodeKind);
+  return nodeCfg?.respawnTimerSeconds ?? getResourceRespawnTimerSeconds();
+}
+
 export function getResourceNodeConfig(id: string): ResourceNodeConfig | null {
   const cfg = getResourceSpawnConfigFile();
-  return cfg?.resourceNodes?.[id] ?? null;
+  const candidate = cfg?.resourceNodes?.[id];
+  if (candidate && typeof candidate === 'object' && 'capacity' in candidate) {
+    return candidate as ResourceNodeConfig;
+  }
+  return null;
 }
 
 export function isResourceNodeEnabled(id: string): boolean {
   const cfg = getResourceSpawnConfigFile();
   if ((cfg?.resourceNodes as unknown as { enabled?: boolean })?.enabled === false) return false;
-  const node = cfg?.resourceNodes?.[id];
+  const node = getResourceNodeConfig(id);
   if (!node) return false;
   return node.enabled !== false;
 }

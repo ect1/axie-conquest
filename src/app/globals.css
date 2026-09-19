@@ -156,10 +156,21 @@ h2 { font: bold 19px Georgia, serif; margin: 3px 0 0; }
 .military-card small { margin-top: 5px; font-size: 10px; line-height: 1.35; }
 .military-card-icon { display: grid; place-items: center; width: 42px; height: 42px; flex-shrink: 0; border-radius: 12px; background: #dce7d1; color: #52704d; font-size: 24px; }
 .scout-card { background: #e6f0e3; border-color: #afcbaa; }
-.defense-card { background: #f0ebdb; border-color: #d8c99d; }
-.defense-card .military-card-icon { background: #e8ddbd; color: #876b34; }
+.repair-card { background: #e8effa; border-color: #b0c6e8; }
+.repair-card .military-card-icon { background: #d0e0f8; color: #2b569a; font-size: 20px; }
 .offense-card { background: #e9e7e0; border-color: #d2d0c6; }
 .offense-card .military-card-icon { background: #deddd7; color: #77776d; }
+.repair-toggle-banner { margin: 8px 0; padding: 10px; border-radius: 12px; background: #e8f0fe; border: 1px solid #c0d4f5; }
+.repair-checkbox-label { display: flex; align-items: flex-start; gap: 10px; cursor: pointer; user-select: none; }
+.repair-checkbox-label input[type="checkbox"] { width: 18px; height: 18px; margin-top: 2px; accent-color: #2563eb; cursor: pointer; }
+.repair-checkbox-label strong { display: block; font-size: 13px; color: #1e3a8a; }
+.repair-checkbox-label small { display: block; font-size: 11px; color: #3b82f6; margin-top: 2px; }
+.repair-status-box { margin: 8px 0 12px; padding: 12px; border-radius: 12px; background: #f8fafc; border: 1px solid #e2e8f0; }
+.repair-status-row { display: flex; justify-content: space-between; align-items: center; font-size: 12px; margin-bottom: 6px; }
+.repair-health-bar { width: 100%; height: 8px; border-radius: 4px; background: #cbd5e1; overflow: hidden; margin-bottom: 8px; }
+.repair-health-fill { height: 100%; transition: width 0.3s ease; }
+.repair-status-details { display: flex; flex-wrap: wrap; gap: 8px 14px; font-size: 11px; color: #475569; margin-top: 6px; }
+.repair-upgrade-hint { margin-top: 8px; padding-top: 6px; border-top: 1px dashed #cbd5e1; font-size: 10px; color: #64748b; }
 .card-chevron { flex: 0 0 auto; font-size: 28px; color: #73906e; }
 .static-label { flex: 0 0 auto; padding: 5px 7px; border-radius: 999px; background: #d9d8d0; color: #77776d; font-size: 9px; font-weight: 700; }
 .military-note { margin-top: 10px; padding: 9px 10px; border-radius: 9px; background: #f1e5c4; color: #765a29; font-size: 10px; line-height: 1.4; }

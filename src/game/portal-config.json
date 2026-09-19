@@ -5,7 +5,7 @@
       "x": 79.7,
       "y": -16.5
     },
-    "initialAttackInSeconds": 30,
+    "initialAttackInSeconds": 60,
     "attackIntervalSeconds": 5,
     "exhaustedEveryMobLevel": 5,
     "exhaustedSeconds": 30,

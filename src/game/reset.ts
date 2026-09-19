@@ -6,12 +6,14 @@ import { LEGACY_OFFENSE_FORMATIONS_SAVE_KEY, OFFENSE_FORMATIONS_SAVE_KEY } from 
 import { ROUTES_SAVE_KEY } from './routes';
 import { DEPLOYED_AXIES_SAVE_KEY } from './town-deployment';
 import { DEFAULT_UNIT_GLOBAL_STATS, setActiveUnitGlobalStats } from './unit-stats';
-import { WORLD_SAVE_KEY } from './world';
+import { DEPLETED_NODES_SAVE_KEY, WORLD_SAVE_KEY } from './world';
 import { BATTLE_SETTINGS_SAVE_KEY, DEFAULT_BATTLE_SETTINGS, setActiveBattleSettings } from './battle-settings';
 import { AXIE_ROSTER_SAVE_KEY } from './axie-roster';
 import { AXIE_INPUT_OWNER_KEY, AXIE_SAVED_OWNER_KEY } from './owner-address';
 import { PORTAL_CONFIG_SAVE_KEY, PORTAL_STATE_SAVE_KEY, resetPortalState } from './portal';
 import { TRAINING_QUEUE_SAVE_KEY } from './training-queue';
+import { CITY_HEALTH_SAVE_KEY, UNITS_PRODUCED_SAVE_KEY, resetCityDefense } from './city-defense';
+import { CITY_REPAIR_SAVE_KEY, resetCityRepair } from './repair-service';
 
 export type ResettableModule = {
   id: string;
@@ -27,7 +29,7 @@ export type ResettableModule = {
 export const RESETTABLE_MODULES: readonly ResettableModule[] = [
   { id: 'battle', storageKeys: [BATTLE_SAVE_KEY, BATTLE_TRANSACTION_KEY] },
   { id: 'buildings', storageKeys: ['axie-conquest-base-v1', 'axie-conquest-base-v2'] },
-  { id: 'world', storageKeys: [WORLD_SAVE_KEY] },
+  { id: 'world', storageKeys: [WORLD_SAVE_KEY, DEPLETED_NODES_SAVE_KEY] },
   { id: 'units', storageKeys: [UNITS_SAVE_KEY] },
   { id: 'routes', storageKeys: [ROUTES_SAVE_KEY] },
   { id: 'cities', storageKeys: [CITIES_SAVE_KEY] },
@@ -40,6 +42,8 @@ export const RESETTABLE_MODULES: readonly ResettableModule[] = [
   { id: 'battle-settings', storageKeys: [BATTLE_SETTINGS_SAVE_KEY], reset: () => setActiveBattleSettings({ ...DEFAULT_BATTLE_SETTINGS }) },
   { id: 'portal', storageKeys: [PORTAL_CONFIG_SAVE_KEY, PORTAL_STATE_SAVE_KEY], reset: () => resetPortalState() },
   { id: 'training-queue', storageKeys: [TRAINING_QUEUE_SAVE_KEY] },
+  { id: 'city-defense', storageKeys: [CITY_HEALTH_SAVE_KEY, UNITS_PRODUCED_SAVE_KEY], reset: () => resetCityDefense() },
+  { id: 'city-repair', storageKeys: [CITY_REPAIR_SAVE_KEY], matchesStorageKey: key => /^axie-conquest-city-.+-repair-v1$/.test(key), reset: () => resetCityRepair() },
 ];
 
 type ResetStorage = Pick<Storage, 'length' | 'key' | 'removeItem'>;

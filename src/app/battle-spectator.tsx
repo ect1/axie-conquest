@@ -20,6 +20,7 @@ type Props = {
   onFinish?: () => void;
   onRetreat?: () => void;
   debug?: boolean;
+  hideInspector?: boolean;
 };
 
 export default function BattleSpectatorModal({
@@ -36,6 +37,7 @@ export default function BattleSpectatorModal({
   onFinish,
   onRetreat,
   debug = false,
+  hideInspector = !debug,
 }: Props) {
   const dialog = useRef<HTMLDialogElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
@@ -45,14 +47,27 @@ export default function BattleSpectatorModal({
   const [error, setError] = useState('');
   const [modelError, setModelError] = useState('');
 
-  const [overlays, setOverlays] = useState<BattleOverlays>({
-    attack: true,
-    engagement: true,
-    awareness: false,
-    body: false,
-    facing: true,
-    targets: true,
-  });
+  const isInspectorActive = !hideInspector && debug;
+
+  const [overlays, setOverlays] = useState<BattleOverlays>(() =>
+    isInspectorActive
+      ? {
+          attack: true,
+          engagement: true,
+          awareness: false,
+          body: false,
+          facing: true,
+          targets: true,
+        }
+      : {
+          attack: false,
+          engagement: false,
+          awareness: false,
+          body: false,
+          facing: false,
+          targets: false,
+        }
+  );
   const [showAll, setShowAll] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
@@ -127,7 +142,9 @@ export default function BattleSpectatorModal({
     : isPaused
     ? currentBattle.tick === 0
       ? 'OPENING FORMATION — READY TO ENGAGE'
-      : `COMBAT PAUSED — INSPECTING TICK ${currentBattle.tick} (${elapsedSeconds}s)`
+      : isInspectorActive
+      ? `COMBAT PAUSED — INSPECTING TICK ${currentBattle.tick} (${elapsedSeconds}s)`
+      : `COMBAT PAUSED (${elapsedSeconds}s)`
     : 'LIVE TACTICAL COMBAT';
 
   return (
@@ -198,7 +215,7 @@ export default function BattleSpectatorModal({
 
         {/* Primary Combat & Inspection Controls */}
         <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
-          {debug && (
+          {debug ? (
             <>
               {/* Main Action: Start Battle / Pause / Resume */}
               {isFinished ? (
@@ -287,6 +304,16 @@ export default function BattleSpectatorModal({
                 </div>
               )}
             </>
+          ) : (
+            !isFinished && isPaused && (
+              <button
+                className="primary"
+                onClick={onTogglePause}
+                style={{ fontSize: '0.82rem', padding: '6px 12px', fontWeight: 600 }}
+              >
+                ▶ Resume Battle
+              </button>
+            )
           )}
 
           {!isFinished && onRetreat && (
@@ -309,11 +336,11 @@ export default function BattleSpectatorModal({
       <div className="battle-field" style={{ position: 'relative' }}>
         <canvas
           ref={canvas}
-          aria-label="Live battle board. Drag to rotate or pan; scroll or pinch to zoom. Tap units to inspect."
+          aria-label="Live battle board. Drag to rotate or pan; scroll or pinch to zoom."
         />
 
         {/* Selected Unit Inspector Card */}
-        {selectedFighter && (
+        {isInspectorActive && selectedFighter && (
           <aside
             style={{
               position: 'absolute',
@@ -420,7 +447,7 @@ export default function BattleSpectatorModal({
         {error && <p role="alert">{error}</p>}
 
         {/* Live Debug & Overlay Toggles */}
-        {debug && (
+        {isInspectorActive && (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', alignItems: 'center', margin: '4px 0' }}>
             <span style={{ fontSize: '0.8rem', opacity: 0.8, marginRight: '4px' }}>Inspect Overlays:</span>
             <button
