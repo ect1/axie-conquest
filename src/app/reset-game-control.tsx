@@ -1,7 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { resetGame } from '@/game/reset';
 
-export default function ResetGameControl() {
+type ResetGameControlProps = {
+  onBeforeReset?: () => void;
+};
+
+export default function ResetGameControl({ onBeforeReset }: ResetGameControlProps = {}) {
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState('');
   const containerRef = useRef<HTMLElement>(null);
@@ -14,6 +18,7 @@ export default function ResetGameControl() {
 
   function confirmReset() {
     try {
+      onBeforeReset?.();
       resetGame(window.localStorage);
       window.location.reload();
     } catch {

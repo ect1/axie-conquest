@@ -1,20 +1,28 @@
-import { Scene, TransformNode, MeshBuilder, StandardMaterial, Color3, Vector3, LinesMesh } from '@babylonjs/core';
+import { Scene, TransformNode, MeshBuilder, StandardMaterial, Color3, Vector3, LinesMesh, Mesh, DynamicTexture } from '@babylonjs/core';
 import { WorldUnit, unitPosition, settleUnit } from './units';
 import { STARTER_HEROES, AXIE_CLASSES } from './heroes';
 import { activeBattleSettings } from './battle-settings';
 import { BATTLE_OVERLAYS } from './battle-debug';
 import { createBattle } from './battle';
 
-export function showMarches(scene: Scene, orders: WorldUnit[], selection: string | null | (() => string | null), visible: () => boolean) {
+export function showMarches(
+  scene: Scene,
+  orders: WorldUnit[] | (() => WorldUnit[]),
+  selection: string | null | (() => string | null),
+  visible: () => boolean
+) {
+  const getOrders = typeof orders === 'function' ? orders : () => orders;
+  const initialOrders = getOrders();
   const root = new TransformNode('armies', scene);
   const materials: StandardMaterial[] = [];
+  const textures: DynamicTexture[] = [];
   let lastSettings: typeof activeBattleSettings | null = null;
   function boundary(parent: TransformNode, x: number, z: number, radius: number, color: string) {
     const points = Array.from({ length: 97 }, (_, i) => new Vector3(x + Math.sin(i * Math.PI / 48) * radius, 0.24, z + Math.cos(i * Math.PI / 48) * radius));
     const mesh = MeshBuilder.CreateLines('world battle range', { points }, scene);
     mesh.parent = parent; mesh.color = Color3.FromHexString(color); mesh.isPickable = false;
   }
-  const armies = orders.flatMap(order => {
+  const armies = initialOrders.flatMap(order => {
     if (order.status === 'home') return [];
     const army = new TransformNode(order.id, scene); army.parent = root;
     const destination = order.order?.destination ?? order.position, origin = order.order?.origin ?? order.position;
@@ -47,16 +55,203 @@ export function showMarches(scene: Scene, orders: WorldUnit[], selection: string
     const debug = new TransformNode('world battle overlays', scene); debug.parent = army;
     const targetLine = MeshBuilder.CreateLines('world order target', { points: [Vector3.Zero(), Vector3.Zero()], updatable: true }, scene);
     targetLine.parent = root; targetLine.color = Color3.FromHexString(BATTLE_OVERLAYS.targets.color); targetLine.isPickable = false;
-    return [{ order, army, units, line, debug, targetLine, ring }];
+
+    // Live Gathering Sprite Healthbar & Badge
+    const gatherBarRoot = new TransformNode(`gather bar ${order.id}`, scene);
+    gatherBarRoot.parent = army;
+    gatherBarRoot.position.set(0, 3.2, 0);
+
+    const gatherBg = MeshBuilder.CreatePlane(`gather bar bg ${order.id}`, { width: 3.4, height: 0.52 }, scene);
+    gatherBg.parent = gatherBarRoot;
+    gatherBg.billboardMode = Mesh.BILLBOARDMODE_ALL;
+    gatherBg.isPickable = false;
+
+    const bgMat = new StandardMaterial(`gather bg mat ${order.id}`, scene);
+    bgMat.diffuseColor = Color3.FromHexString('#0e1814');
+    bgMat.emissiveColor = Color3.FromHexString('#0a120e');
+    bgMat.specularColor = Color3.Black();
+    materials.push(bgMat);
+    gatherBg.material = bgMat;
+
+    const gatherFill = MeshBuilder.CreatePlane(`gather bar fill ${order.id}`, { width: 3.2, height: 0.36 }, scene);
+    gatherFill.parent = gatherBg;
+    gatherFill.position.set(0, 0, -0.02);
+    gatherFill.isPickable = false;
+
+    const fillMat = new StandardMaterial(`gather fill mat ${order.id}`, scene);
+    fillMat.diffuseColor = Color3.FromHexString('#10b981');
+    fillMat.emissiveColor = Color3.FromHexString('#059669');
+    fillMat.specularColor = Color3.Black();
+    materials.push(fillMat);
+    gatherFill.material = fillMat;
+
+    // Sprite badge above the bar
+    const badgePlane = MeshBuilder.CreatePlane(`gather badge ${order.id}`, { width: 3.2, height: 0.8 }, scene);
+    badgePlane.parent = gatherBarRoot;
+    badgePlane.position.set(0, 0.72, 0);
+    badgePlane.billboardMode = Mesh.BILLBOARDMODE_ALL;
+    badgePlane.isPickable = false;
+
+    let hasBadge = false;
+    if (typeof document !== 'undefined' && typeof document.createElement === 'function') {
+      try {
+        const badgeTexture = new DynamicTexture(`gather-badge-tex-${order.id}`, { width: 256, height: 64 }, scene, false);
+        badgeTexture.hasAlpha = true;
+        const ctx = badgeTexture.getContext() as unknown as CanvasRenderingContext2D;
+        if (ctx && typeof ctx.fillText === 'function') {
+          ctx.clearRect(0, 0, 256, 64);
+          if (typeof ctx.roundRect === 'function') ctx.roundRect(4, 4, 248, 56, 28);
+          else ctx.rect(4, 4, 248, 56);
+          ctx.fillStyle = 'rgba(10, 18, 14, 0.92)';
+          ctx.fill();
+          ctx.lineWidth = 3;
+          ctx.strokeStyle = '#34d399';
+          ctx.stroke();
+
+          ctx.font = 'bold 24px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+          ctx.fillStyle = '#6ee7b7';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText('⛏️ Gathering', 128, 32);
+          badgeTexture.update();
+          textures.push(badgeTexture);
+
+          const badgeMat = new StandardMaterial(`gather-badge-mat-${order.id}`, scene);
+          badgeMat.diffuseTexture = badgeTexture;
+          badgeMat.opacityTexture = badgeTexture;
+          badgeMat.emissiveColor = Color3.White();
+          badgeMat.disableLighting = true;
+          badgeMat.backFaceCulling = false;
+          materials.push(badgeMat);
+          badgePlane.material = badgeMat;
+          hasBadge = true;
+        }
+      } catch {
+        hasBadge = false;
+      }
+    }
+    if (!hasBadge) {
+      badgePlane.setEnabled(false);
+    }
+
+    gatherBarRoot.setEnabled(false);
+
+    // Returning Cargo Sprite Billboard (Distinct sprite per resource)
+    const cargoRoot = new TransformNode(`cargo root ${order.id}`, scene);
+    cargoRoot.parent = army;
+    cargoRoot.position.set(0, 3.2, 0);
+
+    const cargoPlane = MeshBuilder.CreatePlane(`cargo plane ${order.id}`, { width: 3.4, height: 1.4 }, scene);
+    cargoPlane.parent = cargoRoot;
+    cargoPlane.billboardMode = Mesh.BILLBOARDMODE_ALL;
+    cargoPlane.isPickable = false;
+
+    let cargoTexture: DynamicTexture | null = null;
+    if (typeof document !== 'undefined' && typeof document.createElement === 'function') {
+      try {
+        cargoTexture = new DynamicTexture(`cargo-tex-${order.id}`, { width: 320, height: 128 }, scene, false);
+        cargoTexture.hasAlpha = true;
+        textures.push(cargoTexture);
+
+        const cargoMat = new StandardMaterial(`cargo-mat-${order.id}`, scene);
+        cargoMat.diffuseTexture = cargoTexture;
+        cargoMat.opacityTexture = cargoTexture;
+        cargoMat.emissiveColor = Color3.White();
+        cargoMat.disableLighting = true;
+        cargoMat.backFaceCulling = false;
+        materials.push(cargoMat);
+        cargoPlane.material = cargoMat;
+      } catch {
+        cargoTexture = null;
+      }
+    }
+    if (!cargoTexture) {
+      const fallbackMat = new StandardMaterial(`cargo-fallback-mat-${order.id}`, scene);
+      fallbackMat.diffuseColor = Color3.FromHexString('#f59e0b');
+      materials.push(fallbackMat);
+      cargoPlane.material = fallbackMat;
+    }
+
+    cargoRoot.setEnabled(false);
+
+    return [{
+      order,
+      army,
+      units,
+      line,
+      debug,
+      targetLine,
+      ring,
+      gatherBar: { root: gatherBarRoot, fill: gatherFill, fillMat, badge: badgePlane },
+      cargoSprite: { root: cargoRoot, plane: cargoPlane, texture: cargoTexture, lastKey: '' }
+    }];
   });
+
+  function drawResourceCargoSprite(texture: DynamicTexture, resource: string, amount: number) {
+    const ctx = texture.getContext() as unknown as CanvasRenderingContext2D;
+    if (!ctx || typeof ctx.fillText !== 'function') return;
+
+    ctx.clearRect(0, 0, 320, 128);
+
+    const configs: Record<string, { bg: string; border: string; emblemBg: string; accent: string; icon: string; name: string }> = {
+      food: { bg: 'rgba(28, 20, 8, 0.94)', border: '#f59e0b', emblemBg: '#451a03', accent: '#fcd34d', icon: '🌾', name: 'FOOD' },
+      wood: { bg: 'rgba(10, 28, 18, 0.94)', border: '#10b981', emblemBg: '#064e3b', accent: '#6ee7b7', icon: '🪵', name: 'LUMBER' },
+      stone: { bg: 'rgba(12, 22, 36, 0.94)', border: '#38bdf8', emblemBg: '#0c4a6e', accent: '#7dd3fc', icon: '🪨', name: 'STONE' },
+      warSupplies: { bg: 'rgba(34, 12, 16, 0.94)', border: '#ef4444', emblemBg: '#7f1d1d', accent: '#fca5a5', icon: '📦', name: 'SUPPLIES' },
+    };
+    const cfg = configs[resource] ?? configs.food;
+
+    // Outer card container
+    ctx.save();
+    ctx.beginPath();
+    if (typeof ctx.roundRect === 'function') ctx.roundRect(8, 8, 304, 112, 22);
+    else ctx.rect(8, 8, 304, 112);
+    ctx.fillStyle = cfg.bg;
+    ctx.fill();
+    ctx.lineWidth = 3.5;
+    ctx.strokeStyle = cfg.border;
+    ctx.stroke();
+    ctx.restore();
+
+    // Left Circular Emblem
+    ctx.beginPath();
+    ctx.arc(64, 64, 40, 0, Math.PI * 2);
+    ctx.fillStyle = cfg.emblemBg;
+    ctx.fill();
+    ctx.lineWidth = 2.5;
+    ctx.strokeStyle = cfg.border;
+    ctx.stroke();
+
+    // Resource Icon
+    ctx.font = '38px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(cfg.icon, 64, 65);
+
+    // Right: Quantity & Name
+    ctx.font = '900 36px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    ctx.fillStyle = cfg.accent;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillText(`+${amount}`, 120, 60);
+
+    ctx.font = 'bold 18px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(`🚚 ${cfg.name}`, 122, 92);
+
+    texture.update();
+  }
+
   const observer = scene.onBeforeRenderObservable.add(() => {
     const now = Date.now();
     const selectedId = typeof selection === 'function' ? selection() : selection;
     const changed = lastSettings !== activeBattleSettings;
     lastSettings = activeBattleSettings;
+    const currentOrders = getOrders();
     const focus = armies.find(({ order }) => order.id === selectedId && settleUnit(order, now).status !== 'home')?.order.id
       ?? armies.find(({ order }) => settleUnit(order, now).status !== 'home')?.order.id;
-    for (const { order, army, units, line, debug, targetLine, ring } of armies) {
+    for (const { order, army, units, line, debug, targetLine, ring, gatherBar, cargoSprite } of armies) {
+      const latest = currentOrders.find(u => u.id === order.id) ?? order;
       if (changed) {
         debug.getChildren().forEach(child => child.dispose());
         const { overlays, awarenessRadius, engagementRadius } = activeBattleSettings;
@@ -75,21 +270,69 @@ export function showMarches(scene: Scene, orders: WorldUnit[], selection: string
           }
         });
       }
-      const current = settleUnit(order, now);
+      const current = settleUnit(latest, now);
       ring.setEnabled(order.id === selectedId);
-      const position = unitPosition(order, now);
+      const position = unitPosition(latest, now);
       const moving = !!current.order;
-      army.setEnabled(visible() && current.status !== 'home');
+      const isAlive = visible() && current.status !== 'home';
+      army.setEnabled(isAlive);
       army.position.set(position.x, 0, position.z);
-      line.setEnabled(visible() && current.status !== 'home');
-      const showDebug = visible() && current.status !== 'home' && (activeBattleSettings.showAll || order.id === focus);
+      line.setEnabled(isAlive);
+      const showDebug = isAlive && (activeBattleSettings.showAll || order.id === focus);
       debug.setEnabled(showDebug);
       targetLine.setEnabled(showDebug && activeBattleSettings.overlays.targets && !!current.order);
       if (current.order && activeBattleSettings.overlays.targets) {
         MeshBuilder.CreateLines('world order target', { points: [new Vector3(position.x, 0.25, position.z), new Vector3(current.order.destination.x, 0.25, current.order.destination.z)], instance: targetLine as LinesMesh });
       }
       units.forEach((unit, index) => { unit.position.y = moving ? Math.abs(Math.sin(now / 150 + index)) * 0.15 : 0; });
+
+      // Live gathering sprite healthbar
+      const isGathering = isAlive && current.status === 'gathering';
+      gatherBar.root.setEnabled(isGathering);
+      if (isGathering) {
+        const cargo = latest.cargo ?? current.cargo;
+        const maxLoad = cargo?.maxLoad && cargo.maxLoad > 0 ? cargo.maxLoad : 100;
+        const amount = cargo?.amount ?? 0;
+        const ratio = Math.max(0.02, Math.min(1, amount / maxLoad));
+        gatherBar.fill.scaling.x = ratio;
+        gatherBar.fill.position.x = -1.6 * (1 - ratio);
+
+        if (ratio >= 0.95) {
+          gatherBar.fillMat.diffuseColor = Color3.FromHexString('#f59e0b');
+          gatherBar.fillMat.emissiveColor = Color3.FromHexString('#d97706');
+        } else {
+          gatherBar.fillMat.diffuseColor = Color3.FromHexString('#10b981');
+          gatherBar.fillMat.emissiveColor = Color3.FromHexString('#059669');
+        }
+
+        const pulse = 1 + Math.sin(now / 180) * 0.03;
+        gatherBar.root.scaling.set(pulse, pulse, pulse);
+      }
+
+      // Returning Cargo Sprite (shown while returning with cargo)
+      const isReturningWithCargo = isAlive && current.status === 'returning' && !!(latest.cargo && latest.cargo.amount > 0);
+      cargoSprite.root.setEnabled(isReturningWithCargo);
+      if (isReturningWithCargo) {
+        const cargo = latest.cargo!;
+        const amt = Math.round(cargo.amount);
+        const cargoKey = `${cargo.resource}-${amt}`;
+        if (cargoKey !== cargoSprite.lastKey) {
+          cargoSprite.lastKey = cargoKey;
+          if (cargoSprite.texture) {
+            drawResourceCargoSprite(cargoSprite.texture, cargo.resource, amt);
+          } else if (cargoSprite.plane.material) {
+            const colors: Record<string, string> = { food: '#f59e0b', wood: '#10b981', stone: '#38bdf8', warSupplies: '#ef4444' };
+            (cargoSprite.plane.material as StandardMaterial).diffuseColor = Color3.FromHexString(colors[cargo.resource] ?? '#f59e0b');
+          }
+        }
+        cargoSprite.root.position.y = 3.3 + Math.sin(now / 150) * 0.15;
+      }
     }
   });
-  return () => { scene.onBeforeRenderObservable.remove(observer); root.dispose(); materials.forEach(mat => mat.dispose()); };
+  return () => {
+    scene.onBeforeRenderObservable.remove(observer);
+    root.dispose();
+    materials.forEach(mat => mat.dispose());
+    textures.forEach(tex => tex.dispose());
+  };
 }

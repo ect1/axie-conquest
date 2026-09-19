@@ -7,7 +7,7 @@ export const BUILDING_DEFINITIONS = {
   hall: { name: 'Main Hall', category: 'City center', icon: '\u2302', description: 'The heart of your settlement. Your Axies gather here to plan a brighter Lunacia.' },
   farm: { name: 'Everleaf Farm', category: 'Resource', icon: '\u{1F33E}', description: 'A little patch of abundance, tended by the Axies of Everleaf.' },
   lumber: { name: 'Lumber Mill', category: 'Resource', icon: '\u{1FAB5}', description: 'Axie woodworkers prepare timber to help Everleaf grow.' },
-  stone: { name: 'Stone Works', category: 'Resource', icon: '🪨', description: 'Axie stonecutters quarry stone and securely store supplies to help Everleaf grow.' },
+  stone: { name: 'Storage', category: 'Storage', icon: '\u{1F4E6}', description: 'A secure storehouse for the timber, stone, and supplies that help Everleaf grow.' },
   quarry: { name: 'Quarry', category: 'Resource', icon: '\u26CF', description: 'Axie stonecutters uncover the foundations of a growing settlement.' },
   barracks: { name: 'Barracks', category: 'Military', icon: '\u2694', description: 'A gathering ground for the defenders of Everleaf.' },
   tavern: { name: 'Tavern', category: 'Community', icon: '\u{1F37A}', description: 'A warm hearth where Axies share stories and forge friendships.' },

@@ -7,6 +7,7 @@
     "test:units": "node scripts/test-units.cjs",
     "test:reset": "node scripts/test-reset.cjs",
     "test:world": "node scripts/test-world.cjs",
+    "test:gathering": "node scripts/test-gathering.cjs",
     "test:bosses": "node scripts/test-bosses.cjs",
     "test:placement": "node scripts/test-placement.cjs",
     "dev": "next dev",

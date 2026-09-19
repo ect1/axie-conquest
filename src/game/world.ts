@@ -1,5 +1,6 @@
 import { GRID_WIDTH, GRID_DEPTH } from './base';
 import { getBossConfig, selectBossForSpawn } from './bosses';
+import { isWorldKindEnabled } from './resource-spawn-config';
 
 export const WORLD_WIDTH = 200;
 export const WORLD_DEPTH = 200;
@@ -20,7 +21,20 @@ export type WorldAction = 'scout' | 'attack' | 'gather' | 'occupy';
 export type WorldObjectState = 'available' | 'defended' | 'defeated';
 export type WorldActionOption = { action: WorldAction; enabled: boolean; reason?: string };
 export type GenerationSettings = { counts: Record<WorldKind, number>; spacing: number };
-export type WorldObject = { id: string; kind: WorldKind; x: number; z: number; state: WorldObjectState; loot: { apple: number }; bossId?: string; bossName?: string };
+export type WorldObject = {
+  id: string;
+  kind: WorldKind;
+  x: number;
+  z: number;
+  state: WorldObjectState;
+  loot: { apple: number };
+  bossId?: string;
+  bossName?: string;
+  currentCapacity?: number;
+  maxCapacity?: number;
+  depletedAt?: number;
+  respawnAt?: number;
+};
 export type SpawnableMobGroup = 'chimera-pack';
 export const SPAWNABLE_MOB_GROUPS: Record<SpawnableMobGroup, { label: string; kind: 'boss' }> = {
   'chimera-pack': { label: 'Chimera pack', kind: 'boss' },
@@ -28,6 +42,13 @@ export const SPAWNABLE_MOB_GROUPS: Record<SpawnableMobGroup, { label: string; ki
 export const DEFAULT_GENERATION: GenerationSettings = {
   counts: Object.fromEntries(WORLD_KINDS.map(kind => [kind, WORLD_DEFINITIONS[kind].count])) as Record<WorldKind, number>,
   spacing: 8,
+};
+
+export const DEFAULT_RESOURCE_CAPACITIES: Partial<Record<WorldKind, number>> = {
+  farm: 500,
+  lumber: 500,
+  stone: 400,
+  oil: 250,
 };
 
 export function defaultWorldObjectState(kind: WorldKind): WorldObjectState {
@@ -58,6 +79,11 @@ export function getWorldObjectActions(object: WorldObject): WorldActionOption[] 
   if (object.kind === 'village') return object.state === 'defeated'
     ? [{ action: 'occupy', enabled: true }]
     : [{ action: 'attack', enabled: true }, { action: 'occupy', enabled: false, reason: 'Defeat this village first.' }];
+  if (['farm', 'lumber', 'stone', 'oil'].includes(object.kind)) {
+    if (object.currentCapacity !== undefined && object.currentCapacity <= 0) {
+      return [{ action: 'gather', enabled: false, reason: 'This resource node is depleted.' }];
+    }
+  }
   return [{ action: 'gather', enabled: true }];
 }
 
@@ -71,18 +97,54 @@ export function restoreWorld(value: string | null): WorldObject[] | null {
       const candidate = object as Record<string, unknown>;
       const loot = candidate.loot;
       return typeof candidate.id === 'string' && WORLD_KINDS.includes(candidate.kind as WorldKind)
+        && isWorldKindEnabled(candidate.kind as string)
         && typeof candidate.x === 'number' && Number.isFinite(candidate.x)
         && typeof candidate.z === 'number' && Number.isFinite(candidate.z)
         && !!loot && typeof loot === 'object' && typeof (loot as Record<string, unknown>).apple === 'number';
     }).map(object => {
       const savedState = (object as WorldObject).state;
       const state = ['available', 'defended', 'defeated'].includes(savedState) ? savedState : defaultWorldObjectState(object.kind);
+      const isRes = ['farm', 'lumber', 'stone', 'oil'].includes(object.kind);
+      const defaultCap = isRes ? (DEFAULT_RESOURCE_CAPACITIES[object.kind] ?? 500) : undefined;
+      const candidate = object as Record<string, unknown>;
+      const currentCapacity = typeof candidate.currentCapacity === 'number' && Number.isFinite(candidate.currentCapacity)
+        ? Math.max(0, candidate.currentCapacity)
+        : defaultCap;
+      const maxCapacity = typeof candidate.maxCapacity === 'number' && Number.isFinite(candidate.maxCapacity)
+        ? Math.max(1, candidate.maxCapacity)
+        : defaultCap;
+      const depletedAt = typeof candidate.depletedAt === 'number' ? candidate.depletedAt : undefined;
+      const respawnAt = typeof candidate.respawnAt === 'number' ? candidate.respawnAt : undefined;
+
       // Villages were resource sites in older saves. Promote that legacy state to the new defended lifecycle.
-      return { ...object, state: object.kind === 'village' && state === 'available' ? 'defended' : state };
+      return {
+        ...object,
+        state: object.kind === 'village' && state === 'available' ? 'defended' : state,
+        ...(isRes ? { currentCapacity, maxCapacity, depletedAt, respawnAt } : {}),
+      };
     });
   } catch {
     return null;
   }
+}
+
+/** Regenerate depleted resource nodes that have reached their respawn time. */
+export function stepWorldResourceRespawn(objects: readonly WorldObject[], now: number): { objects: WorldObject[]; changed: boolean } {
+  let changed = false;
+  const next = objects.map(object => {
+    if (['farm', 'lumber', 'stone', 'oil'].includes(object.kind) && object.respawnAt !== undefined && now >= object.respawnAt && (object.currentCapacity ?? 0) <= 0) {
+      changed = true;
+      const max = object.maxCapacity ?? DEFAULT_RESOURCE_CAPACITIES[object.kind] ?? 500;
+      return {
+        ...object,
+        currentCapacity: max,
+        depletedAt: undefined,
+        respawnAt: undefined,
+      };
+    }
+    return object;
+  });
+  return { objects: changed ? next : [...objects], changed };
 }
 
 // Spacing is empty ground between conservative circular object footprints.
@@ -109,6 +171,8 @@ export function generateWorld(settings: GenerationSettings, random = Math.random
         bossId = boss.id;
         bossName = boss.name;
       }
+      const isRes = ['farm', 'lumber', 'stone', 'oil'].includes(kind);
+      const cap = isRes ? (DEFAULT_RESOURCE_CAPACITIES[kind] ?? 500) : undefined;
       objects.push({
         id: `world-${objects.length}`,
         kind,
@@ -117,6 +181,7 @@ export function generateWorld(settings: GenerationSettings, random = Math.random
         state: defaultWorldObjectState(kind),
         loot: { apple: kind === 'village' || kind === 'garrison' ? 1 : 0 },
         ...(bossId ? { bossId, bossName } : {}),
+        ...(cap !== undefined ? { currentCapacity: cap, maxCapacity: cap } : {}),
       });
       break;
     }

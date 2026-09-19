@@ -6,11 +6,12 @@ const cache = new Map();
 function load(file) {
   file = path.resolve(file);
   if (file.endsWith('.json')) return JSON.parse(fs.readFileSync(file, 'utf8'));
+  if (file.endsWith('.yml') || file.endsWith('.yaml')) return fs.readFileSync(file, 'utf8');
   if (cache.has(file)) return cache.get(file).exports;
   const module = { exports: {} };
   cache.set(file, module);
   const source = ts.transpileModule(fs.readFileSync(file, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, esModuleInterop: true } }).outputText;
-  new Function('require', 'module', 'exports', source)(name => load(path.resolve(path.dirname(file), name.endsWith('.json') ? name : `${name}.ts`)), module, module.exports);
+  new Function('require', 'module', 'exports', source)(name => (name.startsWith('.') ? load(path.resolve(path.dirname(file), /\.(json|ya?ml)$/.test(name) ? name : `${name}.ts`)) : require(name)), module, module.exports);
   return module.exports;
 }
 const { resetGame, RESETTABLE_MODULES } = load('src/game/reset.ts');

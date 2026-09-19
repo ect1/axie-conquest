@@ -1,0 +1,17 @@
+# ==============================================================================
+# Axie Conquest — Game Configuration
+# ==============================================================================
+# Defines global game defaults, player founding parameters, and starting resources.
+
+version: 1
+
+# Initial state for new settlements or upon game reset
+startingState:
+  capitalCity:
+    id: "everleaf-haven"
+    defaultName: "City #1"
+    # Initial starting resources granted to the capital upon founding
+    resources:
+      food: 240
+      wood: 350
+      stone: 220

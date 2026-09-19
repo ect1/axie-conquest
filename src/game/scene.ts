@@ -43,8 +43,19 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
   function setUnits(orders: WorldUnit[], selectedId: string | null) {
     marchSelection = selectedId;
     if (marchOrders === orders) return;
+    const prev = marchOrders;
     marchOrders = orders;
-    clearMarches(); clearMarches = showMarches(scene, orders, () => marchSelection, () => overviewActive);
+    const sameStructure = prev && prev.length === orders.length && prev.every((u, i) => {
+      const next = orders[i];
+      return u.id === next.id && u.status === next.status &&
+        u.order?.kind === next.order?.kind &&
+        u.order?.destination?.x === next.order?.destination?.x &&
+        u.order?.destination?.z === next.order?.destination?.z &&
+        u.order?.arrivesAt === next.order?.arrivesAt &&
+        u.members.length === next.members.length;
+    });
+    if (sameStructure) return;
+    clearMarches(); clearMarches = showMarches(scene, () => marchOrders ?? orders, () => marchSelection, () => overviewActive);
   }
   scene.clearColor = Color4.FromHexString('#91aaa2ff');
   // Keep building fronts pointing southeast on screen.
@@ -436,7 +447,19 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
       box('loot crate', 0.6, 0.6, 0.6, 1.5, 0.4, -1.5, gold, root);
     }
     const label = object.bossName ?? WORLD_DEFINITIONS[object.kind].name;
-    const description = `${label}: ${object.state}${object.state === 'defended' ? ' - Attack to battle the defenders' : ' - Gathering and loot collection unavailable'}`;
+    const isResource = ['farm', 'lumber', 'stone', 'oil'].includes(object.kind);
+    let description: string;
+    if (isResource) {
+      if (object.currentCapacity !== undefined && object.currentCapacity <= 0) {
+        description = `${label}: Depleted · Respawns soon`;
+      } else {
+        const cap = object.currentCapacity !== undefined ? Math.round(object.currentCapacity) : (object.maxCapacity ?? 500);
+        const max = object.maxCapacity ?? 500;
+        description = `${label}: ${cap} / ${max} available to gather`;
+      }
+    } else {
+      description = `${label}: ${object.state}${object.state === 'defended' ? ' - Attack to battle the defenders' : ''}`;
+    }
     root.getChildMeshes().forEach(mesh => { mesh.isPickable = true; mesh.metadata = { mapObject: description, worldTarget: { x: object.x, z: object.z, id: object.id, label } }; });
   }
   let buildings: Building[];

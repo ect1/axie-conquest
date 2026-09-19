@@ -20,6 +20,8 @@
       "subPortal": {
         "destroyable": true,
         "maxSubportal": 10,
+        "applySpawnOnTimer": true,
+        "spawnTimerInSeconds": 120,
         "lastDestroyedRespwanOnTimer": true,
         "lastDestroyedBackToLevel1": true
       }

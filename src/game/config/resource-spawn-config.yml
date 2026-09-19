@@ -1,0 +1,158 @@
+# ==============================================================================
+# Axie Conquest — World Resource & Mob Spawn Configuration
+# ==============================================================================
+# Defines spawn counts, gathering yields, respawn rules, and resource rewards
+# for world map resource nodes (food, wood, stone, oil) and boss mob encounters.
+
+version: 1
+
+# ------------------------------------------------------------------------------
+# World Map Generation Parameters
+# ------------------------------------------------------------------------------
+worldSettings:
+  mapWidth: 200
+  mapDepth: 200
+  objectRadius: 3
+  # Minimum empty spacing between circular footprints
+  defaultSpacing: 8
+  # Buffer zone distance around capital city island where wild nodes cannot spawn
+  cityBufferDistance: 14
+
+  # ----------------------------------------------------------------------------
+  # Global Respawn Settings
+  # ----------------------------------------------------------------------------
+  # Global cooldown timer (in seconds) before new nodes respawn on the map
+  globalSpawnTimerSeconds: 300
+
+  # Respawn trigger condition:
+  # - true:  Batch respawn — respawn back together only after ALL nodes are collected / depleted
+  # - false: Individual respawn — each node respawns independently on its own timer
+  respawnWhenAllCollected: true
+
+# ------------------------------------------------------------------------------
+# Resource Nodes (Gatherable World Map Nodes)
+# ------------------------------------------------------------------------------
+resourceNodes:
+  # Food Resource Node (Wild Farm)
+  farm:
+    enabled: true
+    id: "farm"
+    name: "Wild Farm"
+    resourceType: "food"
+    description: "Abundant agricultural lands rich in grain and fresh Lunacian produce."
+    defaultSpawnCount: 5
+    # Total gatherable resource pool per node
+    capacity: 500
+    # Standard gathering speed (units per second per troop march)
+    gatherRatePerSecond: 5
+    # Time in seconds for a depleted node to regenerate on the map
+    respawnTimerSeconds: 300
+
+  # Wood Resource Node (Lumber Grove)
+  lumber:
+    id: "lumber"
+    name: "Lumber Grove"
+    resourceType: "wood"
+    description: "Ancient woodland dense with timber suitable for settlement construction."
+    defaultSpawnCount: 5
+    capacity: 500
+    gatherRatePerSecond: 5
+    respawnTimerSeconds: 300
+
+  # Stone Resource Node (Quarry)
+  stone:
+    enabled: true
+    id: "stone"
+    name: "Stone Quarry"
+    resourceType: "stone"
+    description: "Rocky outcrop containing Lunacian stone and minerals for fortifications."
+    defaultSpawnCount: 5
+    capacity: 400
+    gatherRatePerSecond: 4
+    respawnTimerSeconds: 300
+
+  # Special Resource Node (Oil Spring)
+  oil:
+    enabled: false
+    id: "oil"
+    name: "Oil Spring"
+    resourceType: "oil"
+    description: "Rare geological fissure bubbling with energy-rich Lunacian crude oil."
+    defaultSpawnCount: 3
+    capacity: 250
+    gatherRatePerSecond: 2
+    respawnTimerSeconds: 600
+
+# ------------------------------------------------------------------------------
+# Boss Mob & Hostile Mob Spawns
+# ------------------------------------------------------------------------------
+bossMobs:
+  defaultSpawnCount: 3
+  # Time before defeated boss positions respawn a new encounter
+  respawnTimerSeconds: 600
+
+  # Boss Mob Roster with spawn weighting and defeat resource drops
+  roster:
+    kotaro:
+      id: "kotaro"
+      name: "Kotaro"
+      title: "Wandering Blademaster"
+      description: "A fierce rogue blademaster supported by vanguard infantry and snipers."
+      spawnWeight: 10
+      # Resource rewards and loot dropped upon defeating this boss mob
+      rewards:
+        food: 200
+        wood: 200
+        stone: 150
+
+    paladill:
+      id: "paladill"
+      name: "Paladill"
+      title: "Ironclad Colossus"
+      description: "A heavily armored juggernaut wielding an immense greataxe with elite guard."
+      spawnWeight: 5
+      rewards:
+        food: 350
+        wood: 350
+        stone: 300
+
+    chimera-pack:
+      id: "chimera-pack"
+      name: "Chimera Pack"
+      title: "Wild Corrupted Beasts"
+      description: "A roving pack of aggressive Chimeras prowling the wilderness."
+      spawnWeight: 8
+      rewards:
+        food: 120
+        wood: 120
+        stone: 80
+        apple: 25
+
+# ------------------------------------------------------------------------------
+# Neutral Points of Interest (Villages & Garrisons)
+# ------------------------------------------------------------------------------
+neutralPointsOfInterest:
+  enabled: false
+  village:
+    id: "village"
+    name: "Neutral Village"
+    description: "An unaligned Lunacian hamlet that can be attacked and occupied."
+    defaultSpawnCount: 4
+    state: "defended"
+    rewards:
+      food: 120
+      wood: 80
+      stone: 0
+      apple: 1
+
+  garrison:
+    id: "garrison"
+    name: "Frontier Garrison"
+    description: "A fortified outpost occupied by rogue sentinels."
+    defaultSpawnCount: 4
+    state: "defended"
+    rewards:
+      food: 180
+      wood: 120
+      stone: 100
+      apple: 1

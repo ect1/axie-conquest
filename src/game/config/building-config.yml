@@ -204,9 +204,9 @@ buildings:
   stone:
     id: stone
     alias: storage
-    name: "Stone Works"
-    category: "Resource"
-    description: "Axie stonecutters quarry stone and securely store supplies to help Everleaf grow."
+    name: "Storage"
+    category: "Storage"
+    description: "A secure storehouse for the timber, stone, and supplies that help Everleaf grow."
     available: true # Visible & buildable in Building HUD
     movable: false # Fixed once placed
     removable: true
@@ -225,11 +225,6 @@ buildings:
           food: 50
           wood: 120
           stone: 8
-        production:
-          resource: "stone"
-          rateUnits: 1 # Produces 1 stone every 10 seconds
-          produceEverySeconds: 10
-          storageCapacity: 200
         capacityBonus:
           food: 500
           wood: 500
@@ -245,11 +240,6 @@ buildings:
           food: 100
           wood: 240
           stone: 16
-        production:
-          resource: "stone"
-          rateUnits: 2 # Produces 2 stone every 10 seconds
-          produceEverySeconds: 10
-          storageCapacity: 400
         capacityBonus:
           food: 1000
           wood: 1000
@@ -265,11 +255,6 @@ buildings:
           food: 200
           wood: 500
           stone: 35
-        production:
-          resource: "stone"
-          rateUnits: 4 # Produces 4 stone every 10 seconds
-          produceEverySeconds: 10
-          storageCapacity: 800
         capacityBonus:
           food: 2000
           wood: 2000
@@ -403,14 +388,14 @@ buildings:
           cityHallLevel: 3
 
   # ----------------------------------------------------------------------------
-  # Locked / Future Buildings (Disabled for now)
+  # Locked / Future Buildings
   # ----------------------------------------------------------------------------
   quarry:
     id: quarry
     name: "Quarry"
     category: "Resource"
     description: "Axie stonecutters uncover the foundations of a growing settlement."
-    available: false # Locked for now
+    available: true
     movable: false
     removable: true
     maxLevel: 3

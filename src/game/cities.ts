@@ -1,6 +1,8 @@
 import { EMPTY_TROOPS, Troops, restoreTroops, Building } from './base';
 import { getDefaultDeployedAxieIds } from './town-deployment';
 import { getBuildingLevelConfig } from './building-config';
+import { getStartingResources, getCapitalCityIdentity } from './game-config';
+import { getCityBaseCapacity } from './city-config';
 
 /** The ownership boundary for a settlement, base, or garrison. */
 export type CityResourceKind = 'food' | 'wood' | 'stone' | 'warSupplies';
@@ -10,14 +12,17 @@ export const CAPITAL_CITY_ID = 'everleaf-haven';
 export const CITIES_SAVE_KEY = 'axie-conquest-cities-v1';
 
 export const BASE_CITY_CAPACITY: Record<CityResourceKind, number> = {
-  food: 500,
-  wood: 500,
-  stone: 500,
-  warSupplies: 250,
+  get food() { return getCityBaseCapacity('capital').food; },
+  get wood() { return getCityBaseCapacity('capital').wood; },
+  get stone() { return getCityBaseCapacity('capital').stone; },
+  get warSupplies() { return getCityBaseCapacity('capital').warSupplies; },
 };
 
-export function calculateCityCapacities(buildings: Building[]): Record<CityResourceKind, number> {
-  const caps = { ...BASE_CITY_CAPACITY };
+export function calculateCityCapacities(
+  buildings: Building[],
+  kind: CityState['kind'] = 'capital'
+): Record<CityResourceKind, number> {
+  const caps = { ...getCityBaseCapacity(kind) };
   for (const b of buildings) {
     const cfg = getBuildingLevelConfig(b.kind, b.level ?? 1);
     if (cfg?.capacityBonus) {
@@ -31,18 +36,38 @@ export function calculateCityCapacities(buildings: Building[]): Record<CityResou
 }
 
 export function createCapitalCity(): CityState {
+  const identity = getCapitalCityIdentity();
+  const startingRes = getStartingResources();
+  const baseCaps = getCityBaseCapacity('capital');
   return {
-    id: CAPITAL_CITY_ID,
-    name: 'City #1',
+    id: identity.id,
+    name: identity.defaultName,
     kind: 'capital',
     resources: {
-      food: { amount: 240, capacity: 500 },
-      wood: { amount: 180, capacity: 500 },
-      stone: { amount: 120, capacity: 500 },
-      warSupplies: { amount: 80, capacity: 250 },
+      food: { amount: startingRes.food, capacity: baseCaps.food },
+      wood: { amount: startingRes.wood, capacity: baseCaps.wood },
+      stone: { amount: startingRes.stone, capacity: baseCaps.stone },
+      warSupplies: { amount: startingRes.warSupplies, capacity: baseCaps.warSupplies },
     },
     troops: { ...EMPTY_TROOPS },
     deployedAxieIds: getDefaultDeployedAxieIds(),
+  };
+}
+
+export function createSubCity(id: string, name: string, kind: 'base' | 'garrison'): CityState {
+  const baseCaps = getCityBaseCapacity(kind);
+  return {
+    id,
+    name,
+    kind,
+    resources: {
+      food: { amount: 0, capacity: baseCaps.food },
+      wood: { amount: 0, capacity: baseCaps.wood },
+      stone: { amount: 0, capacity: baseCaps.stone },
+      warSupplies: { amount: 0, capacity: baseCaps.warSupplies },
+    },
+    troops: { ...EMPTY_TROOPS },
+    deployedAxieIds: [],
   };
 }
 
@@ -51,7 +76,7 @@ function stock(value: unknown, fallback: { amount: number; capacity: number }): 
   const savedCapacity = item?.capacity;
   const capacity = typeof savedCapacity === 'number' && Number.isFinite(savedCapacity) && savedCapacity >= 0 ? savedCapacity : fallback.capacity;
   const savedAmount = item?.amount;
-  return { capacity, amount: typeof savedAmount === 'number' && Number.isFinite(savedAmount) && savedAmount >= 0 ? Math.min(savedAmount, capacity) : fallback.amount };
+  return { capacity, amount: typeof savedAmount === 'number' && Number.isFinite(savedAmount) && savedAmount >= 0 ? savedAmount : fallback.amount };
 }
 
 /** Validates a city collection; consumers can select by city id as more cities arrive. */
@@ -92,10 +117,11 @@ export function restoreCities(value: string | null): CityState[] {
 export function applyResourceProduction(
   resources: CityResources,
   buildings: Building[],
-  elapsedSeconds: number
+  elapsedSeconds: number,
+  kind: CityState['kind'] = 'capital'
 ): CityResources {
   if (elapsedSeconds <= 0) return resources;
-  const caps = calculateCityCapacities(buildings);
+  const caps = calculateCityCapacities(buildings, kind);
   let changed = false;
   const next: CityResources = {
     food: { amount: resources.food.amount, capacity: caps.food },

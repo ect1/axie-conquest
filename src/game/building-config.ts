@@ -1,6 +1,5 @@
 import { BuildingKind } from './base';
 import { CityResources } from './cities';
-import rawConfig from './config/building-config.json';
 
 export type BuildingCost = Partial<Record<'food' | 'wood' | 'stone' | 'warSupplies', number>>;
 
@@ -92,7 +91,12 @@ export function getBuildingConfigFile(): BuildingConfigFile {
     }
   }
 
-  cachedConfig = rawConfig as unknown as BuildingConfigFile;
+  if (!cachedConfig) {
+    cachedConfig = {
+      settings: { defaultMaxLevel: 3, demolishRefundRatio: 0.5, instantBuildInDebug: false },
+      buildings: {},
+    };
+  }
   return cachedConfig;
 }
 
@@ -180,7 +184,7 @@ export function refundBuildingCost(resources: CityResources, refund: BuildingCos
   for (const [resKey, amount] of Object.entries(refund)) {
     const key = resKey as keyof CityResources;
     if (typeof amount === 'number' && amount > 0 && next[key]) {
-      next[key].amount = Math.min(next[key].capacity, next[key].amount + amount);
+      next[key].amount = next[key].amount + amount;
     }
   }
 
