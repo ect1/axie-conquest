@@ -1,11 +1,21 @@
 import { UNITS_SAVE_KEY } from './units';
+import { BATTLE_SAVE_KEY, BATTLE_TRANSACTION_KEY } from './battle-save';
 import { CITIES_SAVE_KEY } from './cities';
 import { MILITARY_SAVE_KEY } from './military-service';
-import { OFFENSE_FORMATIONS_SAVE_KEY } from './offense-formations';
+import { LEGACY_OFFENSE_FORMATIONS_SAVE_KEY, OFFENSE_FORMATIONS_SAVE_KEY } from './offense-formations';
 import { ROUTES_SAVE_KEY } from './routes';
 import { DEPLOYED_AXIES_SAVE_KEY } from './town-deployment';
 import { DEFAULT_UNIT_GLOBAL_STATS, setActiveUnitGlobalStats } from './unit-stats';
-import { WORLD_SAVE_KEY } from './world';
+import { DEPLETED_NODES_SAVE_KEY, WORLD_SAVE_KEY } from './world';
+import { BATTLE_SETTINGS_SAVE_KEY, DEFAULT_BATTLE_SETTINGS, setActiveBattleSettings } from './battle-settings';
+import { AXIE_ROSTER_SAVE_KEY } from './axie-roster';
+import { AXIE_INPUT_OWNER_KEY, AXIE_SAVED_OWNER_KEY } from './owner-address';
+import { PORTAL_CONFIG_SAVE_KEY, PORTAL_STATE_SAVE_KEY, resetPortalState } from './portal';
+import { TRAINING_QUEUE_SAVE_KEY } from './training-queue';
+import { CITY_HEALTH_SAVE_KEY, UNITS_PRODUCED_SAVE_KEY, resetCityDefense } from './city-defense';
+import { CITY_REPAIR_SAVE_KEY, resetCityRepair } from './repair-service';
+
+export const DEVELOPER_UNLOCKED_SESSION_KEY = 'axie-conquest-developer-unlocked';
 
 export type ResettableModule = {
   id: string;
@@ -19,15 +29,32 @@ export type ResettableModule = {
  * This eager registry must cover modules even if their UI has never been opened.
  */
 export const RESETTABLE_MODULES: readonly ResettableModule[] = [
+  { id: 'battle', storageKeys: [BATTLE_SAVE_KEY, BATTLE_TRANSACTION_KEY] },
   { id: 'buildings', storageKeys: ['axie-conquest-base-v1', 'axie-conquest-base-v2'] },
-  { id: 'world', storageKeys: [WORLD_SAVE_KEY] },
+  { id: 'world', storageKeys: [WORLD_SAVE_KEY, DEPLETED_NODES_SAVE_KEY] },
   { id: 'units', storageKeys: [UNITS_SAVE_KEY] },
   { id: 'routes', storageKeys: [ROUTES_SAVE_KEY] },
   { id: 'cities', storageKeys: [CITIES_SAVE_KEY] },
   { id: 'military', storageKeys: [MILITARY_SAVE_KEY], matchesStorageKey: key => /^axie-conquest-city-.+-troops-v1$/.test(key) },
-  { id: 'formations', storageKeys: [OFFENSE_FORMATIONS_SAVE_KEY] },
+  { id: 'formations', storageKeys: [OFFENSE_FORMATIONS_SAVE_KEY, LEGACY_OFFENSE_FORMATIONS_SAVE_KEY] },
   { id: 'deployments', storageKeys: [DEPLOYED_AXIES_SAVE_KEY] },
+  { id: 'axie-roster', storageKeys: [AXIE_ROSTER_SAVE_KEY] },
+  { id: 'game-owner', storageKeys: [AXIE_SAVED_OWNER_KEY, AXIE_INPUT_OWNER_KEY] },
   { id: 'unit-stats', storageKeys: ['axie-conquest-unit-stats-v1'], reset: () => setActiveUnitGlobalStats({ ...DEFAULT_UNIT_GLOBAL_STATS }) },
+  { id: 'battle-settings', storageKeys: [BATTLE_SETTINGS_SAVE_KEY], reset: () => setActiveBattleSettings({ ...DEFAULT_BATTLE_SETTINGS }) },
+  { id: 'portal', storageKeys: [PORTAL_CONFIG_SAVE_KEY, PORTAL_STATE_SAVE_KEY], reset: () => resetPortalState() },
+  { id: 'training-queue', storageKeys: [TRAINING_QUEUE_SAVE_KEY] },
+  { id: 'city-defense', storageKeys: [CITY_HEALTH_SAVE_KEY, UNITS_PRODUCED_SAVE_KEY], reset: () => resetCityDefense() },
+  { id: 'city-repair', storageKeys: [CITY_REPAIR_SAVE_KEY], matchesStorageKey: key => /^axie-conquest-city-.+-repair-v1$/.test(key), reset: () => resetCityRepair() },
+  {
+    id: 'developer',
+    storageKeys: [DEVELOPER_UNLOCKED_SESSION_KEY],
+    reset: () => {
+      if (typeof window !== 'undefined' && typeof window.sessionStorage !== 'undefined') {
+        try { window.sessionStorage.removeItem(DEVELOPER_UNLOCKED_SESSION_KEY); } catch { /* ignore */ }
+      }
+    },
+  },
 ];
 
 type ResetStorage = Pick<Storage, 'length' | 'key' | 'removeItem'>;

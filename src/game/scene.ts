@@ -1,14 +1,32 @@
+import { fighterWorldPosition } from './battle-world';
+import { createWorldFight } from './world-fight';
+import type { BattleSession } from './battle-save';
 import { WorldUnit } from './units';
 import { showMarches } from './march-scene';
+import { activeBattleSettings } from './battle-settings';
+import { BATTLE_OVERLAYS } from './battle-debug';
+import { TROOP_COMBAT_STATS } from './battle';
 import { generateWorld, GenerationSettings, WorldObject, WORLD_DEFINITIONS, WORLD_SAVE_KEY, WORLD_WIDTH, WORLD_DEPTH } from './world';
-import { ArcRotateCamera, Color3, Color4, DirectionalLight, Engine, HemisphericLight, MeshBuilder, Scene, StandardMaterial, TransformNode, Vector3 } from '@babylonjs/core';
+import { ArcRotateCamera, Color3, Color4, DirectionalLight, DynamicTexture, Engine, HemisphericLight, Matrix, Mesh, MeshBuilder, Scene, Sprite, SpriteManager, StandardMaterial, TransformNode, Vector3, Viewport } from '@babylonjs/core';
 import { BUILDING_DEFINITIONS, BuildableKind, BuildingKind, Building, Cell, FOOTPRINT, GRID_DEPTH, GRID_WIDTH, MAIN_HALL, canPlace, getBuildingDimensions, getBuildingFootprint, restoreBuildings, canMoveBuilding, moveBuilding, removeBuilding, rotateBuilding, Troops, TroopKind } from './base';
 import { createMilitaryService, getTrainingMessage } from './military-service';
+import { isBuildingMovable } from './building-config';
 import { CAPITAL_CITY_ID } from './cities';
 import { Coordinate, WorldTarget } from './routes';
+import { getBossConfig } from './bosses';
+import { BabylonMascotMixer, type BabylonMascotInstance, MASCOT_CONFIGS } from './mascot/mascot-mixer';
+import { PortalSceneManager } from './portal-scene';
+import type { PortalRuntimeState } from './portal';
+import { TrainingQueue, secondsRemaining, jobProgress } from './training-queue';
+import { drawUnitNameLabel, UNIT_LABEL_STYLE, UNIT_LABEL_TEXTURE_SIZE } from './unit-label-style';
 
-type Events = { troops: (troops: Troops) => void; change: (b: Building[]) => void; preview: (c: Cell | null) => void; select: (b: Building | null) => void; unitSelect: (id: string) => void; target: (target: WorldTarget | null) => void; message: (s: string) => void; viewMode: (mode: 'base' | 'world') => void };
-export type BaseView = { setUnits: (orders: WorldUnit[], selectedId: string | null) => void; setSelectedTarget: (id: string | null) => void; focusCoordinate: (coordinate: Coordinate) => void; regenerateWorld: (settings: GenerationSettings) => WorldObject[]; loadWorld: (objects: WorldObject[]) => void; removeWorld: () => void; train: (kind: TroopKind) => boolean; rotate: (id: string) => boolean; move: (id: string) => boolean; remove: (id: string) => boolean; begin: (kind: BuildableKind) => void; cancel: () => void; confirm: () => boolean; setGridVisible: (visible: boolean) => void; setWorldView: (enabled: boolean) => void; setRoute: (route: { origin: Coordinate; destination: Coordinate } | null) => void; zoom: (factor: number) => void; home: () => void; dispose: () => void };
+type Events = { fighterSelect?: (id: string) => void; watchBattle?: (sessionId?: string) => void; troops: (troops: Troops) => void; change: (b: Building[]) => void; preview: (c: Cell | null) => void; select: (b: Building | null) => void; unitSelect: (id: string) => void; portalSelect?: (portalId: string) => void; target: (target: WorldTarget | null) => void; message: (s: string) => void; viewMode: (mode: 'base' | 'world') => void };
+export type BaseView = { focusBattle: (targetSession?: BattleSession) => void; setBattle: (session: BattleSession | null, selectedId?: string | null) => void; setBattles: (sessions: readonly BattleSession[]) => void; setPortalState: (state: PortalRuntimeState | null, selectedId?: string | null) => void; refreshMilitary: () => void; setUnits: (orders: WorldUnit[], selectedId: string | null) => void; setSelectedTarget: (id: string | null) => void; focusCoordinate: (coordinate: Coordinate) => void; regenerateWorld: (settings: GenerationSettings) => WorldObject[]; loadWorld: (objects: WorldObject[]) => void; removeWorld: () => void; train: (kind: TroopKind) => boolean; rotate: (id: string) => boolean; move: (id: string) => boolean; remove: (id: string) => boolean; upgrade: (id: string, nextLevel: number) => boolean; begin: (kind: BuildableKind) => void; cancel: () => void; confirm: () => boolean; setGridVisible: (visible: boolean) => void; setWorldView: (enabled: boolean) => void; setRoute: (route: { origin: Coordinate; destination: Coordinate } | null) => void; zoom: (factor: number) => void; home: () => void; dispose: () => void;
+  setTrainingQueue: (queue: TrainingQueue) => void;
+  setCityHealth: (current: number, max: number, underAttack?: boolean) => void;
+  /** Project a building's world-space top-centre to canvas pixel coordinates. Returns null if the building or canvas is not available. */
+  getScreenPosition: (buildingId: string) => { x: number; y: number } | null;
+};
 const SAVE_KEY = 'axie-conquest-base-v2';
 const HALF_WIDTH = GRID_WIDTH / 2;
 const HALF_DEPTH = GRID_DEPTH / 2;
@@ -18,7 +36,34 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
   engine.setHardwareScalingLevel(Math.max(1, window.devicePixelRatio / 1.5));
   const scene = new Scene(engine);
   let clearMarches = () => {};
-  function setUnits(orders: WorldUnit[], selectedId: string | null) { clearMarches(); clearMarches = showMarches(scene, orders, selectedId, () => overviewActive); }
+  let liveBattles: readonly BattleSession[] = [];
+  const worldFight = createWorldFight(scene);
+  let worldPinned = false;
+  let marchOrders: WorldUnit[] | null = null, marchSelection: string | null = null;
+  const mascotMixer = new BabylonMascotMixer(scene);
+  const worldMascotAvatars = new Map<string, BabylonMascotInstance>();
+  const portalScene = new PortalSceneManager(scene, {
+    onSelectPortal: events.portalSelect,
+    onSelectMarch: events.unitSelect,
+  });
+  let activePortalState: PortalRuntimeState | null = null;
+  function setUnits(orders: WorldUnit[], selectedId: string | null) {
+    marchSelection = selectedId;
+    if (marchOrders === orders) return;
+    const prev = marchOrders;
+    marchOrders = orders;
+    const sameStructure = prev && prev.length === orders.length && prev.every((u, i) => {
+      const next = orders[i];
+      return u.id === next.id && u.status === next.status &&
+        u.order?.kind === next.order?.kind &&
+        u.order?.destination?.x === next.order?.destination?.x &&
+        u.order?.destination?.z === next.order?.destination?.z &&
+        u.order?.arrivesAt === next.order?.arrivesAt &&
+        u.members.length === next.members.length;
+    });
+    if (sameStructure) return;
+    clearMarches(); clearMarches = showMarches(scene, () => marchOrders ?? orders, () => marchSelection, () => overviewActive, () => liveBattles);
+  }
   scene.clearColor = Color4.FromHexString('#91aaa2ff');
   // Keep building fronts pointing southeast on screen.
   const camera = new ArcRotateCamera('isometric', -5 * Math.PI / 6, 0.66, 43, new Vector3(0, 0, 0), scene);
@@ -117,6 +162,42 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
     box('jade pennant', 0.65, 0.35, 0.06, x + 0.3, 3.65, z, roof, perimeter);
   }
   const buildingRoots = new Map<string, TransformNode>();
+  const buildingLabels = new Map<string, Sprite>();
+  const buildingLabelManagers = new Map<string, SpriteManager>();
+  const buildingLabelTextures = new Map<string, DynamicTexture>();
+  function buildingLabelHeight(kind: BuildingKind): number {
+    if (kind === 'hall') return 4.8;
+    if (kind === 'scout') return 4.45;
+    if (kind === 'farm' || kind === 'road') return 1.45;
+    if (kind === 'oil') return 3.35;
+    return 3.55;
+  }
+  function addBuildingLabel(b: Building, root: TransformNode): void {
+    const manager = new SpriteManager(`building name sprites ${b.id}`, '', 1, UNIT_LABEL_TEXTURE_SIZE, scene);
+    const texture = new DynamicTexture(`building name texture ${b.id}`, UNIT_LABEL_TEXTURE_SIZE, scene, true);
+    texture.hasAlpha = true;
+    manager.texture = texture;
+    const sprite = new Sprite(`building name ${b.id}`, manager);
+    sprite.invertV = true;
+    const textWidth = drawUnitNameLabel(texture.getContext() as unknown as CanvasRenderingContext2D, BUILDING_DEFINITIONS[b.kind].name);
+    texture.update();
+    sprite.position.set(root.position.x, buildingLabelHeight(b.kind), root.position.z);
+    sprite.width = Math.max(3.6, Math.min(6.4, textWidth / 80));
+    sprite.height = 1.05;
+    sprite.isPickable = false;
+    sprite.isVisible = !overviewActive;
+    buildingLabels.set(b.id, sprite);
+    buildingLabelManagers.set(b.id, manager);
+    buildingLabelTextures.set(b.id, texture);
+  }
+  function removeBuildingLabel(id: string): void {
+    buildingLabels.get(id)?.dispose();
+    buildingLabelManagers.get(id)?.dispose();
+    buildingLabelTextures.get(id)?.dispose();
+    buildingLabels.delete(id);
+    buildingLabelManagers.delete(id);
+    buildingLabelTextures.delete(id);
+  }
   // At world scale the detailed 4x4 building footprints become visual noise.
   // Use one compact settlement silhouette instead, then restore the detailed
   // base as soon as the player zooms back in.
@@ -130,14 +211,29 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
   overviewCap.parent = overviewRoot; overviewCap.position.y = 4.65; overviewCap.rotation.y = Math.PI / 4; overviewCap.material = roof;
   box('settlement overview gate', 3.2, 1.8, 0.25, 0, 1.15, -3.65, dark, overviewRoot);
   box('settlement overview banner', 0.35, 3.8, 0.35, 0, 4.8, 0, gold, overviewRoot);
+  const overviewLabelManager = new SpriteManager('settlement overview name sprites', '', 1, UNIT_LABEL_TEXTURE_SIZE, scene);
+  const overviewLabelTexture = new DynamicTexture('settlement overview name texture', UNIT_LABEL_TEXTURE_SIZE, scene, true);
+  overviewLabelTexture.hasAlpha = true;
+  overviewLabelManager.texture = overviewLabelTexture;
+  const overviewLabel = new Sprite('settlement overview name', overviewLabelManager);
+  overviewLabel.invertV = true;
+  const overviewTextWidth = drawUnitNameLabel(overviewLabelTexture.getContext() as unknown as CanvasRenderingContext2D, 'Everleaf Haven');
+  overviewLabelTexture.update();
+  overviewLabel.position.set(0, 6.8, 0);
+  overviewLabel.width = Math.max(3.6, Math.min(6.4, overviewTextWidth / 80));
+  overviewLabel.height = 1.05;
+  overviewLabel.isPickable = false;
+  overviewLabel.isVisible = false;
   overviewRoot.setEnabled(false);
   const WORLD_OVERVIEW_RADIUS = 58;
   let overviewActive = false;
   function updateOverview() {
-    const overview = camera.radius >= WORLD_OVERVIEW_RADIUS || Math.hypot(camera.target.x, camera.target.z) > 24;
+    const overview = worldPinned || camera.radius >= WORLD_OVERVIEW_RADIUS || Math.hypot(camera.target.x, camera.target.z) > 24;
     overviewRoot.setEnabled(overview);
     perimeter.setEnabled(!overview);
     buildingRoots.forEach(root => root.setEnabled(!overview));
+    buildingLabels.forEach(label => { label.isVisible = !overview; });
+    overviewLabel.isVisible = overview;
     gridRoot?.setEnabled(!overview && (placing));
     previewRoot?.setEnabled(!overview && placing && candidate !== null);
     if (overview !== overviewActive) {
@@ -277,29 +373,134 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
       }
     }
     root.getChildMeshes().forEach(mesh => { mesh.isPickable = true; mesh.metadata = { buildingId: b.id }; });
+    addBuildingLabel(b, root);
   }
   const generatedRoots: TransformNode[] = [];
-  const targetRings = new Map<string, ReturnType<typeof MeshBuilder.CreateTorus>>();
-  function setSelectedTarget(id: string | null) { targetRings.forEach((ring, objectId) => ring.setEnabled(objectId === id)); }
+  const worldObjectsById = new Map<string, WorldObject>();
+  const worldCombatDebugs = new Map<string, TransformNode>();
+  const worldHealthBack = new StandardMaterial('world defender health background', scene);
+  worldHealthBack.diffuseColor = Color3.FromHexString('#26332f');
+  worldHealthBack.emissiveColor = worldHealthBack.diffuseColor;
+  worldHealthBack.disableLighting = true;
+  const worldHealthFill = new StandardMaterial('world defender health fill', scene);
+  worldHealthFill.diffuseColor = Color3.FromHexString('#e16d61');
+  worldHealthFill.emissiveColor = worldHealthFill.diffuseColor;
+  worldHealthFill.disableLighting = true;
+  let selectedTargetId: string | null = null;
+  let lastWorldBattleSettings: typeof activeBattleSettings | null = null;
+  const targetSprites = new Map<string, Sprite>();
+  const targetLabels = new Map<string, Sprite>();
+  const targetLabelManagers: SpriteManager[] = [];
+  const targetLabelTextures: DynamicTexture[] = [];
+  const targetSelectionManager = new SpriteManager('world object selection sprites', '', 128, 256, scene);
+  const targetSelectionTexture = new DynamicTexture('world object selection texture', { width: 256, height: 256 }, scene, true);
+  targetSelectionTexture.hasAlpha = true;
+  targetSelectionManager.texture = targetSelectionTexture;
+  const targetSelectionContext = targetSelectionTexture.getContext() as unknown as CanvasRenderingContext2D;
+  targetSelectionContext.clearRect(0, 0, 256, 256);
+  targetSelectionContext.strokeStyle = UNIT_LABEL_STYLE.markerColor;
+  targetSelectionContext.lineWidth = 10;
+  targetSelectionContext.shadowColor = 'rgba(255, 227, 108, 0.65)';
+  targetSelectionContext.shadowBlur = 8;
+  targetSelectionContext.beginPath();
+  targetSelectionContext.arc(128, 128, 82, 0, Math.PI * 2);
+  targetSelectionContext.stroke();
+  targetSelectionTexture.update();
+  function worldBoundary(parent: TransformNode, x: number, z: number, radius: number, color: string) {
+    const points = Array.from({ length: 97 }, (_, i) => new Vector3(x + Math.sin(i * Math.PI / 48) * radius, 0.24, z + Math.cos(i * Math.PI / 48) * radius));
+    const mesh = MeshBuilder.CreateLines('world battle range', { points }, scene);
+    mesh.parent = parent; mesh.color = Color3.FromHexString(color); mesh.isPickable = false;
+  }
+  function refreshWorldCombatDebugs() {
+    worldCombatDebugs.forEach(debug => debug.dispose()); worldCombatDebugs.clear();
+    const { overlays, awarenessRadius, engagementRadius, attackRangeMultiplier, bodyRadiusMultiplier, showAll } = activeBattleSettings;
+    if (!Object.values(overlays).some(Boolean)) return;
+    worldObjectsById.forEach(object => {
+      if (object.state !== 'defended' || !['boss', 'garrison', 'village'].includes(object.kind)) return;
+      const root = generatedRoots.find(candidate => candidate.name === object.id);
+      if (!root) return;
+      const debug = new TransformNode('world enemy battle overlays', scene); debug.parent = root;
+      if (overlays.awareness) worldBoundary(debug, 0, 0, awarenessRadius, BATTLE_OVERLAYS.awareness.color);
+      if (overlays.engagement) worldBoundary(debug, 0, 0, engagementRadius, BATTLE_OVERLAYS.engagement.color);
+      const positions = [{ x: -2, z: -1, kind: 'infantry' as const }, { x: 0, z: -1, kind: 'infantry' as const }, { x: 2, z: 2, kind: 'archer' as const }];
+      positions.forEach(member => {
+        const stats = TROOP_COMBAT_STATS[member.kind];
+        const radius = stats.radius * bodyRadiusMultiplier;
+        if (overlays.attack) worldBoundary(debug, member.x, member.z, radius + stats.range * attackRangeMultiplier, BATTLE_OVERLAYS.attack.color);
+        if (overlays.body) worldBoundary(debug, member.x, member.z, radius, BATTLE_OVERLAYS.body.color);
+        if (overlays.facing) {
+          const facing = MeshBuilder.CreateLines('world enemy facing', { points: [new Vector3(member.x, 0.25, member.z), new Vector3(member.x, 0.25, member.z - 2)] }, scene);
+          facing.parent = debug; facing.color = Color3.FromHexString(BATTLE_OVERLAYS.facing.color); facing.isPickable = false;
+        }
+      });
+      debug.setEnabled(showAll || object.id === selectedTargetId);
+      worldCombatDebugs.set(object.id, debug);
+    });
+  }
+  function setSelectedTarget(id: string | null) {
+    selectedTargetId = id;
+    targetSprites.forEach((sprite, objectId) => { sprite.isVisible = objectId === id; });
+    worldCombatDebugs.forEach((debug, objectId) => debug.setEnabled(activeBattleSettings.showAll || objectId === id));
+  }
   function saveWorld(objects: WorldObject[]) {
     try { localStorage.setItem(WORLD_SAVE_KEY, JSON.stringify(objects)); }
     catch { events.message('World saved for this session only; browser storage unavailable.'); }
   }
   function removeWorld() {
+    worldMascotAvatars.forEach(avatar => avatar.dispose());
+    worldMascotAvatars.clear();
     generatedRoots.forEach(root => root.dispose());
     generatedRoots.length = 0;
-    targetRings.clear();
+    targetSprites.forEach(sprite => sprite.dispose());
+    targetLabels.forEach(sprite => sprite.dispose());
+    targetSprites.clear(); targetLabels.clear();
+    targetLabelManagers.splice(0).forEach(manager => manager.dispose());
+    targetLabelTextures.splice(0).forEach(texture => texture.dispose());
+    worldObjectsById.clear(); worldCombatDebugs.clear();
   }
   function loadWorld(objects: WorldObject[]) {
     removeWorld(); objects.forEach(makeWorldObject); saveWorld(objects);
+    refreshWorldCombatDebugs();
   }
   function makeWorldObject(object: WorldObject) {
+    const isResource = ['farm', 'lumber', 'stone', 'oil'].includes(object.kind);
+    if (isResource && object.currentCapacity !== undefined && object.currentCapacity <= 0) {
+      // Depleted resource nodes are gone from the world until they regenerate
+      return;
+    }
     const root = new TransformNode(object.id, scene);
     root.position.set(object.x, 0, object.z);
     generatedRoots.push(root);
+    worldObjectsById.set(object.id, object);
     box('world site', 4.2, 0.18, 4.2, 0, 0.02, 0, soil, root);
-    const selection = MeshBuilder.CreateTorus('world object selection', { diameter: 5.5, thickness: 0.16, tessellation: 32 }, scene);
-    selection.parent = root; selection.position.y = 0.25; selection.material = gold; selection.isPickable = false; selection.setEnabled(false); targetRings.set(object.id, selection);
+    const label = object.bossName ?? WORLD_DEFINITIONS[object.kind].name;
+    const selection = new Sprite(`world object selection ${object.id}`, targetSelectionManager);
+    selection.position.set(object.x, 0.25, object.z);
+    selection.width = 3.5;
+    selection.height = 3.5;
+    selection.isPickable = false;
+    selection.isVisible = false;
+    targetSprites.set(object.id, selection);
+
+    const labelManager = new SpriteManager(`world object name sprites ${object.id}`, '', 1, UNIT_LABEL_TEXTURE_SIZE, scene);
+    const labelTexture = new DynamicTexture(`world object name texture ${object.id}`, UNIT_LABEL_TEXTURE_SIZE, scene, true);
+    labelTexture.hasAlpha = true;
+    labelManager.texture = labelTexture;
+    targetLabelManagers.push(labelManager);
+    targetLabelTextures.push(labelTexture);
+    const labelSprite = new Sprite(`world object name ${object.id}`, labelManager);
+    labelSprite.invertV = true;
+    const labelContext = labelTexture.getContext() as unknown as CanvasRenderingContext2D;
+    const textWidth = drawUnitNameLabel(labelContext, label);
+    labelTexture.update();
+    labelSprite.position.set(object.x, object.kind === 'lumber' ? 5.2 : 3.8, object.z);
+    labelSprite.width = Math.max(3.6, Math.min(6.6, textWidth / 80));
+    labelSprite.height = 1.05;
+    labelSprite.isPickable = false;
+    // World resource/mob names stay visible after spawn/respawn; only the
+    // circular selection marker is limited to the currently selected object.
+    labelSprite.isVisible = true;
+    targetLabels.set(object.id, labelSprite);
     if (object.kind === 'farm') {
       for (const x of [-1.3, 0, 1.3]) box('crop row', 0.65, 0.55, 3.4, x, 0.35, 0, crop, root);
     } else if (object.kind === 'lumber') {
@@ -310,15 +511,54 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
       }
     } else if (object.kind === 'stone' || object.kind === 'boss') {
       const boss = object.kind === 'boss';
-      const body = MeshBuilder.CreateSphere(boss ? 'chimera boss' : 'stone deposit', { diameter: 3, segments: 6 }, scene);
-      body.parent = root; body.position.y = 1.3; body.material = boss ? accents.barracks : rockMat;
-      if (boss) {
-        for (const x of [-0.7, 0.7]) {
-          box('boss eyes', 0.35, 0.35, 0.2, x, 1.6, -1.3, gold, root);
-          const horn = MeshBuilder.CreateCylinder('boss horn', { diameterBottom: 0.6, diameterTop: 0, height: 1.2, tessellation: 5 }, scene);
-          horn.parent = root; horn.position.set(x, 2.9, 0); horn.material = stone;
+      if (boss && object.bossId) {
+        const bossConfig = getBossConfig(object.bossId);
+        const mascotId = bossConfig?.leader.mascotId ?? (MASCOT_CONFIGS[object.bossId] ? object.bossId : 'kotaro');
+        const fallback = MeshBuilder.CreateSphere('chimera boss fallback', { diameter: 2.6, segments: 6 }, scene);
+        fallback.parent = root; fallback.position.y = 1.3; fallback.material = accents.barracks;
+        const horns: TransformNode[] = [];
+        for (const x of [-0.6, 0.6]) {
+          horns.push(box('boss eyes', 0.3, 0.3, 0.2, x, 1.5, -1.1, gold, root));
+          const horn = MeshBuilder.CreateCylinder('boss horn', { diameterBottom: 0.5, diameterTop: 0, height: 1.0, tessellation: 5 }, scene);
+          horn.parent = root; horn.position.set(x, 2.7, 0); horn.material = stone;
+          horns.push(horn);
         }
-      } else box('stone outcrop', 1.3, 0.85, 1.2, 1, 0.5, -1, rockMat, root);
+
+        mascotMixer.create(mascotId).then(avatar => {
+          if (root.isDisposed()) { avatar.dispose(); return; }
+          avatar.root.parent = root;
+          avatar.root.position.y = 0.08;
+          avatar.root.rotation.y = Math.PI / 4;
+          avatar.root.scaling.setAll(1.4);
+          avatar.update('holding', 0);
+          worldMascotAvatars.set(object.id, avatar);
+
+          fallback.dispose();
+          horns.forEach(h => h.dispose());
+
+          const targetLabel = object.bossName ?? WORLD_DEFINITIONS[object.kind].name;
+          const mapObjectDesc = `${targetLabel}: ${object.state}${object.state === 'defended' ? ' - Attack to battle the defenders' : ' - Gathering and loot collection unavailable'}`;
+          avatar.root.getChildMeshes().forEach(mesh => {
+            mesh.isPickable = true;
+            mesh.metadata = {
+              mapObject: mapObjectDesc,
+              worldTarget: { x: object.x, z: object.z, id: object.id, label: targetLabel }
+            };
+          });
+        }).catch(err => {
+          console.warn('[scene] Failed to load boss mascot model:', err);
+        });
+      } else {
+        const body = MeshBuilder.CreateSphere(boss ? 'chimera boss' : 'stone deposit', { diameter: 3, segments: 6 }, scene);
+        body.parent = root; body.position.y = 1.3; body.material = boss ? accents.barracks : rockMat;
+        if (boss) {
+          for (const x of [-0.7, 0.7]) {
+            box('boss eyes', 0.35, 0.35, 0.2, x, 1.6, -1.3, gold, root);
+            const horn = MeshBuilder.CreateCylinder('boss horn', { diameterBottom: 0.6, diameterTop: 0, height: 1.2, tessellation: 5 }, scene);
+            horn.parent = root; horn.position.set(x, 2.9, 0); horn.material = stone;
+          }
+        } else box('stone outcrop', 1.3, 0.85, 1.2, 1, 0.5, -1, rockMat, root);
+      }
     } else if (object.kind === 'oil') {
       const barrel = MeshBuilder.CreateCylinder('world oil barrel', { diameter: 2.5, height: 2.6, tessellation: 12 }, scene);
       barrel.parent = root; barrel.position.y = 1.35; barrel.material = oilPaint;
@@ -330,8 +570,25 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
       box('site door', 0.7, 1, 0.1, 0, 0.55, -1.35, dark, root);
       box('loot crate', 0.6, 0.6, 0.6, 1.5, 0.4, -1.5, gold, root);
     }
-    const description = `${WORLD_DEFINITIONS[object.kind].name} ? Structure only${object.loot.apple ? ' ? Loot: 1 apple (unavailable)' : ' ? Gathering and combat unavailable'}`;
-    root.getChildMeshes().forEach(mesh => { mesh.isPickable = true; mesh.metadata = { mapObject: description, worldTarget: { x: object.x, z: object.z, id: object.id, label: WORLD_DEFINITIONS[object.kind].name } }; });
+    const healthValues = object.state === 'defended' && object.defenderHealth ? Object.values(object.defenderHealth) : [];
+    const damagedHealth = healthValues.length ? healthValues.reduce((sum, value) => sum + value, 0) / healthValues.length : 1;
+    if (damagedHealth < 1) {
+      const back = MeshBuilder.CreatePlane(`world defender health background ${object.id}`, { width: 4.4, height: 0.48 }, scene);
+      const fill = MeshBuilder.CreatePlane(`world defender health fill ${object.id}`, { width: 4, height: 0.24 }, scene);
+      back.parent = root; fill.parent = back;
+      back.position.y = 4.2; back.billboardMode = Mesh.BILLBOARDMODE_ALL; back.material = worldHealthBack; back.isPickable = false;
+      fill.material = worldHealthFill; fill.billboardMode = Mesh.BILLBOARDMODE_ALL; fill.position.z = -0.02; fill.isPickable = false;
+      fill.scaling.x = Math.max(0.001, damagedHealth); fill.position.x = -2 * (1 - damagedHealth);
+    }
+    let description: string;
+    if (isResource) {
+      const cap = object.currentCapacity !== undefined ? Math.round(object.currentCapacity) : (object.maxCapacity ?? 500);
+      const max = object.maxCapacity ?? 500;
+      description = `${label}: ${cap} / ${max} available to gather`;
+    } else {
+      description = `${label}: ${object.state}${object.state === 'defended' ? ' - Attack to battle the defenders' : ''}`;
+    }
+    root.getChildMeshes().forEach(mesh => { mesh.isPickable = true; mesh.metadata = { mapObject: description, worldTarget: { x: object.x, z: object.z, id: object.id, label } }; });
   }
   let buildings: Building[];
   try {
@@ -341,7 +598,7 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
       : restoreBuildings(saved);
   }
   catch { buildings = restoreBuildings(null); }
-  const military = createMilitaryService(localStorage, CAPITAL_CITY_ID);
+  let military = createMilitaryService(localStorage, CAPITAL_CITY_ID);
   events.troops(military.getTroops());
   buildings.forEach(makeBuilding); events.change([...buildings]);
   const gridRoot = new TransformNode('construction grid', scene);
@@ -390,6 +647,7 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
   let moved = false;
   function zoom(factor: number) { camera.radius = Math.max(12, Math.min(85, camera.radius * factor)); updateOverview(); }
   function home() {
+    worldPinned = false;
     const hall = buildings.find(b => b.kind === 'hall')!;
     camera.target.set(hall.x - HALF_WIDTH + FOOTPRINT / 2, 0, hall.z - HALF_DEPTH + FOOTPRINT / 2);
     camera.radius = 43;
@@ -433,7 +691,16 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
     }
     else {
       const rect = canvas.getBoundingClientRect();
-      const hit = scene.pick(e.clientX - rect.left, e.clientY - rect.top, mesh => mesh.isEnabled() && mesh.isPickable && (!!mesh.metadata?.buildingId || !!mesh.metadata?.mapObject || !!mesh.metadata?.unitId));
+      const hit = scene.pick(e.clientX - rect.left, e.clientY - rect.top, mesh => mesh.isEnabled(true) && mesh.isVisible && mesh.isPickable && (!!mesh.metadata?.fighterId || !!mesh.metadata?.buildingId || !!mesh.metadata?.mapObject || !!mesh.metadata?.unitId || !!mesh.metadata?.portalId || (mesh.metadata?.action === 'watchBattle' && liveBattles.length > 0)));
+      if (hit?.pickedMesh?.metadata?.action === 'watchBattle' && liveBattles.length > 0) {
+        events.watchBattle?.(hit.pickedMesh.metadata.sessionId);
+        return;
+      }
+      if (typeof hit?.pickedMesh?.metadata?.portalId === 'string') {
+        events.portalSelect?.(hit.pickedMesh.metadata.portalId);
+        return;
+      }
+      if (typeof hit?.pickedMesh?.metadata?.fighterId === 'string') { events.fighterSelect?.(hit.pickedMesh.metadata.fighterId); return; }
       if (typeof hit?.pickedMesh?.metadata?.unitId === 'string') {
         events.unitSelect(hit.pickedMesh.metadata.unitId);
         return;
@@ -457,13 +724,295 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
   canvas.addEventListener('pointerdown', down); canvas.addEventListener('pointermove', move);
   canvas.addEventListener('pointerup', up); canvas.addEventListener('pointercancel', up);
   canvas.addEventListener('wheel', wheel, { passive: false });
+  type TrainingBillboard = {
+    buildingId: string;
+    plane: Mesh;
+    texture: DynamicTexture;
+    material: StandardMaterial;
+    lastSecs: number;
+    lastProgress: number;
+  };
+  const trainingBillboards = new Map<string, TrainingBillboard>();
+  let activeTrainingQueue: TrainingQueue = new Map();
+
+  function updateTrainingBillboards(queue: TrainingQueue) {
+    if (typeof document === 'undefined') return;
+    const now = Date.now();
+
+    // Clean up billboards for buildings that are no longer training or whose roots are gone
+    Array.from(trainingBillboards.entries()).forEach(([bId, bb]) => {
+      if (!queue.has(bId) || !buildingRoots.has(bId)) {
+        bb.plane.dispose();
+        bb.texture.dispose();
+        bb.material.dispose();
+        trainingBillboards.delete(bId);
+      }
+    });
+
+    // Update or create billboards for active jobs
+    Array.from(queue.entries()).forEach(([bId, job]) => {
+      const root = buildingRoots.get(bId);
+      if (!root) return;
+
+      let bb = trainingBillboards.get(bId);
+      if (!bb) {
+        const plane = MeshBuilder.CreatePlane(`training-bb-${bId}`, { width: 2.2, height: 2.2 }, scene);
+        plane.parent = root;
+        plane.position.set(0, 3.8, 0);
+        plane.billboardMode = Mesh.BILLBOARDMODE_ALL;
+        plane.isPickable = true;
+        plane.metadata = { buildingId: bId, kind: 'training-billboard' };
+
+        const texture = new DynamicTexture(`training-tex-${bId}`, { width: 128, height: 128 }, scene, false);
+        texture.hasAlpha = true;
+
+        const mat = new StandardMaterial(`training-mat-${bId}`, scene);
+        mat.diffuseTexture = texture;
+        mat.emissiveColor = Color3.White();
+        mat.specularColor = Color3.Black();
+        mat.useAlphaFromDiffuseTexture = true;
+        mat.disableLighting = true;
+        mat.backFaceCulling = false;
+        plane.material = mat;
+
+        bb = {
+          buildingId: bId,
+          plane,
+          texture,
+          material: mat,
+          lastSecs: -1,
+          lastProgress: -1,
+        };
+        trainingBillboards.set(bId, bb);
+      }
+
+      const secs = secondsRemaining(job, now);
+      const progress = jobProgress(job, now);
+
+      if (secs !== bb.lastSecs || Math.abs(progress - bb.lastProgress) > 0.02) {
+        bb.lastSecs = secs;
+        bb.lastProgress = progress;
+
+        const ctx = bb.texture.getContext() as unknown as CanvasRenderingContext2D;
+        if (ctx && typeof ctx.clearRect === 'function') {
+          ctx.clearRect(0, 0, 128, 128);
+
+          const cx = 64;
+          const cy = 64;
+          const r = 50;
+
+          // Shadow / dark disc
+          ctx.beginPath();
+          ctx.arc(cx, cy, r, 0, Math.PI * 2);
+          ctx.fillStyle = 'rgba(15, 26, 20, 0.90)';
+          ctx.fill();
+
+          // Outer thin ring
+          ctx.lineWidth = 3;
+          ctx.strokeStyle = 'rgba(255, 255, 255, 0.16)';
+          ctx.stroke();
+
+          // Progress Arc
+          const startAngle = -Math.PI / 2;
+          const endAngle = startAngle + (Math.PI * 2 * Math.min(1, Math.max(0, progress)));
+          ctx.beginPath();
+          ctx.arc(cx, cy, r, startAngle, endAngle, false);
+          ctx.lineWidth = 7;
+          ctx.strokeStyle = '#4cf09a';
+          ctx.lineCap = 'round';
+          ctx.stroke();
+
+          // Icon
+          const icon = job.kind === 'archer' ? '🏹' : '⚔️';
+          ctx.font = '28px "Segoe UI Emoji", "Apple Color Emoji", sans-serif';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(icon, cx, cy - 14);
+
+          // Timer label
+          const label = secs >= 60 ? `${Math.ceil(secs / 60)}m` : `${secs}s`;
+          ctx.font = 'bold 22px system-ui, -apple-system, sans-serif';
+          ctx.fillStyle = '#d6ffe2';
+          ctx.fillText(label, cx, cy + 22);
+
+          bb.texture.update();
+        }
+      }
+    });
+  }
+
+  // City Base Health Bar Sprite (rendered when city health < 100%)
+  let cityHealthPlane: Mesh | null = null;
+  let cityHealthTexture: DynamicTexture | null = null;
+  let cityHealthMat: StandardMaterial | null = null;
+  let lastDrawnHealthKey = '';
+
+  function drawRoundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.arcTo(x + w, y, x + w, y + r, r);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
+    ctx.lineTo(x + r, y + h);
+    ctx.arcTo(x, y + h, x, y + h - r, r);
+    ctx.lineTo(x, y + r);
+    ctx.arcTo(x, y, x + r, y, r);
+    ctx.closePath();
+  }
+
+  function updateCityHealthBar(current: number, max: number, underAttack = false) {
+    if (typeof document === 'undefined') return;
+    const hall = buildings.find(b => b.kind === 'hall');
+    const hallRoot = hall ? buildingRoots.get(hall.id) : null;
+
+    // Hide health bar sprite if health is full (>= 100%), destroyed (<= 0), or hall is missing
+    if (current >= max || current <= 0 || !hallRoot) {
+      if (cityHealthPlane) cityHealthPlane.setEnabled(false);
+      lastDrawnHealthKey = '';
+      return;
+    }
+
+    if (!cityHealthPlane) {
+      cityHealthPlane = MeshBuilder.CreatePlane('city-health-bb', { width: 5.4, height: 1.6 }, scene);
+      cityHealthPlane.billboardMode = Mesh.BILLBOARDMODE_ALL;
+      cityHealthPlane.isPickable = false;
+
+      cityHealthTexture = new DynamicTexture('city-health-tex', { width: 384, height: 112 }, scene, false);
+      cityHealthTexture.hasAlpha = true;
+
+      cityHealthMat = new StandardMaterial('city-health-mat', scene);
+      cityHealthMat.diffuseTexture = cityHealthTexture;
+      cityHealthMat.emissiveColor = Color3.White();
+      cityHealthMat.specularColor = Color3.Black();
+      cityHealthMat.useAlphaFromDiffuseTexture = true;
+      cityHealthMat.disableLighting = true;
+      cityHealthMat.backFaceCulling = false;
+      cityHealthPlane.material = cityHealthMat;
+    }
+
+    // Anchor directly above the Main Hall
+    cityHealthPlane.parent = hallRoot;
+    cityHealthPlane.position.set(0, 5.0, 0);
+    cityHealthPlane.setEnabled(!overviewActive);
+
+    const pct = Math.max(0, Math.min(1, current / max));
+    const pctInt = Math.round(pct * 100);
+    const curRounded = Math.round(current);
+    const key = `${curRounded}-${max}-${underAttack}-${pctInt}`;
+    if (key === lastDrawnHealthKey) return;
+    lastDrawnHealthKey = key;
+
+    if (!cityHealthTexture) return;
+    const ctx = cityHealthTexture.getContext() as unknown as CanvasRenderingContext2D;
+    if (ctx && typeof ctx.clearRect === 'function') {
+      const w = 384;
+      const h = 112;
+      ctx.clearRect(0, 0, w, h);
+
+      // Dark badge container
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.94)';
+      drawRoundRect(ctx, 6, 6, w - 12, h - 12, 14);
+      ctx.fill();
+
+      // Border: pulsing/bright red when attacked, or slate/cyan when resting
+      ctx.lineWidth = underAttack ? 3 : 2;
+      ctx.strokeStyle = underAttack ? '#ef4444' : '#64748b';
+      ctx.stroke();
+
+      // Header row
+      ctx.font = 'bold 18px system-ui, -apple-system, sans-serif';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      if (underAttack) {
+        ctx.fillStyle = '#f87171';
+        ctx.fillText('⚔️ BASE UNDER ATTACK!', 20, 28);
+      } else {
+        ctx.fillStyle = '#e2e8f0';
+        ctx.fillText('🏰 Everleaf City Base', 20, 28);
+      }
+
+      // Percent text right-aligned
+      ctx.font = 'bold 17px system-ui, -apple-system, sans-serif';
+      ctx.textAlign = 'right';
+      ctx.fillStyle = pct > 0.5 ? '#4ade80' : pct > 0.25 ? '#facc15' : '#f87171';
+      ctx.fillText(`${curRounded} / ${max} (${pctInt}%)`, w - 20, 28);
+
+      // Health bar track
+      const trackX = 20;
+      const trackY = 54;
+      const trackW = w - 40;
+      const trackH = 26;
+
+      ctx.fillStyle = 'rgba(30, 41, 59, 0.95)';
+      drawRoundRect(ctx, trackX, trackY, trackW, trackH, 8);
+      ctx.fill();
+
+      // Health bar fill
+      const fillW = Math.max(0, trackW * pct);
+      if (fillW > 0) {
+        const fillColor = pct > 0.5 ? '#22c55e' : pct > 0.25 ? '#eab308' : '#ef4444';
+        ctx.fillStyle = fillColor;
+        drawRoundRect(ctx, trackX, trackY, fillW, trackH, 8);
+        ctx.fill();
+      }
+
+      // Gloss line
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.18)';
+      drawRoundRect(ctx, trackX + 2, trackY + 2, Math.max(0, fillW - 4), Math.floor(trackH / 2) - 2, 4);
+      ctx.fill();
+
+      // HP text inside/centered on bar
+      ctx.font = 'bold 14px system-ui, -apple-system, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#ffffff';
+      ctx.fillText(`${curRounded} HP`, trackX + trackW / 2, trackY + trackH / 2 + 1);
+
+      cityHealthTexture.update();
+    }
+  }
+
   const resize = () => engine.resize(); window.addEventListener('resize', resize);
-  engine.runRenderLoop(() => { updateOverview(); scene.render(); });
+  engine.runRenderLoop(() => {
+    if (lastWorldBattleSettings !== activeBattleSettings) {
+      lastWorldBattleSettings = activeBattleSettings;
+      refreshWorldCombatDebugs();
+    }
+    updateOverview();
+    worldFight.update(liveBattles, overviewActive);
+    if (activePortalState) {
+      portalScene.update(activePortalState);
+    }
+    if (activeTrainingQueue.size > 0 && !overviewActive) {
+      updateTrainingBillboards(activeTrainingQueue);
+    }
+    scene.render();
+  });
   function persist(message: string) {
     try { localStorage.setItem(SAVE_KEY, JSON.stringify(buildings)); events.message(message); }
     catch { events.message(`${message} Browser storage unavailable; progress lasts this session.`); }
   }
   return {
+    refreshMilitary() { military = createMilitaryService(localStorage, CAPITAL_CITY_ID); events.troops(military.getTroops()); },
+    setTrainingQueue(queue: TrainingQueue) {
+      activeTrainingQueue = queue;
+      updateTrainingBillboards(activeTrainingQueue);
+    },
+    setCityHealth(current: number, max: number, underAttack = false) {
+      updateCityHealthBar(current, max, underAttack);
+    },
+    getScreenPosition(buildingId: string) {
+      const root = buildingRoots.get(buildingId);
+      if (!root) return null;
+      const rect = canvas.getBoundingClientRect();
+      if (!rect.width || !rect.height) return null;
+      // Project the top-centre of the building (y = 3.5 to clear the tallest roofline)
+      const worldPos = root.getAbsolutePosition().add(new Vector3(0, 3.5, 0));
+      const viewport = new Viewport(0, 0, rect.width, rect.height);
+      const screenPos = Vector3.Project(worldPos, Matrix.Identity(), scene.getTransformMatrix(), viewport);
+      if (screenPos.z < 0 || screenPos.z > 1) return null; // behind camera
+      return { x: rect.left + screenPos.x, y: rect.top + screenPos.y };
+    },
     regenerateWorld(settings) {
       const objects = generateWorld(settings);
       loadWorld(objects);
@@ -482,11 +1031,38 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
     },
     setGridVisible(visible) { refreshGrid(); gridRoot.setEnabled(!camera.radius || camera.radius < WORLD_OVERVIEW_RADIUS ? (visible || placing) : false); },
     setWorldView(enabled) {
+      worldPinned = enabled;
       if (enabled) { cancel(); camera.target.set(0, 0, 0); camera.radius = 72; }
       else home();
       updateOverview();
     },
     setRoute,
+    focusBattle(targetSession?: BattleSession) {
+      const active = targetSession || liveBattles[0];
+      if (!active) return;
+      worldPinned = true;
+      const center = fighterWorldPosition(active, { x: 0, z: 0 });
+      camera.target.set(center.x, -5, center.z);
+      camera.radius = Math.min(85, Math.max(48, 40 / engine.getAspectRatio(camera)));
+      updateOverview();
+    },
+    setBattle(session) {
+      liveBattles = session ? [session] : [];
+      worldFight.update(liveBattles, overviewActive);
+    },
+    setBattles(sessions) {
+      liveBattles = sessions;
+      worldFight.update(liveBattles, overviewActive);
+    },
+    setPortalState(state, selectedId) {
+      activePortalState = state;
+      if (selectedId !== undefined) {
+        portalScene.setSelectedId(selectedId);
+      }
+      if (state) {
+        portalScene.update(state);
+      }
+    },
     setUnits,
     setSelectedTarget,
     focusCoordinate(coordinate) {
@@ -498,7 +1074,7 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
     cancel,
     move(id) {
       const building = buildings.find(b => b.id === id);
-      if (!building) return false;
+      if (!building || !isBuildingMovable(building.kind)) return false;
       cancel(); movingId = id; buildingKind = building.kind; placing = true;
       gridRoot.setEnabled(true); refreshGrid(); preview({ x: building.x, z: building.z });
       events.select(null); return true;
@@ -520,8 +1096,18 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
       if (!next) return false;
       const name = BUILDING_DEFINITIONS[buildings.find(b => b.id === id)!.kind].name;
       buildingRoots.get(id)?.dispose(); buildingRoots.delete(id);
+      removeBuildingLabel(id);
       buildings = next; refreshGrid(); events.select(null); events.change([...buildings]);
       persist(`${name} removed.`); return true;
+    },
+    upgrade(id, nextLevel) {
+      const target = buildings.find(b => b.id === id);
+      if (!target) return false;
+      target.level = nextLevel;
+      events.change([...buildings]);
+      events.select({ ...target });
+      persist(`${BUILDING_DEFINITIONS[target.kind]?.name || 'Building'} upgraded to Level ${nextLevel}.`);
+      return true;
     },
     confirm() {
       if (!placing || !candidate || !validCandidate(candidate)) return false;
@@ -532,7 +1118,10 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
         if (!next) return false;
         buildings = next; building = buildings.find(b => b.id === movingId)!;
         const size = getBuildingDimensions(building.kind, building.rotation);
-        buildingRoots.get(movingId)?.position.set(building.x - HALF_WIDTH + size.width / 2, 0, building.z - HALF_DEPTH + size.depth / 2);
+        const movedRoot = buildingRoots.get(movingId);
+        movedRoot?.position.set(building.x - HALF_WIDTH + size.width / 2, 0, building.z - HALF_DEPTH + size.depth / 2);
+        const movedLabel = buildingLabels.get(movingId);
+        if (movedRoot && movedLabel) movedLabel.position.set(movedRoot.position.x, buildingLabelHeight(building.kind), movedRoot.position.z);
       } else {
         building = { ...candidate, kind: buildingKind, id: crypto.randomUUID() };
         buildings = [...buildings, building]; makeBuilding(building);
@@ -549,7 +1138,32 @@ export function createBase(canvas: HTMLCanvasElement, events: Events): BaseView 
       canvas.removeEventListener('pointerdown', down); canvas.removeEventListener('pointermove', move);
       canvas.removeEventListener('pointerup', up); canvas.removeEventListener('pointercancel', up);
       canvas.removeEventListener('wheel', wheel); window.removeEventListener('resize', resize);
-      clearMarches(); scene.dispose(); engine.dispose();
+      worldMascotAvatars.forEach(avatar => avatar.dispose());
+      worldMascotAvatars.clear();
+      trainingBillboards.forEach(bb => {
+        bb.plane.dispose();
+        bb.texture.dispose();
+        bb.material.dispose();
+      });
+      trainingBillboards.clear();
+      if (cityHealthPlane) {
+        cityHealthPlane.dispose();
+        cityHealthTexture?.dispose();
+        cityHealthMat?.dispose();
+        cityHealthPlane = null;
+        cityHealthTexture = null;
+        cityHealthMat = null;
+      }
+      worldHealthBack.dispose();
+      worldHealthFill.dispose();
+      buildingLabels.forEach(sprite => sprite.dispose());
+      buildingLabelManagers.forEach(manager => manager.dispose());
+      buildingLabelTextures.forEach(texture => texture.dispose());
+      overviewLabel.dispose(); overviewLabelManager.dispose(); overviewLabelTexture.dispose();
+      removeWorld();
+      targetSelectionManager.dispose();
+      targetSelectionTexture.dispose();
+      worldFight.dispose(); portalScene.dispose(); clearMarches(); scene.dispose(); engine.dispose();
     },
   };
 }

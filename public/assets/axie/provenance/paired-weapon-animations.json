@@ -1,0 +1,446 @@
+{
+  "schemaVersion": "AXIE_PAIRED_WEAPON_ANIMATION_COMPILE_1",
+  "toolVersion": "1.0.0",
+  "blenderVersion": "5.1.2",
+  "release": "public-content-v1",
+  "coverage": {
+    "families": [
+      "Flag",
+      "Talisman",
+      "Tome"
+    ],
+    "semanticClipCount": 15,
+    "uniqueSourceBinaryCount": 13,
+    "unpairedFamilies": [
+      "Axe",
+      "Bow",
+      "Brush",
+      "Cannon",
+      "Dagger",
+      "Flute",
+      "Gauntlet",
+      "Lantern",
+      "Mala",
+      "Spear",
+      "Staff",
+      "Sword",
+      "Whip"
+    ]
+  },
+  "clips": [
+    {
+      "family": "Flag",
+      "action": "Idle",
+      "looping": true,
+      "requiredBones": [
+        "Flag_1_JNT",
+        "Flag_2_JNT",
+        "Flag_3_JNT",
+        "Flag_4_JNT",
+        "Flag_5_JNT",
+        "Flag_6_JNT",
+        "Flag_7_JNT"
+      ],
+      "animatedBones": [
+        "Flag_4_JNT",
+        "Flag_5_JNT"
+      ],
+      "output": "public/assets/axie/weapons/v2/animations/Flag/idle.glb",
+      "outputBytes": 9152,
+      "outputSha256": "e7d04ab105bc7989cd2b740ca97866dda8cc8ec582e276395708ff27cb3e0ddb",
+      "outputDuration": 2.033333333333333,
+      "curveCount": 20,
+      "url": "/assets/axie/weapons/v2/animations/Flag/idle.glb"
+    },
+    {
+      "family": "Flag",
+      "action": "Walk",
+      "looping": true,
+      "requiredBones": [
+        "Flag_1_JNT",
+        "Flag_2_JNT",
+        "Flag_3_JNT",
+        "Flag_4_JNT",
+        "Flag_5_JNT",
+        "Flag_6_JNT",
+        "Flag_7_JNT"
+      ],
+      "animatedBones": [
+        "Flag_4_JNT",
+        "Flag_5_JNT",
+        "Flag_6_JNT"
+      ],
+      "output": "public/assets/axie/weapons/v2/animations/Flag/walk.glb",
+      "outputBytes": 8688,
+      "outputSha256": "0f56c2c0f5924c3bee7bc536cdddaec27ea23e51e4fbacc9ff88bfc8401353b6",
+      "outputDuration": 1,
+      "curveCount": 30,
+      "url": "/assets/axie/weapons/v2/animations/Flag/walk.glb"
+    },
+    {
+      "family": "Flag",
+      "action": "Run",
+      "looping": true,
+      "requiredBones": [
+        "Flag_1_JNT",
+        "Flag_2_JNT",
+        "Flag_3_JNT",
+        "Flag_4_JNT",
+        "Flag_5_JNT",
+        "Flag_6_JNT",
+        "Flag_7_JNT"
+      ],
+      "animatedBones": [
+        "Flag_4_JNT",
+        "Flag_5_JNT"
+      ],
+      "output": "public/assets/axie/weapons/v2/animations/Flag/run.glb",
+      "outputBytes": 7884,
+      "outputSha256": "a01946569379a3cba2b32bfc4adaa9458e0b9d130acd894a14733b4eae369b48",
+      "outputDuration": 0.6666666666666666,
+      "curveCount": 20,
+      "url": "/assets/axie/weapons/v2/animations/Flag/run.glb"
+    },
+    {
+      "family": "Flag",
+      "action": "Attack",
+      "looping": false,
+      "requiredBones": [
+        "Flag_1_JNT",
+        "Flag_2_JNT",
+        "Flag_3_JNT",
+        "Flag_4_JNT",
+        "Flag_5_JNT",
+        "Flag_6_JNT",
+        "Flag_7_JNT"
+      ],
+      "animatedBones": [
+        "Flag_4_JNT",
+        "Flag_5_JNT"
+      ],
+      "output": "public/assets/axie/weapons/v2/animations/Flag/attack.glb",
+      "outputBytes": 8620,
+      "outputSha256": "4867f2a54f165b22af18d01e5e56f50593178df157718db540da5a92a389c0be",
+      "outputDuration": 1.4666666666666666,
+      "curveCount": 20,
+      "url": "/assets/axie/weapons/v2/animations/Flag/attack.glb"
+    },
+    {
+      "family": "Flag",
+      "action": "Skill",
+      "looping": false,
+      "requiredBones": [
+        "Flag_1_JNT",
+        "Flag_2_JNT",
+        "Flag_3_JNT",
+        "Flag_4_JNT",
+        "Flag_5_JNT",
+        "Flag_6_JNT",
+        "Flag_7_JNT"
+      ],
+      "animatedBones": [
+        "Flag_2_JNT",
+        "Flag_4_JNT",
+        "Flag_5_JNT",
+        "Flag_6_JNT",
+        "Flag_7_JNT"
+      ],
+      "output": "public/assets/axie/weapons/v2/animations/Flag/skill.glb",
+      "outputBytes": 17928,
+      "outputSha256": "54ac7aff543899b29a81ef216b2811712b38b4458fc3cbcac906d77c3b216f9c",
+      "outputDuration": 5.3,
+      "curveCount": 50,
+      "url": "/assets/axie/weapons/v2/animations/Flag/skill.glb"
+    },
+    {
+      "family": "Talisman",
+      "action": "Idle",
+      "looping": true,
+      "requiredBones": [
+        "Talisman_1_JNT",
+        "Talisman_2_JNT",
+        "Talisman_3_JNT",
+        "Talisman_4__JNT"
+      ],
+      "animatedBones": [
+        "Talisman_2_JNT",
+        "Talisman_3_JNT",
+        "Talisman_4__JNT"
+      ],
+      "output": "public/assets/axie/weapons/v2/animations/Talisman/idle.glb",
+      "outputBytes": 7212,
+      "outputSha256": "9df85872be91ab1dc0c2fa0b136374360ee70e1319d04f988a16e83e35c4185c",
+      "outputDuration": 2.033333333333333,
+      "curveCount": 30,
+      "url": "/assets/axie/weapons/v2/animations/Talisman/idle.glb"
+    },
+    {
+      "family": "Talisman",
+      "action": "Walk",
+      "looping": true,
+      "requiredBones": [
+        "Talisman_1_JNT",
+        "Talisman_2_JNT",
+        "Talisman_3_JNT",
+        "Talisman_4__JNT"
+      ],
+      "animatedBones": [
+        "Talisman_2_JNT",
+        "Talisman_3_JNT",
+        "Talisman_4__JNT"
+      ],
+      "output": "public/assets/axie/weapons/v2/animations/Talisman/walk.glb",
+      "outputBytes": 6036,
+      "outputSha256": "7c89537fc6ea8bcca33d65993b165cb4946085b8a019308e0566a65a3ce8691d",
+      "outputDuration": 1,
+      "curveCount": 30,
+      "url": "/assets/axie/weapons/v2/animations/Talisman/walk.glb"
+    },
+    {
+      "family": "Talisman",
+      "action": "Run",
+      "looping": true,
+      "requiredBones": [
+        "Talisman_1_JNT",
+        "Talisman_2_JNT",
+        "Talisman_3_JNT",
+        "Talisman_4__JNT"
+      ],
+      "animatedBones": [
+        "Talisman_2_JNT",
+        "Talisman_3_JNT",
+        "Talisman_4__JNT"
+      ],
+      "output": "public/assets/axie/weapons/v2/animations/Talisman/run.glb",
+      "outputBytes": 5588,
+      "outputSha256": "25ebafbfca81ba5fa2493388681cdfa6598037d009a687d562cc5a2c4bf2828e",
+      "outputDuration": 0.6666666666666666,
+      "curveCount": 30,
+      "url": "/assets/axie/weapons/v2/animations/Talisman/run.glb"
+    },
+    {
+      "family": "Talisman",
+      "action": "Attack",
+      "looping": false,
+      "requiredBones": [
+        "Talisman_1_JNT",
+        "Talisman_2_JNT",
+        "Talisman_3_JNT",
+        "Talisman_4__JNT"
+      ],
+      "animatedBones": [
+        "Talisman_2_JNT",
+        "Talisman_3_JNT",
+        "Talisman_4__JNT"
+      ],
+      "output": "public/assets/axie/weapons/v2/animations/Talisman/attack.glb",
+      "outputBytes": 6648,
+      "outputSha256": "d0603921aa05edc65e2fc52a3101edd9948eb468f9a1188addf6339eed6e02e5",
+      "outputDuration": 0.8,
+      "curveCount": 30,
+      "url": "/assets/axie/weapons/v2/animations/Talisman/attack.glb"
+    },
+    {
+      "family": "Talisman",
+      "action": "Skill",
+      "looping": false,
+      "requiredBones": [
+        "Talisman_1_JNT",
+        "Talisman_2_JNT",
+        "Talisman_3_JNT",
+        "Talisman_4__JNT"
+      ],
+      "animatedBones": [
+        "Talisman_2_JNT",
+        "Talisman_3_JNT",
+        "Talisman_4__JNT"
+      ],
+      "output": "public/assets/axie/weapons/v2/animations/Talisman/skill.glb",
+      "outputBytes": 11568,
+      "outputSha256": "60721c3e207245a689c635444e2f3e5fd81cecbf213074ffa052c28724dffc99",
+      "outputDuration": 2.6333333333333333,
+      "curveCount": 30,
+      "url": "/assets/axie/weapons/v2/animations/Talisman/skill.glb"
+    },
+    {
+      "family": "Tome",
+      "action": "Idle",
+      "looping": true,
+      "requiredBones": [
+        "Tome_JNT",
+        "Tome_L1_JNT",
+        "Tome_L2_JNT",
+        "Tome_R1_JNT",
+        "Tome_R2_JNT",
+        "Tome_L_1a_JNT",
+        "Tome_L_2a_JNT",
+        "Tome_R_1a_JNT",
+        "Tome_R_2a_JNT",
+        "Tome_M_1a_JNT",
+        "Tome_M_2a_JNT"
+      ],
+      "animatedBones": [
+        "Tome_L1_JNT",
+        "Tome_L2_JNT",
+        "Tome_L_1a_JNT",
+        "Tome_L_2a_JNT",
+        "Tome_M_1a_JNT",
+        "Tome_M_2a_JNT",
+        "Tome_R1_JNT",
+        "Tome_R2_JNT",
+        "Tome_R_1a_JNT",
+        "Tome_R_2a_JNT"
+      ],
+      "output": "public/assets/axie/weapons/v2/animations/Tome/idle.glb",
+      "outputBytes": 10728,
+      "outputSha256": "3acf39ee06b498289964143a997e4b28629d9b7d097c2e2c87377678a8083139",
+      "outputDuration": 1,
+      "curveCount": 100,
+      "url": "/assets/axie/weapons/v2/animations/Tome/idle.glb"
+    },
+    {
+      "family": "Tome",
+      "action": "Walk",
+      "looping": true,
+      "requiredBones": [
+        "Tome_JNT",
+        "Tome_L1_JNT",
+        "Tome_L2_JNT",
+        "Tome_R1_JNT",
+        "Tome_R2_JNT",
+        "Tome_L_1a_JNT",
+        "Tome_L_2a_JNT",
+        "Tome_R_1a_JNT",
+        "Tome_R_2a_JNT",
+        "Tome_M_1a_JNT",
+        "Tome_M_2a_JNT"
+      ],
+      "animatedBones": [
+        "Tome_L1_JNT",
+        "Tome_L2_JNT",
+        "Tome_L_1a_JNT",
+        "Tome_L_2a_JNT",
+        "Tome_M_1a_JNT",
+        "Tome_M_2a_JNT",
+        "Tome_R1_JNT",
+        "Tome_R2_JNT",
+        "Tome_R_1a_JNT",
+        "Tome_R_2a_JNT"
+      ],
+      "output": "public/assets/axie/weapons/v2/animations/Tome/walk.glb",
+      "outputBytes": 10728,
+      "outputSha256": "f3ee5ad4a58fdec30ddb50860dcbcf4d538cdc16c3991e9d845d44739f878264",
+      "outputDuration": 1,
+      "curveCount": 100,
+      "url": "/assets/axie/weapons/v2/animations/Tome/walk.glb"
+    },
+    {
+      "family": "Tome",
+      "action": "Run",
+      "looping": true,
+      "requiredBones": [
+        "Tome_JNT",
+        "Tome_L1_JNT",
+        "Tome_L2_JNT",
+        "Tome_R1_JNT",
+        "Tome_R2_JNT",
+        "Tome_L_1a_JNT",
+        "Tome_L_2a_JNT",
+        "Tome_R_1a_JNT",
+        "Tome_R_2a_JNT",
+        "Tome_M_1a_JNT",
+        "Tome_M_2a_JNT"
+      ],
+      "animatedBones": [
+        "Tome_L1_JNT",
+        "Tome_L2_JNT",
+        "Tome_L_1a_JNT",
+        "Tome_L_2a_JNT",
+        "Tome_M_1a_JNT",
+        "Tome_M_2a_JNT",
+        "Tome_R1_JNT",
+        "Tome_R2_JNT",
+        "Tome_R_1a_JNT",
+        "Tome_R_2a_JNT"
+      ],
+      "output": "public/assets/axie/weapons/v2/animations/Tome/run.glb",
+      "outputBytes": 10724,
+      "outputSha256": "9d850c7bd990f1042664b01e6e48160d3f21ab038c675887197cedaf9f2175ec",
+      "outputDuration": 1,
+      "curveCount": 100,
+      "url": "/assets/axie/weapons/v2/animations/Tome/run.glb"
+    },
+    {
+      "family": "Tome",
+      "action": "Attack",
+      "looping": false,
+      "requiredBones": [
+        "Tome_JNT",
+        "Tome_L1_JNT",
+        "Tome_L2_JNT",
+        "Tome_R1_JNT",
+        "Tome_R2_JNT",
+        "Tome_L_1a_JNT",
+        "Tome_L_2a_JNT",
+        "Tome_R_1a_JNT",
+        "Tome_R_2a_JNT",
+        "Tome_M_1a_JNT",
+        "Tome_M_2a_JNT"
+      ],
+      "animatedBones": [
+        "Tome_L1_JNT",
+        "Tome_L2_JNT",
+        "Tome_L_1a_JNT",
+        "Tome_L_2a_JNT",
+        "Tome_M_1a_JNT",
+        "Tome_M_2a_JNT",
+        "Tome_R1_JNT",
+        "Tome_R2_JNT",
+        "Tome_R_1a_JNT",
+        "Tome_R_2a_JNT"
+      ],
+      "output": "public/assets/axie/weapons/v2/animations/Tome/attack.glb",
+      "outputBytes": 15016,
+      "outputSha256": "f7561764932867fcdecf9c5fad88908ef73b803e5098b4e2fd00da300900fd8e",
+      "outputDuration": 1.3,
+      "curveCount": 100,
+      "url": "/assets/axie/weapons/v2/animations/Tome/attack.glb"
+    },
+    {
+      "family": "Tome",
+      "action": "Skill",
+      "looping": false,
+      "requiredBones": [
+        "Tome_JNT",
+        "Tome_L1_JNT",
+        "Tome_L2_JNT",
+        "Tome_R1_JNT",
+        "Tome_R2_JNT",
+        "Tome_L_1a_JNT",
+        "Tome_L_2a_JNT",
+        "Tome_R_1a_JNT",
+        "Tome_R_2a_JNT",
+        "Tome_M_1a_JNT",
+        "Tome_M_2a_JNT"
+      ],
+      "animatedBones": [
+        "Tome_L1_JNT",
+        "Tome_L2_JNT",
+        "Tome_L_1a_JNT",
+        "Tome_L_2a_JNT",
+        "Tome_M_1a_JNT",
+        "Tome_M_2a_JNT",
+        "Tome_R1_JNT",
+        "Tome_R2_JNT",
+        "Tome_R_1a_JNT",
+        "Tome_R_2a_JNT"
+      ],
+      "output": "public/assets/axie/weapons/v2/animations/Tome/skill.glb",
+      "outputBytes": 18492,
+      "outputSha256": "596f04a745c75f312f3c9f73c8eff4213a02384c858e1d5feccb2e8e56f4a90d",
+      "outputDuration": 2.6333333333333333,
+      "curveCount": 100,
+      "url": "/assets/axie/weapons/v2/animations/Tome/skill.glb"
+    }
+  ]
+}

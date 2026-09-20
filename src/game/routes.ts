@@ -1,4 +1,4 @@
-import { Formation, FORMATION_ROWS } from './offense-formations';
+import { Formation } from './offense-formations';
 import { WORLD_DEPTH, WORLD_WIDTH, WorldObject } from './world';
 import { activeUnitGlobalStats, DEFAULT_UNIT_GLOBAL_STATS } from './unit-stats';
 
@@ -21,9 +21,7 @@ export function createRoute(destination: Coordinate, origin: Coordinate = { x: 0
   const distance = Math.hypot(safe.x - origin.x, safe.z - origin.z);
   return { origin, destination: safe, points: [origin, safe], distance: Math.round(distance * 10) / 10 };
 }
-export function hasAssignedAxie(formation: Formation): boolean {
-  return FORMATION_ROWS.some(row => formation[row].some(slot => !!slot.heroId));
-}
+export function hasAssignedAxie(formation: Formation): boolean { return formation.assignments.some(slot => !!slot.heroId); }
 export function isValidFormation(formation: Formation | undefined): boolean { return !!formation && hasAssignedAxie(formation); }
 export function restoreRouteOrders(value: string | null): RouteOrder[] {
   try {
@@ -38,7 +36,7 @@ export function restoreRouteOrders(value: string | null): RouteOrder[] {
       const route = createRoute(target);
       if (source.kind === 'march') {
         const formation = source.formation as Formation | undefined;
-        if (!formation || !FORMATION_ROWS.every(row => Array.isArray(formation[row]) && formation[row].length <= 5 && formation[row].every(slot => slot && (slot.heroId === null || typeof slot.heroId === 'string') && (slot.military === null || slot.military === 'infantry' || slot.military === 'archer') && Number.isSafeInteger(slot.militaryCount) && slot.militaryCount >= 0))) return [];
+        if (!formation || !Array.isArray(formation.assignments) || formation.assignments.length > 192 || !formation.assignments.every(slot => slot && Number.isSafeInteger(slot.row) && Number.isSafeInteger(slot.column) && slot.row >= 0 && slot.column >= 0 && (slot.heroId === null || typeof slot.heroId === 'string') && (slot.military === null || slot.military === 'infantry' || slot.military === 'archer') && Number.isSafeInteger(slot.militaryCount) && slot.militaryCount >= 0)) return [];
         if (!isValidFormation(formation) || typeof source.startedAt !== 'number' || !Number.isFinite(source.startedAt) || typeof source.arrivesAt !== 'number' || !Number.isFinite(source.arrivesAt) || source.arrivesAt < source.startedAt) return [];
         return [{ id: source.id, kind: 'march', target, route, formationIndex: source.formationIndex as number, status: 'marching', formation, cityName: typeof source.cityName === 'string' ? source.cityName : 'City', startedAt: source.startedAt, arrivesAt: source.arrivesAt } as RouteOrder];
       }
@@ -58,5 +56,5 @@ export function createOffensiveMarchOrder(target: WorldTarget, formationIndex: n
 export function marchProgress(order: OffensiveMarchOrder, now: number): number {
   return Math.max(0, Math.min(1, (now - (order.startedAt ?? now)) / Math.max(1, (order.arrivesAt ?? now) - (order.startedAt ?? now))));
 }
-export function targetFromObject(object: WorldObject): WorldTarget { return { x: object.x, z: object.z, id: object.id, label: WORLD_LABELS[object.kind] }; }
+export function targetFromObject(object: WorldObject): WorldTarget { return { x: object.x, z: object.z, id: object.id, label: object.bossName ? `${object.bossName} (${WORLD_LABELS[object.kind]})` : WORLD_LABELS[object.kind] }; }
 const WORLD_LABELS: Record<WorldObject['kind'], string> = { farm: 'Farmstead', lumber: 'Lumber camp', stone: 'Stone quarry', oil: 'Oil field', boss: 'Chimera lair', village: 'Village', garrison: 'Garrison' };

@@ -1,0 +1,13 @@
+military:
+  - scout:
+      enabled: false
+      id: scout
+      name: Scout
+  - repair:
+      enabled: true
+      id: repair
+      name: Repair
+  - formation:
+      enabled: true
+      id: formation
+      name: Formation

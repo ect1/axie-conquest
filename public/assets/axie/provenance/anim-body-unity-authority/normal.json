@@ -1,0 +1,152 @@
+{
+  "schemaVersion": "AXIE_ANIM_BODY_UNITY_AUTHORITY_PROMOTION_1",
+  "body": "normal",
+  "authority": {
+    "unityEditorVersion": "2021.3.45f2",
+    "receiptPath": ".artifacts/anim-body-unity-authority-normal.json",
+    "receiptSha256": "63800cdf0b863bc0c80b58c869fe43c7ace086acc91869bf452e7d333b420c3b",
+    "targetBodyGlbSha256": "a9b061315ab4df127bde6f34ca6044d9e0bdea02ac2ff66ebef965741d0bd303",
+    "targetRestPoseSha256": "2acee2ae8ccafcc669e5170d5f5d1aeeaac5c477d7045b15a1f5603b65740f2e",
+    "exporterScale": 0.009999999776482582
+  },
+  "validation": {
+    "sourceIdentityStatus": "passed",
+    "targetBoneCount": 44,
+    "maximumTrsResidual": 2.769911287003879e-7,
+    "rootSocketPositionLimit": 500,
+    "rootSocketScaleLimit": 10,
+    "status": "passed"
+  },
+  "clips": [
+    {
+      "sourceName": "Dagger.Skill",
+      "sourceSha256": "3bf6e221bb12320dc6c76d3eca604068a134ad56bf3fe9c5837bbde66a7a714e",
+      "sourceAssetId": "477e94e2061960845994eb6523f96185",
+      "unityClipName": "Take 001",
+      "duration": 0.9666666388511658,
+      "sets": {
+        "full": {
+          "payloadSha256": "0deee3621f413ae24f45fbb05fb67f877ae04ec1d143131f77e0a5c6cfee3135",
+          "payloadBytes": 113048,
+          "sampleCount": 59,
+          "trackCount": 44,
+          "rootSocketMetrics": {
+            "Root_Weapon_L_JNT": {
+              "maximumPosition": 78.42576599121094,
+              "maximumScale": 1
+            },
+            "Root_Weapon_R_JNT": {
+              "maximumPosition": 83.5551528930664,
+              "maximumScale": 1.0618748664855957
+            }
+          },
+          "maximumUnityWorldResidual": 2.769911287003879e-7
+        },
+        "lite": {
+          "payloadSha256": "ef00d0e6acd50a041c7cf416f72d80655c5c6e6b03690d3a535252fd04de1cf5",
+          "payloadBytes": 61752,
+          "sampleCount": 30,
+          "trackCount": 44,
+          "rootSocketMetrics": {
+            "Root_Weapon_L_JNT": {
+              "maximumPosition": 78.42576599121094,
+              "maximumScale": 1
+            },
+            "Root_Weapon_R_JNT": {
+              "maximumPosition": 83.5551528930664,
+              "maximumScale": 1.0000001192092896
+            }
+          },
+          "maximumUnityWorldResidual": 2.519670638800875e-7
+        }
+      }
+    },
+    {
+      "sourceName": "Lantern.Attack",
+      "sourceSha256": "63a5a9a6df2d6fc8bc882985fc051e4d5667e46972cfb02101415500dd860c87",
+      "sourceAssetId": "540e9222822824a438d9887e0aadbf28",
+      "unityClipName": "Take 001",
+      "duration": 0.9666666388511658,
+      "sets": {
+        "full": {
+          "payloadSha256": "23829f449b22f9c26c96f3b3b621ca5b5e10043bda4b2bf528d50c1755ca6c1c",
+          "payloadBytes": 113052,
+          "sampleCount": 59,
+          "trackCount": 44,
+          "rootSocketMetrics": {
+            "Root_Weapon_L_JNT": {
+              "maximumPosition": 59.15528106689453,
+              "maximumScale": 1
+            },
+            "Root_Weapon_R_JNT": {
+              "maximumPosition": 93.09319305419922,
+              "maximumScale": 1.0624374151229858
+            }
+          },
+          "maximumUnityWorldResidual": 2.2504153718294617e-7
+        },
+        "lite": {
+          "payloadSha256": "f6640d5fcd7113264661da6b76dd19fb07987ae68c7e3c0bbc1a0d5810f30e37",
+          "payloadBytes": 61756,
+          "sampleCount": 30,
+          "trackCount": 44,
+          "rootSocketMetrics": {
+            "Root_Weapon_L_JNT": {
+              "maximumPosition": 59.15528106689453,
+              "maximumScale": 1
+            },
+            "Root_Weapon_R_JNT": {
+              "maximumPosition": 93.09319305419922,
+              "maximumScale": 1
+            }
+          },
+          "maximumUnityWorldResidual": 2.135406297343323e-7
+        }
+      }
+    },
+    {
+      "sourceName": "Lantern.Skill",
+      "sourceSha256": "4bd503c7149ee31e81f0c3442f643666d193e1d30b8998fda91b6b2e18dcac75",
+      "sourceAssetId": "1161207dd95b90a438d2e00b8ddc6795",
+      "unityClipName": "Take 001",
+      "duration": 1.4666668176651,
+      "sets": {
+        "full": {
+          "payloadSha256": "27299679e8f05a8149b9803471d0282e2d8473ef7f303c82b04ac7afaf4e8727",
+          "payloadBytes": 165988,
+          "sampleCount": 89,
+          "trackCount": 44,
+          "rootSocketMetrics": {
+            "Root_Weapon_L_JNT": {
+              "maximumPosition": 61.67397689819336,
+              "maximumScale": 1
+            },
+            "Root_Weapon_R_JNT": {
+              "maximumPosition": 100.09146881103516,
+              "maximumScale": 1.0624370574951172
+            }
+          },
+          "maximumUnityWorldResidual": 2.23824940137618e-7
+        },
+        "lite": {
+          "payloadSha256": "c12141c73c2f6cf3af40215ad1f17352a141d6890731ae6809962f6605b32067",
+          "payloadBytes": 88336,
+          "sampleCount": 45,
+          "trackCount": 44,
+          "rootSocketMetrics": {
+            "Root_Weapon_L_JNT": {
+              "maximumPosition": 61.67397689819336,
+              "maximumScale": 1
+            },
+            "Root_Weapon_R_JNT": {
+              "maximumPosition": 100.09146881103516,
+              "maximumScale": 1.0000009536743164
+            }
+          },
+          "maximumUnityWorldResidual": 2.1386642612419848e-7
+        }
+      }
+    }
+  ],
+  "contentHash": "81c8575f4555d4557c8253f51daf4c3ab99205e3d0630a22b40412ad0ec5f25f"
+}

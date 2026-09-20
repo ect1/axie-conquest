@@ -1,0 +1,157 @@
+{
+  "schemaVersion": 1,
+  "bosses": [
+    {
+      "id": "kotaro",
+      "name": "Kotaro",
+      "title": "Wandering Blademaster",
+      "description": "A fierce rogue blademaster supported by vanguard infantry and snipers.",
+      "spawnWeight": 10,
+      "loot": {
+        "apple": 50
+      },
+      "leader": {
+        "id": "kotaro-leader",
+        "name": "Kotaro",
+        "modelKind": "mascot",
+        "mascotId": "kotaro",
+        "position": {
+          "row": 1,
+          "column": 2
+        },
+        "initialCount": 1,
+        "stats": {
+          "health": 1200,
+          "attack": 48,
+          "defense": 35,
+          "speed": 2.5,
+          "attackSpeed": 0.9,
+          "range": 1.4,
+          "radius": 0.6
+        }
+      },
+      "military": [
+        {
+          "id": "vanguard-left",
+          "name": "Vanguard Infantry",
+          "troopKind": "infantry",
+          "count": 12,
+          "position": {
+            "row": 2,
+            "column": 1
+          },
+          "stats": {
+            "health": 65,
+            "attack": 8,
+            "defense": 22,
+            "speed": 2.4,
+            "attackSpeed": 0.83,
+            "range": 1.2,
+            "radius": 0.5
+          }
+        },
+        {
+          "id": "vanguard-right",
+          "name": "Vanguard Infantry",
+          "troopKind": "infantry",
+          "count": 12,
+          "position": {
+            "row": 2,
+            "column": 3
+          },
+          "stats": {
+            "health": 65,
+            "attack": 8,
+            "defense": 22,
+            "speed": 2.4,
+            "attackSpeed": 0.83,
+            "range": 1.2,
+            "radius": 0.5
+          }
+        },
+        {
+          "id": "rear-archers",
+          "name": "Kotaro Bowmen",
+          "troopKind": "archer",
+          "count": 8,
+          "position": {
+            "row": 0,
+            "column": 2
+          },
+          "stats": {
+            "health": 45,
+            "attack": 10,
+            "defense": 8,
+            "speed": 2.3,
+            "attackSpeed": 0.65,
+            "range": 20,
+            "radius": 0.5,
+            "projectileSpeed": 12
+          }
+        }
+      ]
+    },
+    {
+      "id": "paladill",
+      "name": "Paladill",
+      "title": "Ironclad Colossus",
+      "description": "A heavily armored juggernaut wielding an immense greataxe with elite guard.",
+      "spawnWeight": 5,
+      "loot": {
+        "apple": 60
+      },
+      "leader": {
+        "id": "paladill-leader",
+        "name": "Paladill",
+        "modelKind": "mascot",
+        "mascotId": "paladill",
+        "position": {
+          "row": 2,
+          "column": 2
+        },
+        "initialCount": 1,
+        "stats": {
+          "health": 1800,
+          "attack": 56,
+          "defense": 50,
+          "speed": 2.0,
+          "attackSpeed": 0.7,
+          "range": 1.5,
+          "radius": 0.7
+        }
+      },
+      "military": [
+        {
+          "id": "flank-guards-left",
+          "name": "Heavy Soldiers",
+          "troopKind": "soldier",
+          "count": 14,
+          "position": {
+            "row": 2,
+            "column": 0
+          }
+        },
+        {
+          "id": "flank-guards-right",
+          "name": "Heavy Soldiers",
+          "troopKind": "soldier",
+          "count": 14,
+          "position": {
+            "row": 2,
+            "column": 4
+          }
+        },
+        {
+          "id": "support-archers",
+          "name": "Crossbowmen",
+          "troopKind": "archer",
+          "count": 10,
+          "position": {
+            "row": 0,
+            "column": 2
+          }
+        }
+      ]
+    }
+  ]
+}

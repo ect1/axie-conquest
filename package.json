@@ -1,10 +1,20 @@
 {
   "name": "axie-conquest",
+  "version": "0.1.0",
   "private": true,
   "scripts": {
+    "test:axie-models": "node scripts/test-axie-models.cjs",
+    "test:battle": "node scripts/test-battle.cjs",
     "test:units": "node scripts/test-units.cjs",
     "test:reset": "node scripts/test-reset.cjs",
     "test:world": "node scripts/test-world.cjs",
+    "test:gathering": "node scripts/test-gathering.cjs",
+    "test:stats": "node scripts/test-stats-config.cjs",
+    "test:bosses": "node scripts/test-bosses.cjs",
+    "test:training": "node scripts/test-units-training.cjs",
+    "test:defense": "node scripts/test-city-defense.cjs",
+    "test:repair": "node scripts/test-repair.cjs",
+    "test:portal-aggression": "node scripts/test-portal-aggression.cjs",
     "test:placement": "node scripts/test-placement.cjs",
     "dev": "next dev",
     "build": "next build",
@@ -14,10 +24,12 @@
   },
   "dependencies": {
     "@babylonjs/core": "^8.0.0",
+    "@babylonjs/loaders": "^8.56.2",
     "babylonjs-editor-tools": "^5.5.0",
     "next": "^15.0.0",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "yaml": "^2.9.1"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

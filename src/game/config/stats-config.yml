@@ -1,0 +1,101 @@
+version: 1
+
+# ==============================================================================
+# Axie Conquest — Unit & Troop Stats Configuration
+# ==============================================================================
+# Centralized configuration for all troop, hero, monster, and gathering statistics.
+# Editable at runtime and loaded across settlement, world map, and battle simulations.
+
+# ------------------------------------------------------------------------------
+# 1. Gathering & Economy Stats
+# ------------------------------------------------------------------------------
+gathering:
+  # Resource carrying capacity per unit member in an army
+  loadCapacity:
+    hero: 50
+    infantry: 15
+    soldier: 12
+    archer: 10
+
+  # Maximum carrying capacity contributed by troop type in a march
+  maxTroopLoad:
+    soldier: 50 # e.g., soldiers can contribute at most 300 load per march
+    archer: 50 # e.g., archers can contribute at most 150 load per march
+
+  # Optional hard ceiling on total cargo per march (omit or set null for uncapped)
+  maxArmyCapacity: 500
+
+  # Minimum floor load capacity for any deployed gathering march
+  minLoadCapacity: 20
+
+  # Per-unit gather rate contribution (resources/sec per unit in army).
+  # Stacks additively with the node base rate (from resource-spawn-config.yml).
+  # Hero: flat bonus per Axie hero in the formation.
+  # Troops: multiplied by troop count in the formation.
+  unitGatherRate:
+    hero: 2.0       # +2.0 res/sec per Axie hero
+    infantry: 0.08  # +0.08 res/sec per infantry soldier
+    soldier: 0.10   # +0.10 res/sec per soldier
+    archer: 0.05    # +0.05 res/sec per archer (light load, bows slow harvest)
+
+  # Axie Hero Class Gathering Passives
+  classBonuses:
+    beast:
+      loadCapacityMultiplier: 1.30 # +30% carrying capacity
+    plant:
+      gatherRateMultiplier: 1.25 # +25% gather rate on Farm and Lumber
+      targetResources:
+        - food
+        - wood
+    bug:
+      gatherRateMultiplier: 1.25 # +25% gather rate on Stone
+      targetResources:
+        - stone
+
+# ------------------------------------------------------------------------------
+# 2. Combat Unit Base Stats
+# ------------------------------------------------------------------------------
+combat:
+  axieHero:
+    health: 820
+    attack: 108
+    defense: 76
+    speed: 2.5
+    attackSpeed: 0.77
+
+  soldier:
+    health: 55
+    attack: 6
+    defense: 20
+    speed: 2.4
+    attackSpeed: 0.83
+
+  archer:
+    health: 38
+    attack: 8
+    defense: 6
+    speed: 2.3
+    attackSpeed: 0.63
+    projectileSpeed: 12
+
+  scout:
+    health: 70
+    attack: 5
+    defense: 10
+    speed: 3.5
+    attackSpeed: 0.71
+
+  chimera:
+    health: 75
+    attack: 12
+    defense: 15
+    speed: 2.3
+    attackSpeed: 0.83
+
+baseHealingRecovery:
+  # Aggregate HP recovered per second per living Axie/troop member while home.
+  # Example: a 20-soldier squad heals at 20 * this rate before hospital bonuses.
+  baseHealingRate: 20
+  # Block march, attack, and gather if any assigned Axie is below 25% HP.
+  # Set to 0 to disable this restriction. Injured Axies remain in their formation and heal at base.
+  minimumAxieHealthForMarch: 0.25

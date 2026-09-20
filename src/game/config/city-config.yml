@@ -1,0 +1,54 @@
+# ==============================================================================
+# Axie Conquest — City & Sub-City Configuration
+# ==============================================================================
+# Defines base attributes, storage capacities, and rules for capital and sub-cities.
+
+version: 1
+
+# Default City Destruction / Defense Mode
+# type options:
+#   - "health": base has hit points; when depleted to 0, base is destroyed (game over)
+#   - "walls": walls can break into city and hostiles destroy all buildings until no units remain
+destruction:
+  type: "health"
+  maxHealth: 10000
+
+cityTypes:
+  # Main City / Capital
+  capital:
+    id: "capital"
+    name: "Capital Settlement"
+    description: "The primary heart of your Lunacian nation. Supports the Main Hall and core infrastructure."
+    isCapital: true
+    maxPerPlayer: 1
+    baseCapacity:
+      food: 500
+      wood: 500
+      stone: 500
+    destruction:
+      type: "health" # Options: "health" | "walls"
+      maxHealth: 10000
+
+  # Sub-city: Resource/Expansion Outpost
+  base:
+    id: "base"
+    name: "Outpost Base"
+    description: "A secondary settlement dedicated to regional territory expansion and resource gathering."
+    isCapital: false
+    maxPerPlayer: 3
+    baseCapacity:
+      food: 300
+      wood: 300
+      stone: 300
+
+  # Sub-city: Frontier Military Garrison
+  garrison:
+    id: "garrison"
+    name: "Military Garrison"
+    description: "A fortified forward command post designed for rapid troop deployment and defense."
+    isCapital: false
+    maxPerPlayer: 2
+    baseCapacity:
+      food: 200
+      wood: 200
+      stone: 200

@@ -1,0 +1,79 @@
+# ==============================================================================
+# Axie Conquest — Game Configuration
+# ==============================================================================
+# Defines global game defaults, player founding parameters, and starting resources.
+
+version: 1
+
+# Initial state for new settlements or upon game reset
+startingState:
+  capitalCity:
+    id: "everleaf-haven"
+    defaultName: "City #1"
+    # Initial starting resources granted to the capital upon founding
+    resources:
+      food: 240
+      wood: 350
+      stone: 220
+
+# City Destruction / Defense Mode
+# type options:
+#   - "health": base has hit points; when depleted to 0, base is destroyed (game over)
+#   - "walls": walls can break into city and hostiles destroy all buildings until no units remain
+destruction:
+  type: "health" # Options: "health" | "walls"
+  maxHealth: 10000
+
+# Settlement Base & Building Repair Configuration
+repair:
+  baseRepair: 50 # Base HP repaired per second
+  defaultAutoRepair: true # Default auto-repair state
+  costPer100Hp:
+    wood: 5
+    stone: 5
+  axieMultiplier: 0.25 # +25% bonus repair speed per additional assigned Axie
+  cityHallLevels:
+    1:
+      maxAssignableAxies: 1
+      repairMultiplier: 1.0 # 1.0x repair speed
+      costMultiplier: 1.0 # 100% cost (0% discount)
+    2:
+      maxAssignableAxies: 2
+      repairMultiplier: 1.35 # 1.35x repair speed (+35%)
+      costMultiplier: 0.9 # 90% cost (10% discount)
+    3:
+      maxAssignableAxies: 3
+      repairMultiplier: 1.75 # 1.75x repair speed (+75%)
+      costMultiplier: 0.8 # 80% cost (20% discount)
+
+# End-of-Battle Behaviour
+# Controls what happens when a battle result is resolved or an aggressive encounter begins.
+endBattle:
+  # Tactical Z coordinate a withdrawing player formation must reach.
+  # The world view projects this same boundary onto the battle's map heading.
+  retreatAction:
+    retreatBoundaryZ: -4
+    postBoundaryUntargetableSeconds: 2
+    postBoundaryUnmarchableSeconds: 3
+  defeatedType: "defeatRetreat" # Options: "defeatRetreat" | "destroy" | "both"
+  defeatRetreat: # Automatic retreat after a formation is defeated; separate from the player retreat action.
+    # The formation remains protected and cannot receive orders until it reaches base.
+    untargetable: true # Until it arrives at base.
+    unmarchable: true # Until it arrives at base.
+    armyLossPercent: 0.6 # % of surviving troops are lost during defeat retreat.
+    hospitableArmyPercent: 0.3 # % of the army is sent to the hospital during retreat
+    axieDefeatHealthPenalty: 1.0 # Axies will lose % of their current health during defeat retreat.
+  destroy: # total destroy of the group total casualty and all units are lost; Axies will out of fomation and return to active duty with cooldown.
+    armyLossPercent: 1.0 # 100% of surviving troops are lost during defeat retreat.
+    axieRespawn: true # Axies will return back to active duty
+    axieRespawnCooldown: 60 # cooldan will allow axie to assign back to city.
+  both:
+    chance: 0.5 # 50% chance of either outcome
+
+assignment:
+  minAssignableAxies: 6 # Minimum number of Axies that can be assigned per city.
+  nextAssignmentArrivalSeconds: 60 # Time in seconds to arrive to town after assignment. This is the time it takes for Axies to arrive at the city after being assigned to it.
+
+formation:
+  maxFormationPerCity: 3 # Maximum number of formations that can be assigned to a city.
+  increaseFormationPerLevel: 1 # Increase max formation per city by 1 for each city hall level.

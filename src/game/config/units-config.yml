@@ -1,0 +1,6 @@
+axie:
+  deathCoolDownTimerSeconds: 30
+  returnToActiveTabUponDeath: true
+formation:
+  statsMultiplierPerSolier: 0.1
+  statsMultiplierPerArcher: 0.1

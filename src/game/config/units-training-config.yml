@@ -1,0 +1,145 @@
+# ==============================================================================
+# Axie Conquest — Unit Training Configuration
+# ==============================================================================
+# Defines training rules per unit type, keyed by the level of the required
+# building (barracks level 1, 2, 3 etc.).
+#
+# enabled:         Whether this unit type can be trained at all (unit-level flag).
+# requiredBuilding: The building that must exist in the city to train this unit.
+# levels:          Per-building-level overrides for cost, time, and stat bonuses.
+#   trainingTimeSeconds: Time to produce one batch (display only for now; training
+#                        remains instant until the async queue system ships).
+#   cost:          Resources consumed per batch (food and wood only).
+#   statBonuses:   Flat additive bonuses on top of stats-config.yml base values.
+#                  Displayed in the HUD; applied when battle system reads them.
+# ==============================================================================
+
+settings:
+  batchSize: 10  # Units produced per training tap (mirrors TRAINING_BATCH in base.ts)
+
+units:
+  # ----------------------------------------------------------------------------
+  # Infantry — trained at the Barracks
+  # ----------------------------------------------------------------------------
+  infantry:
+    id: infantry
+    name: "Infantry"
+    icon: "⚔"
+    description: "Frontline defenders of Everleaf. Stalwart and hard to break."
+    enabled: true   # Can be trained as long as a Barracks exists
+    requiredBuilding: barracks
+    levels:
+      level1:
+        trainingTimeSeconds: 30   # 30s per batch of 10 at Barracks lv1
+        cost:
+          food: 80
+          wood: 20
+        statBonuses:
+          health: 0
+          attack: 0
+          defense: 0
+          speed: 0.0
+      level2:
+        trainingTimeSeconds: 20   # 20s per batch at Barracks lv2 (faster drill)
+        cost:
+          food: 60
+          wood: 15
+        statBonuses:
+          health: 10   # +10 HP from hardened drills
+          attack: 2
+          defense: 5
+          speed: 0.0
+      level3:
+        trainingTimeSeconds: 12   # 12s per batch at Barracks lv3
+        cost:
+          food: 40
+          wood: 10
+        statBonuses:
+          health: 25   # +25 HP from elite conditioning
+          attack: 5
+          defense: 10
+          speed: 0.2
+
+  # ----------------------------------------------------------------------------
+  # Archers — trained at the Archery Range
+  # ----------------------------------------------------------------------------
+  archer:
+    id: archer
+    name: "Archers"
+    icon: "🏹"
+    description: "Ranged support who thin enemy lines before contact."
+    enabled: true   # Can be trained as long as an Archery Range exists
+    requiredBuilding: archery
+    levels:
+      level1:
+        trainingTimeSeconds: 40
+        cost:
+          food: 60
+          wood: 40
+        statBonuses:
+          health: 0
+          attack: 0
+          defense: 0
+          speed: 0.0
+      level2:
+        trainingTimeSeconds: 28
+        cost:
+          food: 45
+          wood: 30
+        statBonuses:
+          health: 5
+          attack: 3
+          defense: 2
+          speed: 0.0
+      level3:
+        trainingTimeSeconds: 16
+        cost:
+          food: 30
+          wood: 20
+        statBonuses:
+          health: 12
+          attack: 8
+          defense: 4
+          speed: 0.3
+
+  # ----------------------------------------------------------------------------
+  # Scouts — trained at the Scout Lodge (locked until Scout Lodge ships)
+  # ----------------------------------------------------------------------------
+  scout:
+    id: scout
+    name: "Scouts"
+    icon: "🧭"
+    description: "Swift explorers who chart the paths of Lunacia."
+    enabled: false  # Scout Lodge not yet available; unlock when building ships
+    requiredBuilding: scout
+    levels:
+      level1:
+        trainingTimeSeconds: 60
+        cost:
+          food: 50
+          wood: 10
+        statBonuses:
+          health: 0
+          attack: 0
+          defense: 0
+          speed: 0.0
+      level2:
+        trainingTimeSeconds: 45
+        cost:
+          food: 40
+          wood: 8
+        statBonuses:
+          health: 5
+          attack: 1
+          defense: 3
+          speed: 0.5
+      level3:
+        trainingTimeSeconds: 30
+        cost:
+          food: 30
+          wood: 5
+        statBonuses:
+          health: 10
+          attack: 3
+          defense: 5
+          speed: 1.0
