@@ -1,4 +1,4 @@
-import { ArcRotateCamera, Color3, Color4, DirectionalLight, Engine, HemisphericLight, Matrix, Mesh, MeshBuilder, Scene, Sprite, SpriteManager, StandardMaterial, TransformNode, Vector3 } from '@babylonjs/core';
+import { ArcRotateCamera, Color3, Color4, DirectionalLight, DynamicTexture, Engine, HemisphericLight, Matrix, Mesh, MeshBuilder, Scene, Sprite, SpriteManager, StandardMaterial, TransformNode, Vector3 } from '@babylonjs/core';
 import { createHexGridSlots, HEX_GRID_RADIUS } from './hex-grid';
 import type { ApiAxie } from './axie-roster';
 import { createBattleAppearanceResolver } from './axie/battle-appearance';
@@ -9,6 +9,7 @@ import { BATTLE_OVERLAYS, BattleOverlays } from './battle-debug';
 import { BabylonMascotMixer, type BabylonMascotInstance, MASCOT_CONFIGS } from './mascot/mascot-mixer';
 import { AXIE_CLASSES, STARTER_HEROES } from './heroes';
 import type { SandboxBattleEvent, SandboxBattleUnit } from './sandbox-battle';
+import { UNIT_LABEL_STYLE } from './unit-label-style';
 
 export type BattleBoardLayout = { hexGap: number; teamGap: number; columns: number; rowsPerTeam: number };
 export type SandboxTroopKind = 'soldier' | 'infantry' | 'archer';
@@ -66,16 +67,26 @@ export function createBattleBoardScene(
   const playerHealths = new SpriteManager('sandbox player health', healthSpritePath, 64, 8, scene);
   const enemyHealths = new SpriteManager('sandbox enemy health', healthSpritePath, 64, 8, scene);
 
+  // Selection and unit names are camera-facing sprites so they stay readable
+  // without adding another mesh to the battlefield.
+  const transparentSpriteUrl = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="2" height="2"%3E%3C/svg%3E';
+  const selectionSprites = new SpriteManager('selected unit sprites', transparentSpriteUrl, 1, 256, scene);
+  const selectionTexture = new DynamicTexture('selected unit sprite texture', { width: 256, height: 256 }, scene, true);
+  selectionTexture.hasAlpha = true;
+  selectionSprites.texture = selectionTexture;
+  const nameSprites = new SpriteManager('unit name sprites', transparentSpriteUrl, 1, 1024, scene);
+  const nameTexture = new DynamicTexture('unit name sprite texture', { width: 1024, height: 128 }, scene, true);
+  nameTexture.hasAlpha = true;
+  nameSprites.texture = nameTexture;
+  let selectionSprite: Sprite | null = null;
+  let nameSprite: Sprite | null = null;
+
   const projectileMaterial = new StandardMaterial('archer projectile', scene);
   projectileMaterial.diffuseColor = Color3.FromHexString('#ffd166');
   projectileMaterial.emissiveColor = Color3.FromHexString('#a86416');
   projectileMaterial.specularColor = Color3.Black();
   const projectiles: { mesh: ReturnType<typeof MeshBuilder.CreateSphere>; target: Vector3; speed: number }[] = [];
 
-  const selectionMaterial = new StandardMaterial('selection ring mat', scene);
-  selectionMaterial.diffuseColor = Color3.FromHexString('#ffe36c');
-  selectionMaterial.emissiveColor = Color3.FromHexString('#ffe36c').scale(0.6);
-  let selectionRingMesh: Mesh | null = null;
   const overlayMeshes: Mesh[] = [];
   const retreatBoundary = MeshBuilder.CreateDashedLines('retreat boundary', { points: [new Vector3(-24, 0.22, 0), new Vector3(24, 0.22, 0)], dashSize: 0.7, gapSize: 0.35 }, scene);
   retreatBoundary.color = Color3.FromHexString('#ffd166'); retreatBoundary.isPickable = false; retreatBoundary.setEnabled(false);
@@ -88,6 +99,41 @@ export function createBattleBoardScene(
     sprite.color = color; sprite.width = 1.9; sprite.height = 0.22; sprite.isPickable = false;
     return sprite;
   }
+
+  function drawSelectionSprite() {
+    const context = selectionTexture.getContext() as unknown as CanvasRenderingContext2D;
+    context.clearRect(0, 0, 256, 256);
+    context.strokeStyle = UNIT_LABEL_STYLE.markerColor;
+    context.lineWidth = 10;
+    context.shadowColor = 'rgba(255, 227, 108, 0.65)';
+    context.shadowBlur = 8;
+    context.beginPath();
+    context.arc(128, 128, 82, 0, Math.PI * 2);
+    context.stroke();
+    context.shadowBlur = 0;
+    selectionTexture.update();
+  }
+
+  function drawNameSprite(name: string) {
+    const context = nameTexture.getContext() as unknown as CanvasRenderingContext2D;
+    context.clearRect(0, 0, 1024, 128);
+    context.font = UNIT_LABEL_STYLE.font;
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    const textWidth = Math.min(940, Math.max(170, context.measureText(name).width + 54));
+    context.shadowColor = 'rgba(0, 0, 0, 0.75)';
+    context.shadowBlur = 6;
+    context.fillStyle = UNIT_LABEL_STYLE.textColor;
+    context.fillText(name, 512, 64, textWidth - 34);
+    context.shadowBlur = 0;
+    nameTexture.update();
+    if (nameSprite) {
+      nameSprite.width = Math.max(2.4, Math.min(5.8, textWidth / 170));
+      nameSprite.height = 0.58;
+    }
+  }
+
+  drawSelectionSprite();
 
   function rangeCone(parent: TransformNode, x: number, z: number, facing: number, radius: number, angle: number, color: string, name: string) {
     const half = angle * Math.PI / 360;
@@ -221,6 +267,8 @@ export function createBattleBoardScene(
   }
 
   function rebuild(layout: BattleBoardLayout, assignments: readonly BattleBoardAssignment[] = [], range?: BattleRangeSettings, showRange = false) {
+    if (selectionSprite) selectionSprite.isVisible = false;
+    if (nameSprite) nameSprite.isVisible = false;
     board?.dispose();
     board = new TransformNode('hex formation board', scene);
     unitNodes.forEach(node => node.avatar?.dispose());
@@ -289,6 +337,7 @@ export function createBattleBoardScene(
     overlayMeshes.length = 0;
     retreatBoundary.position.z = -battleRetreatBoundary(battle);
     retreatBoundary.setEnabled(battle.retreating && !battle.result);
+    let selectedVisible = false;
 
     for (const fighter of battle.fighters) {
       // Align Battle coordinate convention (player: -Z, enemy: +Z) with
@@ -327,13 +376,18 @@ export function createBattleBoardScene(
       record.root.setEnabled(fighter.hp > 0);
 
       if (fighter.id === selectedId && fighter.hp > 0) {
-        if (!selectionRingMesh) {
-          selectionRingMesh = MeshBuilder.CreateTorus('selected unit ring', { diameter: 2.2, thickness: 0.08, tessellation: 32 }, scene);
-          selectionRingMesh.material = selectionMaterial;
-          selectionRingMesh.isPickable = false;
-        }
-        selectionRingMesh.position.set(bx, 0.14, bz);
-        selectionRingMesh.setEnabled(true);
+        if (!selectionSprite) selectionSprite = new Sprite('selected unit marker', selectionSprites);
+        if (!nameSprite) nameSprite = new Sprite('selected unit name', nameSprites);
+        selectionSprite.position.set(bx, 0.16, bz);
+        selectionSprite.width = 2.35;
+        selectionSprite.height = 2.35;
+        selectionSprite.isPickable = false;
+        selectionSprite.isVisible = true;
+        nameSprite.position.set(bx, 2.78, bz);
+        nameSprite.isPickable = false;
+        drawNameSprite(fighter.name);
+        nameSprite.isVisible = true;
+        selectedVisible = true;
       }
 
       if (overlays && fighter.hp > 0) {
@@ -361,7 +415,10 @@ export function createBattleBoardScene(
       }
     }
 
-    if (!selectedId && selectionRingMesh) selectionRingMesh.setEnabled(false);
+    if (!selectedVisible) {
+      if (selectionSprite) selectionSprite.isVisible = false;
+      if (nameSprite) nameSprite.isVisible = false;
+    }
 
     if (battle.tick !== lastProcessedTick) {
       lastProcessedTick = battle.tick;
@@ -513,7 +570,12 @@ export function createBattleBoardScene(
       axieMixer.dispose();
       mascotMixer.dispose();
       projectiles.forEach(p => p.mesh.dispose());
-      selectionRingMesh?.dispose();
+      selectionSprite?.dispose();
+      nameSprite?.dispose();
+      selectionSprites.dispose();
+      nameSprites.dispose();
+      selectionTexture.dispose();
+      nameTexture.dispose();
       overlayMeshes.forEach(mesh => mesh.dispose());
       healthBackgrounds.dispose();
       playerHealths.dispose();

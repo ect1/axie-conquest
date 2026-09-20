@@ -1,4 +1,4 @@
-import { Scene, TransformNode, MeshBuilder, StandardMaterial, Color3, Vector3, LinesMesh, Mesh, DynamicTexture } from '@babylonjs/core';
+import { Scene, TransformNode, MeshBuilder, StandardMaterial, Color3, Vector3, LinesMesh, Mesh, DynamicTexture, Sprite, SpriteManager } from '@babylonjs/core';
 import { WorldUnit, unitPosition, settleUnit } from './units';
 import { STARTER_HEROES, AXIE_CLASSES } from './heroes';
 import { activeBattleSettings } from './battle-settings';
@@ -9,6 +9,7 @@ import { fighterWorldPosition } from './battle-world';
 import { createBattleAppearanceResolver } from './axie/battle-appearance';
 import { BabylonAxieMixer, type BabylonAxieInstance } from './axie/babylon-mixer';
 import type { Fighter } from './battle';
+import { drawUnitNameLabel, UNIT_LABEL_STYLE, UNIT_LABEL_TEXTURE_SIZE } from './unit-label-style';
 
 export function showMarches(
   scene: Scene,
@@ -27,6 +28,23 @@ export function showMarches(
   let disposed = false;
   const materials: StandardMaterial[] = [];
   const textures: DynamicTexture[] = [];
+  const spriteManagers: SpriteManager[] = [];
+  const selectionSprites = new SpriteManager('world selected unit sprites', '', Math.max(1, initialOrders.length), 256, scene);
+  const selectionTexture = new DynamicTexture('world selected unit texture', { width: 256, height: 256 }, scene, true);
+  selectionTexture.hasAlpha = true;
+  selectionSprites.texture = selectionTexture;
+  spriteManagers.push(selectionSprites);
+  textures.push(selectionTexture);
+  const selectionContext = selectionTexture.getContext() as unknown as CanvasRenderingContext2D;
+  selectionContext.clearRect(0, 0, 256, 256);
+  selectionContext.strokeStyle = UNIT_LABEL_STYLE.markerColor;
+  selectionContext.lineWidth = 10;
+  selectionContext.shadowColor = 'rgba(255, 227, 108, 0.65)';
+  selectionContext.shadowBlur = 8;
+  selectionContext.beginPath();
+  selectionContext.arc(128, 128, 82, 0, Math.PI * 2);
+  selectionContext.stroke();
+  selectionTexture.update();
   let lastSettings: typeof activeBattleSettings | null = null;
   function boundary(parent: TransformNode, x: number, z: number, radius: number, color: string) {
     const points = Array.from({ length: 97 }, (_, i) => new Vector3(x + Math.sin(i * Math.PI / 48) * radius, 0.24, z + Math.cos(i * Math.PI / 48) * radius));
@@ -84,11 +102,27 @@ export function showMarches(
         })();
       }
     });
-    const ring = MeshBuilder.CreateTorus('unit selection', { diameter: 7, thickness: 0.12, tessellation: 40 }, scene);
-    ring.parent = army; ring.position.y = 0.12; ring.isPickable = false;
-    const highlight = new StandardMaterial('selection gold', scene);
-    highlight.emissiveColor = Color3.FromHexString('#ffe17b'); materials.push(highlight); ring.material = highlight;
-    ring.setEnabled(order.id === (typeof selection === 'function' ? selection() : selection));
+    const selectionSprite = new Sprite(`world selection sprite ${order.id}`, selectionSprites);
+    selectionSprite.width = 2.35;
+    selectionSprite.height = 2.35;
+    selectionSprite.isPickable = false;
+    selectionSprite.isVisible = false;
+
+    const nameManager = new SpriteManager(`world unit name sprites ${order.id}`, '', 1, UNIT_LABEL_TEXTURE_SIZE, scene);
+    const nameTexture = new DynamicTexture(`world unit name texture ${order.id}`, UNIT_LABEL_TEXTURE_SIZE, scene, true);
+    nameTexture.hasAlpha = true;
+    nameManager.texture = nameTexture;
+    spriteManagers.push(nameManager);
+    textures.push(nameTexture);
+    const nameSprite = new Sprite(`world unit name ${order.id}`, nameManager);
+    nameSprite.invertV = true;
+    nameSprite.width = 3.2;
+    nameSprite.height = 1.05;
+    nameSprite.isPickable = false;
+    const nameContext = nameTexture.getContext() as unknown as CanvasRenderingContext2D;
+    const textWidth = drawUnitNameLabel(nameContext, order.name);
+    nameTexture.update();
+    nameSprite.width = Math.max(3.6, Math.min(6.4, textWidth / 80));
     const hitArea = MeshBuilder.CreateCylinder('unit touch target', { diameter: 6, height: 1.5, tessellation: 12 }, scene);
     hitArea.parent = army; hitArea.visibility = 0; hitArea.isPickable = true; hitArea.metadata = { unitId: order.id };
     // Preserve a visible connection to home after arrival.
@@ -224,9 +258,10 @@ export function showMarches(
       line,
       debug,
       targetLine,
-      ring,
       gatherBar: { root: gatherBarRoot, fill: gatherFill, fillMat, badge: badgePlane },
-      cargoSprite: { root: cargoRoot, plane: cargoPlane, texture: cargoTexture, lastKey: '' }
+      cargoSprite: { root: cargoRoot, plane: cargoPlane, texture: cargoTexture, lastKey: '' },
+      selectionSprite,
+      nameSprite
     }];
   });
 
@@ -292,7 +327,7 @@ export function showMarches(
     const currentOrders = getOrders();
     const focus = armies.find(({ order }) => order.id === selectedId && settleUnit(order, now).status !== 'home')?.order.id
       ?? armies.find(({ order }) => settleUnit(order, now).status !== 'home')?.order.id;
-    for (const { order, army, units, avatars, line, debug, targetLine, ring, gatherBar, cargoSprite } of armies) {
+    for (const { order, army, units, avatars, line, debug, targetLine, gatherBar, cargoSprite, selectionSprite, nameSprite } of armies) {
       const latest = currentOrders.find(u => u.id === order.id) ?? order;
       if (changed) {
         debug.getChildren().forEach(child => child.dispose());
@@ -313,7 +348,6 @@ export function showMarches(
         });
       }
       const current = settleUnit(latest, now);
-      ring.setEnabled(order.id === selectedId);
       const position = unitPosition(latest, now);
       const moving = !!current.order;
       const battleSession = battles().find(session => !session.battle.result && (session.armies ?? [session.army]).some(participant => participant.id === latest.id));
@@ -321,6 +355,10 @@ export function showMarches(
       army.setEnabled(isAlive);
       army.position.set(position.x, 0, position.z);
       line.setEnabled(isAlive);
+      selectionSprite.position.set(position.x, 0.16, position.z);
+      selectionSprite.isVisible = isAlive && order.id === selectedId;
+      nameSprite.position.set(position.x, 2.72, position.z);
+      nameSprite.isVisible = isAlive;
       const showDebug = isAlive && (activeBattleSettings.showAll || order.id === focus);
       debug.setEnabled(showDebug);
       targetLine.setEnabled(showDebug && activeBattleSettings.overlays.targets && !!current.order);
@@ -395,5 +433,6 @@ export function showMarches(
     root.dispose();
     materials.forEach(mat => mat.dispose());
     textures.forEach(tex => tex.dispose());
+    spriteManagers.forEach(manager => manager.dispose());
   };
 }

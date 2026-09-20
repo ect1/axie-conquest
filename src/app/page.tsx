@@ -72,7 +72,7 @@ import {
   setActiveGameOwner,
   normalizeOwnerAddress,
 } from '@/game/owner-address';
-import { resetGame } from '@/game/reset';
+import { resetGame, DEVELOPER_UNLOCKED_SESSION_KEY } from '@/game/reset';
 import PortalDialog from './portal-dialog';
 import {
   DEFAULT_PORTAL_CONFIG,
@@ -151,7 +151,14 @@ export default function Home() {
   const [nicknameDraft, setNicknameDraft] = useState('');
   const [training, setTraining] = useState(false);
   const [developer, setDeveloper] = useState(false);
-  const [developerUnlocked, setDeveloperUnlocked] = useState(false);
+  const [developerUnlocked, setDeveloperUnlocked] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    try {
+      return window.sessionStorage.getItem(DEVELOPER_UNLOCKED_SESSION_KEY) === 'true';
+    } catch {
+      return false;
+    }
+  });
   const developerTapRef = useRef({ count: 0, lastTapAt: 0 });
   const [generation, setGeneration] = useState<GenerationSettings>(() => getActiveGenerationSettings() as GenerationSettings);
   const [worldObjects, setWorldObjects] = useState<WorldObject[]>([]);
@@ -211,6 +218,9 @@ export default function Home() {
     if (count >= DEVELOPER_TAP_COUNT) {
       setDeveloperUnlocked(true);
       setDeveloper(true);
+      try {
+        window.sessionStorage.setItem(DEVELOPER_UNLOCKED_SESSION_KEY, 'true');
+      } catch { /* ignore */ }
       setMessage('Developer tools unlocked! Developer controls are now active.');
       developerTapRef.current = { count: 0, lastTapAt: 0 };
     } else if (count >= 2) {
@@ -437,6 +447,7 @@ export default function Home() {
     try {
       window.localStorage.removeItem(CITY_HEALTH_SAVE_KEY);
       window.localStorage.removeItem(UNITS_PRODUCED_SAVE_KEY);
+      window.sessionStorage.removeItem(DEVELOPER_UNLOCKED_SESSION_KEY);
     } catch { /* ignore */ }
     setCityHealthState(destructionConfig.maxHealth);
     setUnitsProduced(0);
@@ -2022,8 +2033,7 @@ export default function Home() {
                 type="button"
                 className="game-version"
                 onClick={handleVersionTap}
-                aria-label={`Game version ${GAME_VERSION}. Tap five times to unlock developer tools.`}
-                title="Game version"
+                aria-label={`Version ${GAME_VERSION}`}
               >
                 v{GAME_VERSION}
               </button>
@@ -2833,6 +2843,9 @@ export default function Home() {
         setDeveloperUnlocked(false);
         setDeveloper(false);
         setBattleDebug(false);
+        try {
+          window.sessionStorage.removeItem(DEVELOPER_UNLOCKED_SESSION_KEY);
+        } catch { /* ignore */ }
         setMessage('Developer tools and actions hidden. Tap version 5 times in-game to unlock.');
       }}
       onClose={() => setDeveloper(false)}

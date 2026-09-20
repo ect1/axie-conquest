@@ -15,6 +15,8 @@ import { TRAINING_QUEUE_SAVE_KEY } from './training-queue';
 import { CITY_HEALTH_SAVE_KEY, UNITS_PRODUCED_SAVE_KEY, resetCityDefense } from './city-defense';
 import { CITY_REPAIR_SAVE_KEY, resetCityRepair } from './repair-service';
 
+export const DEVELOPER_UNLOCKED_SESSION_KEY = 'axie-conquest-developer-unlocked';
+
 export type ResettableModule = {
   id: string;
   storageKeys: readonly string[];
@@ -44,6 +46,15 @@ export const RESETTABLE_MODULES: readonly ResettableModule[] = [
   { id: 'training-queue', storageKeys: [TRAINING_QUEUE_SAVE_KEY] },
   { id: 'city-defense', storageKeys: [CITY_HEALTH_SAVE_KEY, UNITS_PRODUCED_SAVE_KEY], reset: () => resetCityDefense() },
   { id: 'city-repair', storageKeys: [CITY_REPAIR_SAVE_KEY], matchesStorageKey: key => /^axie-conquest-city-.+-repair-v1$/.test(key), reset: () => resetCityRepair() },
+  {
+    id: 'developer',
+    storageKeys: [DEVELOPER_UNLOCKED_SESSION_KEY],
+    reset: () => {
+      if (typeof window !== 'undefined' && typeof window.sessionStorage !== 'undefined') {
+        try { window.sessionStorage.removeItem(DEVELOPER_UNLOCKED_SESSION_KEY); } catch { /* ignore */ }
+      }
+    },
+  },
 ];
 
 type ResetStorage = Pick<Storage, 'length' | 'key' | 'removeItem'>;

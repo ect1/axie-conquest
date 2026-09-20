@@ -11,7 +11,7 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 .game { --edge-left: max(10px, env(safe-area-inset-left)); --edge-right: max(10px, env(safe-area-inset-right)); --top: max(10px, env(safe-area-inset-top)); --bottom: max(10px, env(safe-area-inset-bottom)); height: 100dvh; position: relative; overflow: hidden; }
 canvas { width: 100%; height: 100%; display: block; touch-action: none; outline: none; }
 .topbar { position: absolute; top: var(--top); left: var(--edge-left); right: var(--edge-right); display: flex; justify-content: space-between; gap: 6px; pointer-events: none; }
-.identity, .resources { background: #fffaf0ed; border: 1px solid #ffffffab; border-radius: 12px; box-shadow: 0 4px 16px #294b3820; display: flex; align-items: center; padding: 7px 9px; gap: 7px; }
+.identity, .resources { background: #fffaf0ed; border: 1px solid #ffffffab; border-radius: 12px; box-shadow: 0 4px 16px #294b3820; display: flex; align-items: center; padding: 7px 9px; gap: 7px; pointer-events: auto; }
 .identity { min-width: 0; }
 .identity > div:last-child { min-width: 0; }
 .crest { background: #315c47; color: #f4d991; width: 30px; height: 30px; flex-shrink: 0; display: grid; place-items: center; font-size: 23px; border-radius: 9px; }
@@ -20,8 +20,9 @@ canvas { width: 100%; height: 100%; display: block; touch-action: none; outline:
 .identity strong { display: block; font: bold 14px Georgia, serif; margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 small { display: block; font-size: 11px; color: #7d887d; }
 .identity small { display: none; }
-.game-version { display: inline-block; margin-left: 6px; padding: 3px 6px; border: 1px solid #cbd5c5; border-radius: 6px; background: #f1f5ee; color: #617260; font: 600 10px/1 system-ui, sans-serif; cursor: pointer; white-space: nowrap; user-select: none; flex-shrink: 0; }
-.game-version:hover, .game-version:focus-visible { color: #1e3a2b; border-color: #315f44; background: #e5ece0; text-decoration: none; }
+.game-version { display: inline-block; margin-left: 0; padding: 2px 4px; border: 0; border-radius: 4px; background: transparent; color: #7d887d; font: 500 10px/1 system-ui, sans-serif; cursor: default; white-space: nowrap; user-select: none; flex-shrink: 0; pointer-events: auto; }
+.game-version:hover, .game-version:active { filter: none; transform: none; background: transparent; color: #7d887d; }
+.game-version:focus-visible { outline: none; }
 .resource-version { border-left: 1px solid #d5d8c8; padding-left: 7px; }
 .resource-version .game-version { margin-left: 0; }
 .resources { gap: 10px; flex-shrink: 0; }

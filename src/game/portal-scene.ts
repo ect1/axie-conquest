@@ -519,7 +519,7 @@ export class PortalSceneManager {
     touchTarget.metadata = { unitId: march.id, isEnemy: true };
 
     // 3D Billboard Sprite on top of units' heads displaying live ETA
-    const texture = new DynamicTexture(`march-bb-tex-${march.id}`, { width: 340, height: 120 }, this.scene, true);
+    const texture = new DynamicTexture(`march-bb-tex-${march.id}`, { width: 420, height: 156 }, this.scene, true);
     texture.hasAlpha = true;
 
     const bbMat = new StandardMaterial(`march-bb-mat-${march.id}`, this.scene);
@@ -529,7 +529,7 @@ export class PortalSceneManager {
     bbMat.useAlphaFromDiffuseTexture = true;
     this.sharedMaterials.push(bbMat);
 
-    const billboardMesh = MeshBuilder.CreatePlane(`march-bb-plane-${march.id}`, { width: 3.4, height: 1.2 }, this.scene);
+    const billboardMesh = MeshBuilder.CreatePlane(`march-bb-plane-${march.id}`, { width: 4.2, height: 1.56 }, this.scene);
     billboardMesh.parent = root;
     billboardMesh.position.y = 2.4; // directly on top of the units' heads
     billboardMesh.billboardMode = Mesh.BILLBOARDMODE_ALL;
@@ -580,13 +580,13 @@ export class PortalSceneManager {
     const isArrived = now >= march.arrivesAt || march.status === 'arrived';
     const remainingMs = Math.max(0, march.arrivesAt - now);
     const etaDuration = formatDuration(remainingMs);
-    const stateKey = `${march.level}-${isFighting ? 'fighting' : isArrived ? 'arrived' : etaDuration}`;
+    const stateKey = `${march.name}-${march.level}-${isFighting ? 'fighting' : isArrived ? 'arrived' : etaDuration}`;
     if (node.lastDrawnText === stateKey) return;
     node.lastDrawnText = stateKey;
 
     const ctx = node.texture.getContext() as unknown as CanvasRenderingContext2D;
-    const w = 340;
-    const h = 120;
+    const w = 420;
+    const h = 156;
     ctx.clearRect(0, 0, w, h);
 
     // Dark crimson pill background with red neon border
@@ -598,42 +598,49 @@ export class PortalSceneManager {
     ctx.lineWidth = 3;
     ctx.stroke();
 
+    // Keep the spawned mob group's identity visible above its live status.
+    ctx.font = 'bold 22px Arial, Helvetica, sans-serif';
+    ctx.fillStyle = '#fecaca';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(march.name.toUpperCase(), w / 2, 29, w - 34);
+
     if (isFighting) {
       // Primary text: In Battle Status
       ctx.font = 'bold 28px Arial, Helvetica, sans-serif';
       ctx.fillStyle = '#fee2e2';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText(`⚔️ IN BATTLE`, w / 2, 42);
+      ctx.fillText(`⚔️ IN BATTLE`, w / 2, 73);
 
       // Subtitle: Engaged forces count
       ctx.font = 'bold 20px Arial, Helvetica, sans-serif';
       ctx.fillStyle = '#fca5a5';
-      ctx.fillText(`ENGAGED · ${march.formation.totalMobs} MOBS`, w / 2, 84);
+      ctx.fillText(`ENGAGED · ${march.formation.totalMobs} MOBS`, w / 2, 119);
     } else if (isArrived) {
       // Primary text: Outside City Status
       ctx.font = 'bold 28px Arial, Helvetica, sans-serif';
       ctx.fillStyle = '#fee2e2';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText(`⚔️ OUTSIDE CITY`, w / 2, 42);
+      ctx.fillText(`⚔️ OUTSIDE CITY`, w / 2, 73);
 
       // Subtitle: Standby forces count
       ctx.font = 'bold 20px Arial, Helvetica, sans-serif';
       ctx.fillStyle = '#fca5a5';
-      ctx.fillText(`STANDBY · ${march.formation.totalMobs} MOBS`, w / 2, 84);
+      ctx.fillText(`STANDBY · ${march.formation.totalMobs} MOBS`, w / 2, 119);
     } else {
       // Primary text: Live ETA
       ctx.font = 'bold 30px Arial, Helvetica, sans-serif';
       ctx.fillStyle = '#fef2f2';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText(`⏱️ ETA: ${etaDuration}`, w / 2, 42);
+      ctx.fillText(`⏱️ ETA: ${etaDuration}`, w / 2, 73);
 
       // Subtitle: Wave level & mobs
       ctx.font = 'bold 20px Arial, Helvetica, sans-serif';
       ctx.fillStyle = '#f87171';
-      ctx.fillText(`WAVE ${march.level} · ${march.formation.totalMobs} MOBS`, w / 2, 84);
+      ctx.fillText(`WAVE ${march.level} · ${march.formation.totalMobs} MOBS`, w / 2, 119);
     }
 
     node.texture.update();
